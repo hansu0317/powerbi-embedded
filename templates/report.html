@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Power BI 보고서 뷰어</title>
+  <script src="https://cdn.jsdelivr.net/npm/powerbi-client@2.23.1/dist/powerbi.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; height: 100vh; background: #f0f2f5; }
+
+    header {
+      background: #0078d4;
+      color: white;
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    .user-info { display: flex; align-items: center; gap: 12px; font-size: 0.85rem; }
+    .logout-btn {
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.35);
+      color: white;
+      padding: 5px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .logout-btn:hover { background: rgba(255,255,255,0.3); }
+
+    .layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* 사이드바 */
+    .sidebar {
+      width: 200px;
+      background: #1e1e2e;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .sidebar-title {
+      padding: 18px 16px 10px;
+      font-size: 0.70rem;
+      font-weight: 600;
+      color: #666;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .sidebar-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 16px;
+      color: #ccc;
+      font-size: 0.88rem;
+      border-left: 3px solid transparent;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+      user-select: none;
+    }
+    .sidebar-item:hover { background: rgba(255,255,255,0.07); color: white; }
+    .sidebar-item.active {
+      background: rgba(0,120,212,0.22);
+      color: #60b4ff;
+      border-left-color: #0078d4;
+    }
+
+    /* 관리자 트리 그룹 */
+    .sidebar-group-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px 6px;
+      font-size: 0.70rem;
+      font-weight: 600;
+      color: #888;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.12s;
+    }
+    .sidebar-group-header:hover { color: #bbb; }
+    .sidebar-group-arrow {
+      font-size: 0.6rem;
+      transition: transform 0.2s;
+      display: inline-block;
+    }
+    .sidebar-group.collapsed .sidebar-group-arrow { transform: rotate(-90deg); }
+    .sidebar-group.collapsed .sidebar-group-body { display: none; }
+    .sidebar-group-body .sidebar-item {
+      padding-left: 28px;
+    }
+
+    /* 업로드 영역 (사이드바 하단) */
+    .sidebar-upload {
+      margin-top: auto;
+      padding: 14px 16px 18px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .upload-btn {
+      width: 100%;
+      background: rgba(0,120,212,0.25);
+      border: 1px dashed rgba(96,180,255,0.5);
+      color: #60b4ff;
+      padding: 9px 0;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      transition: background 0.15s;
+    }
+    .upload-btn:hover { background: rgba(0,120,212,0.4); }
+    .upload-btn:disabled { opacity: 0.5; cursor: wait; }
+    .upload-status {
+      margin-top: 8px;
+      font-size: 0.74rem;
+      line-height: 1.4;
+      color: #999;
+      word-break: break-all;
+    }
+    .upload-status.ok { color: #6fcf97; }
+    .upload-status.err { color: #ff8a8a; }
+
+    /* 오른쪽 콘텐츠 */
+    .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* 탭 바 */
+    .tabs-bar {
+      display: flex;
+      align-items: stretch;
+      background: white;
+      border-top: 1px solid #e0e0e0;
+      overflow-x: auto;
+      flex-shrink: 0;
+      height: 40px;
+    }
+    .tabs-bar::-webkit-scrollbar { height: 3px; }
+    .tabs-bar::-webkit-scrollbar-thumb { background: #ccc; }
+
+    .no-tabs-hint {
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      color: #bbb;
+      font-size: 0.82rem;
+    }
+
+    .tab {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 6px 0 14px;
+      height: 100%;
+      font-size: 0.84rem;
+      color: #666;
+      cursor: pointer;
+      border-right: 1px solid #ebebeb;
+      white-space: nowrap;
+      transition: background 0.12s;
+      min-width: 110px;
+    }
+    .tab:hover { background: #f7f7f7; }
+    .tab.active {
+      color: #0078d4;
+      background: #f0f7ff;
+      border-top: 2px solid #0078d4;
+      font-weight: 500;
+    }
+    .tab-label { flex: 1; }
+    .tab .close-btn {
+      background: none;
+      border: none;
+      color: inherit;
+      cursor: pointer;
+      font-size: 1.05rem;
+      padding: 0 4px;
+      line-height: 1;
+      opacity: 0.5;
+      border-radius: 3px;
+    }
+    .tab .close-btn:hover { opacity: 1; background: rgba(0,0,0,0.08); }
+
+    /* 탭 패널 */
+    .tab-panels { flex: 1; position: relative; overflow: hidden; }
+
+    .tab-panel {
+      position: absolute;
+      inset: 0;
+      display: none;
+    }
+    .tab-panel.active { display: flex; flex-direction: column; }
+
+    .panel-loading {
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0.92);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      color: #0078d4;
+      z-index: 10;
+    }
+    .panel-error {
+      margin: 40px;
+      background: #fff3f3;
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      padding: 20px;
+      color: #b91c1c;
+      font-size: 0.88rem;
+    }
+    .report-embed { flex: 1; width: 100%; }
+
+    /* 빈 상태 */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .empty-icon { font-size: 3.5rem; }
+    .empty-state h2 { font-size: 1rem; color: #777; font-weight: 500; }
+    .empty-state p { font-size: 0.82rem; color: #bbb; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Power BI 보고서 뷰어</h1>
+    <div class="user-info">
+      <span>{{ user.display_name }}</span>
+      <a href="/logout" class="logout-btn">로그아웃</a>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar">
+      {% if user.is_admin %}
+        {# 관리자: 공용 / 개인(사용자별 그룹) 트리 구조 #}
+        {% set managed = reports | selectattr('report_type', 'equalto', 'managed') | list %}
+        {% set personal = reports | selectattr('report_type', 'equalto', 'personal') | list %}
+
+        {% if managed %}
+        <div class="sidebar-group" id="group-managed">
+          <div class="sidebar-group-header" onclick="toggleGroup('group-managed')">
+            <span class="sidebar-group-arrow">▼</span> 공용 보고서
+          </div>
+          <div class="sidebar-group-body">
+            {% for report in managed %}
+            <div class="sidebar-item" data-report-id="{{ report['id'] }}" onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
+              <span>📊</span>{{ report['name'] }}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if personal %}
+        <div class="sidebar-group" id="group-personal">
+          <div class="sidebar-group-header" onclick="toggleGroup('group-personal')">
+            <span class="sidebar-group-arrow">▼</span> 개인 보고서
+          </div>
+          <div class="sidebar-group-body">
+            {% set ns = namespace(cur_owner='') %}
+            {% for report in personal | sort(attribute='owner_username') %}
+              {% if report['owner_username'] != ns.cur_owner %}
+                {% set ns.cur_owner = report['owner_username'] %}
+                {% set owner_group_id = 'owner-' ~ report['owner_username'] %}
+                <div class="sidebar-group" id="{{ owner_group_id }}" style="margin-left:0">
+                  <div class="sidebar-group-header" style="padding-left:28px; font-size:0.68rem" onclick="toggleGroup('{{ owner_group_id }}')">
+                    <span class="sidebar-group-arrow">▼</span> {{ report['owner_username'] }}
+                  </div>
+                  <div class="sidebar-group-body">
+              {% endif %}
+              <div class="sidebar-item" style="padding-left:44px" data-report-id="{{ report['id'] }}" onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
+                <span>📁</span>{{ report['name'] }}
+              </div>
+              {% if loop.last or (loop.nextitem is defined and loop.nextitem['owner_username'] != report['owner_username']) %}
+                  </div>{# sidebar-group-body #}
+                </div>{# owner group #}
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+      {% else %}
+        {# 일반 사용자: 단순 목록 #}
+        <div class="sidebar-title">보고서</div>
+        {% for report in reports %}
+        <div class="sidebar-item" data-report-id="{{ report['id'] }}" onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
+          <span>📊</span>{{ report['name'] }}
+        </div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="sidebar-upload">
+        <input type="file" id="pbix-file" accept=".pbix" hidden>
+        <button class="upload-btn" id="upload-btn" onclick="document.getElementById('pbix-file').click()">⬆ 내 보고서 올리기 (.pbix)</button>
+        <div class="upload-status" id="upload-status">파일명이 보고서 이름이 됩니다</div>
+      </div>
+    </nav>
+
+    <div class="content">
+      <div class="tab-panels" id="tab-panels">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon">📊</div>
+          <h2>왼쪽에서 보고서를 선택하세요</h2>
+          <p>여러 보고서를 탭으로 동시에 열 수 있습니다</p>
+        </div>
+      </div>
+      <div class="tabs-bar" id="tabs-bar">
+        <div class="no-tabs-hint" id="no-tabs-hint">← 보고서를 선택하세요</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const pbi = new window['powerbi-client'].service.Service(
+      window['powerbi-client'].factories.hpmFactory,
+      window['powerbi-client'].factories.wpmpFactory,
+      window['powerbi-client'].factories.routerFactory
+    );
+
+    // name -> { tabEl, panelEl }
+    const openTabs = {};
+    let activeTab = null;
+
+    const csrfToken = {{ csrf_token|tojson }};
+
+    function toggleGroup(id) {
+      document.getElementById(id).classList.toggle('collapsed');
+    }
+
+    function openReport(reportId, name) {
+      if (openTabs[reportId]) {
+        switchTab(reportId);
+        return;
+      }
+      createTab(reportId, name);
+      fetchAndEmbed(reportId, name);
+    }
+
+    function createTab(reportId, name) {
+      // 탭 버튼
+      const tab = document.createElement('div');
+      tab.className = 'tab';
+      tab.dataset.reportId = reportId;
+      const tabIcon = document.createElement('span');
+      tabIcon.textContent = '📊';
+      const tabLabel = document.createElement('span');
+      tabLabel.className = 'tab-label';
+      tabLabel.textContent = name;
+      const closeButton = document.createElement('button');
+      closeButton.className = 'close-btn';
+      closeButton.title = '닫기';
+      closeButton.textContent = '×';
+      tab.append(tabIcon, tabLabel, closeButton);
+      tabLabel.onclick = () => switchTab(reportId);
+      closeButton.onclick = (e) => { e.stopPropagation(); closeTab(reportId); };
+      tab.onclick = () => switchTab(reportId);
+      document.getElementById('tabs-bar').appendChild(tab);
+
+      // 패널
+      const panel = document.createElement('div');
+      panel.className = 'tab-panel';
+      panel.id = `panel-${reportId}`;
+      panel.innerHTML = `
+        <div class="panel-loading" id="loading-${reportId}">보고서 불러오는 중...</div>
+        <div class="report-embed" id="embed-${reportId}"></div>
+      `;
+      document.getElementById('tab-panels').appendChild(panel);
+
+      openTabs[reportId] = { tabEl: tab, panelEl: panel };
+
+      document.getElementById('no-tabs-hint').style.display = 'none';
+      document.getElementById('empty-state').style.display = 'none';
+
+      switchTab(reportId);
+    }
+
+    function switchTab(reportId) {
+      if (!openTabs[reportId]) return;
+
+      // 이전 탭 비활성화
+      if (activeTab && openTabs[activeTab]) {
+        openTabs[activeTab].tabEl.classList.remove('active');
+        openTabs[activeTab].panelEl.classList.remove('active');
+      }
+
+      openTabs[reportId].tabEl.classList.add('active');
+      openTabs[reportId].panelEl.classList.add('active');
+      activeTab = reportId;
+      updateSidebarActive(reportId);
+
+      // 탭이 화면에 보이도록 스크롤
+      openTabs[reportId].tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+
+    function closeTab(reportId) {
+      if (!openTabs[reportId]) return;
+
+      const embedEl = document.getElementById(`embed-${reportId}`);
+      if (embedEl) pbi.reset(embedEl);
+
+      openTabs[reportId].tabEl.remove();
+      openTabs[reportId].panelEl.remove();
+      delete openTabs[reportId];
+
+      const remaining = Object.keys(openTabs);
+      if (remaining.length > 0) {
+        // 닫힌 탭 오른쪽 탭 또는 마지막 탭으로
+        switchTab(remaining[remaining.length - 1]);
+      } else {
+        activeTab = null;
+        document.getElementById('no-tabs-hint').style.display = '';
+        document.getElementById('empty-state').style.display = '';
+        updateSidebarActive(null);
+      }
+    }
+
+    async function fetchAndEmbed(reportId, name) {
+      try {
+        const res = await fetch(`/api/embed/${reportId}`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(err.detail || '알 수 없는 오류');
+        }
+        const data = await res.json();
+        embedReport(reportId, data);
+      } catch (e) {
+        const panel = openTabs[reportId]?.panelEl;
+        if (panel) {
+          panel.innerHTML = `<div class="panel-error">보고서 로드 실패: ${e.message}</div>`;
+        }
+      }
+    }
+
+    function embedReport(reportId, data) {
+      const container = document.getElementById(`embed-${reportId}`);
+      const loading = document.getElementById(`loading-${reportId}`);
+      if (!container) return;
+
+      const reportSettings = data.settings || {};
+      const config = {
+        type: 'report',
+        id: data.report_id,
+        embedUrl: data.embed_url,
+        accessToken: data.embed_token,
+        tokenType: window['powerbi-client'].models.TokenType.Embed,
+        settings: {
+          navContentPaneEnabled: Boolean(reportSettings.enable_page_nav),
+          filterPaneEnabled: Boolean(reportSettings.enable_filter),
+          panes: {
+            pageNavigation: { visible: Boolean(reportSettings.enable_page_nav) },
+            filters: { visible: Boolean(reportSettings.enable_filter), expanded: false },
+          },
+        }
+      };
+      if (reportSettings.default_page) config.pageName = reportSettings.default_page;
+      const report = pbi.embed(container, config);
+
+      report.on('loaded', () => { if (loading) loading.style.display = 'none'; });
+      report.on('error', (e) => {
+        if (loading) loading.style.display = 'none';
+        if (container) container.innerHTML = `<div class="panel-error">오류: ${JSON.stringify(e.detail)}</div>`;
+      });
+    }
+
+    function updateSidebarActive(activeReportId) {
+      document.querySelectorAll('.sidebar-item').forEach(el => {
+        el.classList.toggle('active', Number(el.dataset.reportId) === Number(activeReportId));
+      });
+    }
+
+    // ── .pbix 업로드 ──
+    document.getElementById('pbix-file').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      e.target.value = '';  // 같은 파일 재선택 허용
+
+      const btn = document.getElementById('upload-btn');
+      const status = document.getElementById('upload-status');
+      btn.disabled = true;
+      status.className = 'upload-status';
+      status.textContent = `'${file.name}' 게시 중... (보통 30초~2분)`;
+
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: fd,
+          headers: { 'X-CSRF-Token': csrfToken },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+
+        status.className = 'upload-status ok';
+        status.textContent = `'${data.report_name}' 게시 완료! 목록을 새로고침합니다...`;
+        setTimeout(() => location.reload(), 1500);
+      } catch (err) {
+        status.className = 'upload-status err';
+        status.textContent = `업로드 실패: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

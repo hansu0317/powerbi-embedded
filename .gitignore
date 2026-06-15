@@ -1,0 +1,20 @@
+# 환경 설정 (비밀 키, DB 비밀번호 등 — 절대 커밋 금지)
+.env
+
+# Claude Code 내부 설정 파일 (git 제외)
+CLAUDE.md
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+token_cache.json
+
+# 서버 런타임 파일
+.server.pid
+logs/
+
+# 가상환경
+venv/
+.venv/
+env/

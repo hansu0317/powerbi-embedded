@@ -1,0 +1,1459 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Power BI 게이트웨이 - 기술 문서</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f5f6fa; color: #1a1a2e; }
+
+    header {
+      background: linear-gradient(135deg, #0078d4, #005a9e);
+      color: white;
+      padding: 36px 40px;
+    }
+    header h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 6px; }
+    header p  { font-size: 0.88rem; opacity: 0.85; }
+
+    /* TOC */
+    .toc {
+      background: white;
+      border-left: 4px solid #0078d4;
+      border-radius: 0 8px 8px 0;
+      padding: 18px 24px;
+      margin-bottom: 28px;
+      font-size: 0.85rem;
+    }
+    .toc-title { font-weight: 700; color: #0078d4; margin-bottom: 10px; }
+    .toc ol { padding-left: 20px; }
+    .toc li { padding: 3px 0; }
+    .toc a { color: #444; text-decoration: none; }
+    .toc a:hover { color: #0078d4; }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 36px 20px 80px; }
+
+    .section {
+      background: white;
+      border-radius: 12px;
+      padding: 28px 32px;
+      margin-bottom: 28px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+    }
+    .section-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #0078d4;
+      margin-bottom: 18px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e8f0fe;
+    }
+    h3 { font-size: 0.92rem; font-weight: 700; color: #333; margin: 20px 0 10px; }
+
+    /* 배지 */
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.73rem; font-weight: 700; }
+    .badge-ok   { background: #dcfce7; color: #15803d; }
+    .badge-warn { background: #fef9c3; color: #854d0e; }
+    .badge-red  { background: #fee2e2; color: #b91c1c; }
+    .badge-blue { background: #dbeafe; color: #1d4ed8; }
+
+    /* 아키텍처 흐름 */
+    .arch {
+      display: flex;
+      align-items: stretch;
+      flex-wrap: wrap;
+      gap: 0;
+      padding: 10px 0;
+    }
+    .arch-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .arch-box {
+      background: #f0f7ff;
+      border: 2px solid #0078d4;
+      border-radius: 10px;
+      padding: 14px 12px;
+      text-align: center;
+      width: 120px;
+      min-height: 80px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .arch-box.db   { background: #fff7ed; border-color: #f97316; }
+    .arch-box.azure{ background: #f0fdf4; border-color: #22c55e; }
+    .arch-box.pbi  { background: #fdf4ff; border-color: #a855f7; }
+    .arch-box .icon  { font-size: 1.5rem; margin-bottom: 5px; }
+    .arch-box .label { font-size: 0.73rem; font-weight: 700; color: #333; line-height: 1.4; }
+    .arch-box .sub   { font-size: 0.62rem; color: #888; margin-top: 3px; }
+    .arch-arrow {
+      padding: 0 8px;
+      color: #0078d4;
+      font-size: 1.4rem;
+      align-self: center;
+    }
+    .arch-label {
+      font-size: 0.63rem;
+      color: #666;
+      margin-top: 6px;
+      text-align: center;
+      max-width: 120px;
+    }
+
+    /* 단계별 흐름 */
+    .flow-steps { counter-reset: step; }
+    .flow-step {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 14px;
+      align-items: flex-start;
+    }
+    .flow-step::before {
+      counter-increment: step;
+      content: counter(step);
+      background: #0078d4;
+      color: white;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .flow-step-body { flex: 1; }
+    .flow-step-title { font-size: 0.88rem; font-weight: 700; margin-bottom: 4px; }
+    .flow-step-desc  { font-size: 0.82rem; color: #555; line-height: 1.6; }
+
+    /* 테이블 */
+    .info-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    .info-table th { background: #0078d4; color: white; padding: 10px 14px; text-align: left; font-size: 0.83rem; }
+    .info-table th:first-child { border-radius: 8px 0 0 0; }
+    .info-table th:last-child  { border-radius: 0 8px 0 0; }
+    .info-table td { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+    .info-table tr:last-child td { border-bottom: none; }
+    .info-table tr:nth-child(even) td { background: #fafafa; }
+    code { background: #f0f4ff; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; color: #0055bb; font-family: 'Consolas', monospace; }
+
+    /* 코드 블록 */
+    .code-block {
+      background: #1e1e2e;
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-family: 'Consolas', monospace;
+      font-size: 0.81rem;
+      color: #cdd6f4;
+      line-height: 1.8;
+      overflow-x: auto;
+      margin: 12px 0;
+    }
+    .code-block .cm  { color: #6c7086; }
+    .code-block .kw  { color: #cba6f7; }
+    .code-block .fn  { color: #89b4fa; }
+    .code-block .st  { color: #a6e3a1; }
+    .code-block .hl  { color: #f9e2af; }
+    .code-block .cmd { color: #a6e3a1; }
+
+    /* DB 다이어그램 */
+    .db-diagram { display: flex; gap: 20px; flex-wrap: wrap; margin: 12px 0; }
+    .db-table {
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 0.8rem;
+      min-width: 200px;
+    }
+    .db-table-header {
+      background: #0078d4;
+      color: white;
+      padding: 8px 14px;
+      font-weight: 700;
+      font-size: 0.82rem;
+    }
+    .db-table-header.orange { background: #f97316; }
+    .db-table-header.purple { background: #a855f7; }
+    .db-row {
+      display: flex;
+      padding: 7px 14px;
+      border-bottom: 1px solid #f0f0f0;
+      gap: 10px;
+    }
+    .db-row:last-child { border-bottom: none; }
+    .db-row:nth-child(even) { background: #fafafa; }
+    .db-col-name  { font-weight: 600; color: #333; min-width: 100px; }
+    .db-col-type  { color: #888; font-size: 0.75rem; }
+    .db-pk { color: #f97316; font-size: 0.68rem; font-weight: 700; margin-left: 4px; }
+    .db-fk { color: #a855f7; font-size: 0.68rem; font-weight: 700; margin-left: 4px; }
+
+    /* 박스들 */
+    .info-box {
+      background: #f0f7ff;
+      border: 1px solid #93c5fd;
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 0.84rem;
+      color: #1e40af;
+      line-height: 1.7;
+      margin: 12px 0;
+    }
+    .warn-box {
+      background: #fffbeb;
+      border: 1px solid #f59e0b;
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 0.84rem;
+      color: #78350f;
+      line-height: 1.7;
+      margin: 12px 0;
+    }
+    .danger-box {
+      background: #fff1f2;
+      border: 1px solid #fda4af;
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 0.84rem;
+      color: #9f1239;
+      line-height: 1.7;
+      margin: 12px 0;
+    }
+    .success-box {
+      background: #f0fdf4;
+      border: 1px solid #86efac;
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 0.84rem;
+      color: #14532d;
+      line-height: 1.7;
+      margin: 12px 0;
+    }
+
+    /* 비용 */
+    .cost-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .cost-card { border-radius: 10px; padding: 20px; border: 2px solid #e0e0e0; }
+    .cost-card.current { border-color: #0078d4; background: #f0f7ff; }
+    .cost-card .cost-label { font-size: 0.7rem; font-weight: 700; color: #888; margin-bottom: 6px; text-transform: uppercase; }
+    .cost-card .cost-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 6px; }
+    .cost-card .cost-price { font-size: 1.3rem; font-weight: 800; color: #0078d4; margin-bottom: 8px; }
+    .cost-card .cost-desc  { font-size: 0.8rem; color: #666; line-height: 1.6; }
+
+    .checklist { list-style: none; }
+    .checklist li { padding: 9px 0; border-bottom: 1px solid #f0f0f0; display: flex; align-items: flex-start; gap: 10px; font-size: 0.86rem; color: #444; }
+    .checklist li:last-child { border-bottom: none; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+    footer { text-align: center; padding: 24px; font-size: 0.78rem; color: #bbb; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ Power BI 게이트웨이 기술 문서</h1>
+  <p>사내 Power BI 임베드 시스템 · 전체 아키텍처 · 코드 설명 · 운영 가이드</p>
+</header>
+
+<div class="container">
+
+  <!-- 목차 -->
+  <div class="toc">
+    <div class="toc-title">📋 목차</div>
+    <ol>
+      <li><a href="#overview">프로젝트 개요</a></li>
+      <li><a href="#arch">시스템 아키텍처</a></li>
+      <li><a href="#flow">전체 동작 흐름 (단계별)</a></li>
+      <li><a href="#db">데이터베이스 구조</a></li>
+      <li><a href="#code">코드 설명 — main.py</a></li>
+      <li><a href="#frontend">코드 설명 — 프론트엔드 (report.html)</a></li>
+      <li><a href="#api">API 엔드포인트</a></li>
+      <li><a href="#rls">RLS (행 수준 보안) 구조</a></li>
+      <li><a href="#ops">서버 운영 (server.sh)</a></li>
+      <li><a href="#publish">보고서 게시 (.pbix 업로드)</a></li>
+      <li><a href="#packages">의존 패키지 설명 (requirements.txt)</a></li>
+      <li><a href="#env-config">환경 설정 (.env 구조)</a></li>
+      <li><a href="#user-mgmt">사용자 관리</a></li>
+      <li><a href="#security">보안 현황</a></li>
+      <li><a href="#trouble">장애 대응</a></li>
+      <li><a href="#license">라이선스 / 비용</a></li>
+      <li><a href="#roadmap">추후 고도화 로드맵</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. 개요 -->
+  <div class="section" id="overview">
+    <div class="section-title">1️⃣ 프로젝트 개요</div>
+    <p style="font-size:0.88rem; line-height:1.8; color:#444; margin-bottom:14px;">
+      Microsoft Fabric(app.powerbi.com)에 게시된 Power BI 보고서를
+      <strong>Power BI 라이선스가 없는 직원</strong>도 볼 수 있게 해주는 사내 게이트웨이 서버입니다.<br>
+      직원은 브라우저로 사내 서버에 접속해 로그인하면, 본인에게 허용된 보고서만 확인할 수 있습니다.
+    </p>
+    <table class="info-table">
+      <thead><tr><th>항목</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td>접속 주소</td><td><code>http://192.168.56.10:8082</code> (사내 내부망 전용)</td></tr>
+        <tr><td>서버 위치</td><td><code>/home/test01/projects/powerbi-embedded/</code></td></tr>
+        <tr><td>운영 보고서</td><td>관계사, 달성률, 불량현황, 비가동, 생산현황, 영업구매, 회계원가 (7개)</td></tr>
+        <tr><td>추가 비용</td><td>없음 (기존 Power BI 라이선스 활용)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 2. 아키텍처 -->
+  <div class="section" id="arch">
+    <div class="section-title">2️⃣ 시스템 아키텍처</div>
+
+    <h3>구성 요소</h3>
+    <div class="arch">
+      <div class="arch-step">
+        <div class="arch-box"><div class="icon">👤</div><div class="label">직원 브라우저</div><div class="sub">Chrome / Edge</div></div>
+        <div class="arch-label">로그인 + 보고서 열람</div>
+      </div>
+      <div class="arch-arrow">⟷</div>
+      <div class="arch-step">
+        <div class="arch-box"><div class="icon">🖥️</div><div class="label">FastAPI 서버</div><div class="sub">192.168.56.10:8082</div></div>
+        <div class="arch-label">인증 중계 + 접근 제어</div>
+      </div>
+      <div class="arch-arrow">⟷</div>
+      <div class="arch-step">
+        <div class="arch-box db"><div class="icon">🗄️</div><div class="label">PostgreSQL</div><div class="sub">powerbi_gateway</div></div>
+        <div class="arch-label">사용자 · 권한 관리</div>
+      </div>
+      <div class="arch-arrow">⟷</div>
+      <div class="arch-step">
+        <div class="arch-box azure"><div class="icon">☁️</div><div class="label">Azure AD</div><div class="sub">서비스 주체 인증</div></div>
+        <div class="arch-label">Client Credentials 토큰</div>
+      </div>
+      <div class="arch-arrow">⟷</div>
+      <div class="arch-step">
+        <div class="arch-box pbi"><div class="icon">📊</div><div class="label">Power BI / Fabric</div><div class="sub">app.powerbi.com</div></div>
+        <div class="arch-label">Embed Token + 보고서 데이터</div>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <strong>핵심 포인트:</strong> 보고서 <strong>데이터</strong>는 서버를 거치지 않습니다.
+      서버는 "누가 어떤 보고서를 볼 수 있는지"를 판단하고 Embed Token만 발급합니다.
+      실제 차트·데이터는 <strong>브라우저 ↔ Microsoft Fabric 직접 통신</strong>으로 렌더링됩니다.
+    </div>
+
+    <h3>기술 스택</h3>
+    <table class="info-table">
+      <thead><tr><th>구분</th><th>기술</th><th>역할</th></tr></thead>
+      <tbody>
+        <tr><td>웹 프레임워크</td><td><code>FastAPI</code> + <code>uvicorn</code></td><td>HTTP 서버, 라우팅, 비동기 처리</td></tr>
+        <tr><td>Azure 인증</td><td><code>msal</code></td><td>Client Credentials Flow로 Azure AD 토큰 발급</td></tr>
+        <tr><td>HTTP 클라이언트</td><td><code>httpx</code></td><td>Power BI REST API 비동기 호출</td></tr>
+        <tr><td>세션 관리</td><td><code>itsdangerous</code> + SessionMiddleware</td><td>로그인 상태 쿠키 서명/검증</td></tr>
+        <tr><td>DB 연결</td><td><code>psycopg2-binary</code></td><td>PostgreSQL 쿼리</td></tr>
+        <tr><td>비밀번호</td><td><code>bcrypt</code></td><td>비밀번호 해시 저장 및 검증</td></tr>
+        <tr><td>프론트엔드</td><td>Jinja2 + <code>powerbi-client</code> JS SDK</td><td>HTML 렌더링 + Power BI 보고서 임베드</td></tr>
+        <tr><td>화면 구조</td><td>SPA (Single Page Application)</td><td>탭 방식 다중 보고서 동시 열람</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 3. 전체 동작 흐름 -->
+  <div class="section" id="flow">
+    <div class="section-title">3️⃣ 전체 동작 흐름 (단계별)</div>
+
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="flow-step-body">
+          <div class="flow-step-title">브라우저에서 서버 접속</div>
+          <div class="flow-step-desc">
+            직원이 <code>http://192.168.56.10:8082</code> 접속.
+            서버가 세션 쿠키 확인 → 로그인 안 된 상태면 <code>/login</code>으로 자동 이동(302 리디렉션).
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-step-body">
+          <div class="flow-step-title">로그인 (아이디 + 비밀번호)</div>
+          <div class="flow-step-desc">
+            <code>POST /login</code>으로 폼 데이터 전송 →
+            서버가 PostgreSQL <code>users</code> 테이블에서 username 조회 →
+            <code>bcrypt.checkpw()</code>로 비밀번호 검증 →
+            성공 시 세션 쿠키 발급(8시간 유효) + <code>/</code>로 이동.
+            실패 시 에러 메시지 표시. 모든 시도는 <code>logs/server.log</code>에 기록.
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-step-body">
+          <div class="flow-step-title">보고서 목록 표시 (사용자별 필터)</div>
+          <div class="flow-step-desc">
+            <code>GET /</code> 요청 → 세션에서 username 추출 →
+            PostgreSQL <code>user_reports</code> 테이블 조회 →
+            이 사용자에게 허용된 보고서만 왼쪽 사이드바에 표시.
+            다른 보고서는 <strong>존재 자체를 모릅니다</strong> (HTML에 없음).
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-step-body">
+          <div class="flow-step-title">보고서 클릭 → AJAX 요청</div>
+          <div class="flow-step-desc">
+            사이드바에서 보고서 클릭 → 브라우저가 <code>GET /api/embed/{보고서명}</code> AJAX 요청 →
+            서버가 ① 로그인 여부 확인 ② 해당 보고서 권한 확인 →
+            권한 없으면 403 에러 반환(페이지 이동 없음).
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-step-body">
+          <div class="flow-step-title">Azure AD 토큰 발급 (서버 ↔ Azure)</div>
+          <div class="flow-step-desc">
+            서버가 <code>msal</code>로 Azure AD에 Client Credentials 토큰 요청
+            (CLIENT_ID + CLIENT_SECRET 사용, 사람이 개입하지 않는 자동 인증) →
+            유효한 토큰이 캐시에 있으면 재사용(1시간, 만료 5분 전 자동 갱신).
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-step-body">
+          <div class="flow-step-title">Power BI Embed Token 발급 (서버 ↔ Fabric)</div>
+          <div class="flow-step-desc">
+            Azure AD 토큰으로 Power BI API 2번 호출:<br>
+            ① <code>GET .../reports/{reportId}</code> → embedUrl, datasetId 획득<br>
+            ② <code>POST .../GenerateToken</code> → 일회성 Embed Token 발급
+            (identity: pbi_username + roles 포함 → RLS 적용 기준)<br>
+            결과를 JSON으로 브라우저에 반환: <code>{ embed_token, embed_url, report_id }</code>
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-step-body">
+          <div class="flow-step-title">보고서 렌더링 (브라우저 ↔ Fabric)</div>
+          <div class="flow-step-desc">
+            브라우저의 <code>powerbi-client</code> JS SDK가 Embed Token + embedUrl로
+            Microsoft Fabric 서버에 직접 접속 → 보고서 렌더링.
+            <strong>이 단계부터는 서버가 개입하지 않습니다.</strong>
+            데이터는 브라우저 ↔ Fabric 직접 통신.
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-step-body">
+          <div class="flow-step-title">탭 관리 (SPA)</div>
+          <div class="flow-step-desc">
+            다른 보고서 클릭 → 4~7단계 반복, 새 탭으로 추가.
+            탭 전환 시 이미 로드된 보고서는 숨기기/보이기만 해서 <strong>재로드 없이 즉시 전환</strong>.
+            탭 닫기 시 <code>pbi.reset()</code>으로 SDK 인스턴스 정리 후 DOM 제거.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. DB 구조 -->
+  <div class="section" id="db">
+    <div class="section-title">4️⃣ 데이터베이스 구조 (PostgreSQL)</div>
+
+    <div class="info-box" style="margin-bottom:16px;">
+      <strong>DB:</strong> <code>powerbi_gateway</code> &nbsp;|&nbsp;
+      <strong>접속:</strong> <code>127.0.0.1:5432</code> &nbsp;|&nbsp;
+      <strong>유저:</strong> <code>test01</code>
+    </div>
+
+    <div class="db-diagram">
+      <!-- reports 테이블 -->
+      <div class="db-table">
+        <div class="db-table-header">📋 reports</div>
+        <div class="db-row"><span class="db-col-name">id<span class="db-pk">PK</span></span><span class="db-col-type">SERIAL</span></div>
+        <div class="db-row"><span class="db-col-name">name</span><span class="db-col-type">VARCHAR(50)</span></div>
+        <div class="db-row"><span class="db-col-name">report_type</span><span class="db-col-type">managed / personal</span></div>
+        <div class="db-row"><span class="db-col-name">owner_id</span><span class="db-col-type">개인 보고서 소유자</span></div>
+      </div>
+
+      <!-- users 테이블 -->
+      <div class="db-table">
+        <div class="db-table-header orange">👤 users</div>
+        <div class="db-row"><span class="db-col-name">id<span class="db-pk">PK</span></span><span class="db-col-type">SERIAL</span></div>
+        <div class="db-row"><span class="db-col-name">username</span><span class="db-col-type">VARCHAR(50) UNIQUE</span></div>
+        <div class="db-row"><span class="db-col-name">password</span><span class="db-col-type">VARCHAR(255) bcrypt</span></div>
+        <div class="db-row"><span class="db-col-name">display_name</span><span class="db-col-type">VARCHAR(100)</span></div>
+        <div class="db-row"><span class="db-col-name">pbi_username</span><span class="db-col-type">VARCHAR(255)</span></div>
+        <div class="db-row"><span class="db-col-name">roles</span><span class="db-col-type">TEXT (콤마 구분)</span></div>
+      </div>
+
+      <!-- user_reports 테이블 -->
+      <div class="db-table">
+        <div class="db-table-header purple">🔗 user_reports</div>
+        <div class="db-row"><span class="db-col-name">user_id<span class="db-fk">FK</span></span><span class="db-col-type">→ users.id</span></div>
+        <div class="db-row"><span class="db-col-name">report_id<span class="db-fk">FK</span></span><span class="db-col-type">→ reports.id</span></div>
+        <div class="db-row" style="color:#888; font-size:0.75rem; padding:8px 14px;">PRIMARY KEY (user_id, report_id)</div>
+      </div>
+    </div>
+
+    <h3>각 테이블 역할</h3>
+    <table class="info-table">
+      <thead><tr><th>테이블</th><th>역할</th><th>주요 컬럼 설명</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>reports</code></td>
+          <td>보고서 목록 관리</td>
+          <td><code>report_type</code>: 관리/RLS 또는 개인 보고서 구분<br><code>owner_id</code>: 개인 보고서 소유자</td>
+        </tr>
+        <tr>
+          <td><code>users</code></td>
+          <td>사용자 계정 관리</td>
+          <td><code>pbi_username</code>: GenerateToken에 전달되는 Power BI identity<br><code>roles</code>: Fabric RLS 역할 (예: "도메인")</td>
+        </tr>
+        <tr>
+          <td><code>user_reports</code></td>
+          <td>권한 매핑 (누가 어떤 보고서를 볼 수 있는지)</td>
+          <td>이 테이블에 행이 없으면 해당 사용자는 그 보고서를 볼 수 없음</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 5. 코드 설명 -->
+  <div class="section" id="code">
+    <div class="section-title">5️⃣ 코드 설명 (main.py)</div>
+
+    <h3>① DB 연결 및 쿼리 함수</h3>
+    <div class="code-block">
+<span class="kw">def</span> <span class="fn">db_conn</span>():
+    <span class="cm"># DB 연결 객체 반환. 호출마다 새 연결 (소규모라 문제없음)</span>
+    <span class="kw">return</span> psycopg2.connect(**DB_CONFIG, cursor_factory=RealDictCursor)
+
+<span class="kw">def</span> <span class="fn">db_authenticate</span>(username, password):
+    <span class="cm"># username으로 사용자 조회 → bcrypt로 비밀번호 검증</span>
+    <span class="cm"># 일치하면 사용자 dict 반환, 아니면 None</span>
+
+<span class="kw">def</span> <span class="fn">db_get_user</span>(username):
+    <span class="cm"># username으로 사용자 정보 조회 (세션에서 매 요청마다 호출)</span>
+
+<span class="kw">def</span> <span class="fn">db_get_reports</span>(username):
+    <span class="cm"># user_reports JOIN reports JOIN users 쿼리</span>
+    <span class="cm"># → 해당 사용자가 접근 가능한 보고서 이름 목록 반환</span>
+    </div>
+
+    <h3>② Azure AD 토큰 발급 (get_access_token)</h3>
+    <div class="code-block">
+<span class="cm"># 서버 메모리의 token_cache를 확인</span>
+<span class="cm"># 유효한 토큰이 있으면 그대로 사용 (API 호출 절약)</span>
+<span class="cm"># 만료 5분 전이면 msal로 Azure AD에 새 토큰 요청</span>
+<span class="cm"># CLIENT_ID + CLIENT_SECRET으로 자동 인증 (사람 개입 없음)</span>
+token_cache = {<span class="st">"access_token"</span>: None, <span class="st">"expires_at"</span>: 0}
+
+result = msal_app.acquire_token_for_client(
+    scopes=[<span class="st">"https://analysis.windows.net/powerbi/api/.default"</span>]
+)
+    </div>
+
+    <h3>③ Embed Token 발급 (get_embed_token)</h3>
+    <div class="code-block">
+<span class="cm"># 1단계: Power BI API로 보고서 정보 조회</span>
+GET https://api.powerbi.com/v1.0/myorg/groups/{WORKSPACE_ID}/reports/{reportId}
+<span class="cm"># → embedUrl, datasetId 획득</span>
+
+<span class="cm"># 2단계: GenerateToken 호출</span>
+POST https://api.powerbi.com/v1.0/myorg/groups/{WORKSPACE_ID}/reports/{reportId}/GenerateToken
+body = {
+  <span class="st">"accessLevel"</span>: <span class="st">"view"</span>,
+  <span class="st">"identities"</span>: [{
+    <span class="st">"username"</span>: pbi_username,  <span class="cm"># DB의 pbi_username (RLS 기준)</span>
+    <span class="st">"roles"</span>: [<span class="st">"도메인"</span>],        <span class="cm"># DB의 roles (Fabric RLS 역할)</span>
+    <span class="st">"datasets"</span>: [dataset_id]
+  }]
+}
+<span class="cm"># → 일회성 embed_token 반환 (1시간 유효)</span>
+    </div>
+
+    <h3>④ 세션 관리</h3>
+    <div class="code-block">
+<span class="cm"># 로그인 성공 시: 세션 쿠키에 username 저장</span>
+request.session[<span class="st">"username"</span>] = user[<span class="st">"username"</span>]
+
+<span class="cm"># 매 요청마다: 세션에서 username을 꺼내 DB 조회</span>
+<span class="kw">def</span> <span class="fn">current_user</span>(request):
+    username = request.session.get(<span class="st">"username"</span>)
+    <span class="kw">if not</span> username: <span class="kw">return</span> None
+    <span class="kw">return</span> db_get_user(username)
+
+<span class="cm"># 세션 쿠키는 itsdangerous로 서명 → 변조 불가</span>
+<span class="cm"># max_age=28800 → 8시간 후 자동 만료</span>
+    </div>
+
+    <h3>⑤ 로깅</h3>
+    <div class="code-block">
+<span class="cm"># 로그인 성공</span>
+<span class="hl">2026-06-10 09:01:23 [INFO]    LOGIN OK   | user=admin        | ip=192.168.56.1 | name=관리자</span>
+<span class="cm"># 로그인 실패</span>
+<span class="hl">2026-06-10 09:01:30 [WARNING] LOGIN FAIL | user=admin        | ip=192.168.56.1</span>
+<span class="cm"># 보고서 열람</span>
+<span class="hl">2026-06-10 09:05:00 [INFO]    EMBED OK   | user=admin        | ip=192.168.56.1 | report=생산현황</span>
+<span class="cm"># 권한 없는 접근 시도</span>
+<span class="hl">2026-06-10 09:05:10 [WARNING] EMBED DENY | user=user01       | ip=192.168.56.1 | report=회계원가 (권한없음)</span>
+<span class="cm"># 로그아웃</span>
+<span class="hl">2026-06-10 18:00:00 [INFO]    LOGOUT     | user=admin        | ip=192.168.56.1</span>
+    </div>
+  </div>
+
+  <!-- 5b. 프론트엔드 코드 설명 -->
+  <div class="section" id="frontend">
+    <div class="section-title">5️⃣-② 코드 설명 — 프론트엔드 (report.html)</div>
+
+    <p style="font-size:0.86rem; color:#555; line-height:1.7; margin-bottom:16px;">
+      <code>report.html</code>은 로그인 후 보이는 메인 화면입니다.
+      서버에서 Jinja2로 렌더링되지만, 보고서 로드·탭 전환은 전부 자바스크립트(SPA 방식)로 처리합니다.
+      페이지 이동 없이 탭 열기·닫기·전환이 가능합니다.
+    </p>
+
+    <h3>① 화면 구조</h3>
+    <div class="code-block">
+<span class="cm">┌─────────────────────────────────────────────────────────┐</span>
+<span class="cm">│ header  [Power BI 보고서 뷰어]           [홍길동] [로그아웃] │</span>
+<span class="cm">├──────────┬──────────────────────────────────────────────┤</span>
+<span class="cm">│          │                                              │</span>
+<span class="cm">│ sidebar  │  tab-panels  (보고서가 렌더링되는 영역)        │</span>
+<span class="cm">│          │                                              │</span>
+<span class="cm">│ 보고서    │  .tab-panel  (position:absolute, 탭마다 1개) │</span>
+<span class="cm">│ 목록      │  .tab-panel.active → display:flex           │</span>
+<span class="cm">│ (서버에서 │  나머지 → display:none                       │</span>
+<span class="cm">│  렌더링)  │                                              │</span>
+<span class="cm">│          ├──────────────────────────────────────────────┤</span>
+<span class="cm">│          │ tabs-bar  [생산현황 ×] [비가동 ×]             │</span>
+<span class="cm">└──────────┴──────────────────────────────────────────────┘</span>
+    </div>
+
+    <h3>② 전역 상태 관리</h3>
+    <div class="code-block">
+<span class="cm">// powerbi-client SDK 인스턴스 (전역 1개)</span>
+<span class="kw">const</span> pbi = <span class="kw">new</span> window[<span class="st">'powerbi-client'</span>].service.Service(...);
+
+<span class="cm">// 현재 열린 탭 상태 (보고서명 → 탭/패널 DOM 엘리먼트)</span>
+<span class="kw">const</span> openTabs = {};
+<span class="cm">// { "생산현황": { tabEl: &lt;div.tab&gt;, panelEl: &lt;div.tab-panel&gt; },</span>
+<span class="cm">//   "비가동":   { tabEl: ..., panelEl: ... } }</span>
+
+<span class="kw">let</span> activeTab = null; <span class="cm">// 현재 보이는 탭 이름</span>
+    </div>
+
+    <h3>③ openReport(name) — 탭 열기 진입점</h3>
+    <div class="code-block">
+<span class="kw">function</span> <span class="fn">openReport</span>(name) {
+  <span class="kw">if</span> (openTabs[name]) {         <span class="cm">// 이미 열려있으면 전환만</span>
+    switchTab(name); <span class="kw">return</span>;
+  }
+  createTab(name);              <span class="cm">// DOM 생성 (탭 버튼 + 패널)</span>
+  fetchAndEmbed(name);          <span class="cm">// 서버에서 토큰 받아 보고서 렌더링</span>
+}
+    </div>
+
+    <h3>④ createTab(name) — DOM 생성</h3>
+    <div class="code-block">
+<span class="cm">// 하단 탭 버튼 생성: [📊 생산현황  ×]</span>
+tab.querySelector(<span class="st">'.close-btn'</span>).onclick = (e) => {
+  e.stopPropagation();          <span class="cm">// 탭 클릭 이벤트 막기</span>
+  closeTab(name);
+};
+
+<span class="cm">// 보고서가 그려질 패널 생성:</span>
+<span class="cm">// &lt;div class="tab-panel"&gt;</span>
+<span class="cm">//   &lt;div class="panel-loading"&gt;보고서 불러오는 중...&lt;/div&gt;</span>
+<span class="cm">//   &lt;div class="report-embed" id="embed-생산현황"&gt;&lt;/div&gt;</span>
+<span class="cm">// &lt;/div&gt;</span>
+
+openTabs[name] = { tabEl: tab, panelEl: panel };
+switchTab(name);               <span class="cm">// 생성 즉시 활성 탭으로 전환</span>
+    </div>
+
+    <h3>⑤ switchTab(name) — 탭 전환 (보이기/숨기기)</h3>
+    <div class="code-block">
+<span class="cm">// 이전 탭 비활성화 (display:none 효과 → CSS의 .active 제거)</span>
+openTabs[activeTab].tabEl.classList.remove(<span class="st">'active'</span>);
+openTabs[activeTab].panelEl.classList.remove(<span class="st">'active'</span>);
+
+<span class="cm">// 새 탭 활성화 (display:flex 효과 → CSS의 .active 추가)</span>
+openTabs[name].tabEl.classList.add(<span class="st">'active'</span>);
+openTabs[name].panelEl.classList.add(<span class="st">'active'</span>);
+
+<span class="cm">// 핵심: 이미 로드된 보고서는 다시 API 호출하지 않음</span>
+<span class="cm">// → CSS show/hide만으로 탭 전환, 즉시 반응</span>
+    </div>
+
+    <h3>⑥ fetchAndEmbed(name) — 서버 토큰 요청 + 렌더링</h3>
+    <div class="code-block">
+<span class="kw">async function</span> <span class="fn">fetchAndEmbed</span>(name) {
+  <span class="cm">// GET /api/embed/{DB report_id} → 세션 쿠키 자동 전송</span>
+  <span class="kw">const</span> res = <span class="kw">await</span> fetch(<span class="st">`/api/embed/${encodeURIComponent(name)}`</span>);
+
+  <span class="kw">if</span> (!res.ok) {
+    <span class="cm">// 401: 로그인 만료 / 403: 권한 없음 → 에러 메시지 표시</span>
+    <span class="kw">throw new</span> Error(err.detail);
+  }
+
+  <span class="kw">const</span> data = <span class="kw">await</span> res.json();
+  <span class="cm">// data = { embed_token, embed_url, report_id, report_name }</span>
+  embedReport(name, data);
+}
+    </div>
+
+    <h3>⑦ embedReport(name, data) — powerbi-client SDK로 렌더링</h3>
+    <div class="code-block">
+<span class="kw">const</span> report = pbi.embed(container, {
+  type:        <span class="st">'report'</span>,
+  id:          data.report_id,      <span class="cm">// Power BI Report GUID</span>
+  embedUrl:    data.embed_url,      <span class="cm">// https://app.powerbi.com/reportEmbed?...</span>
+  accessToken: data.embed_token,    <span class="cm">// 서버가 발급한 일회성 토큰</span>
+  tokenType:   TokenType.Embed,     <span class="cm">// 서비스 주체 방식 → Embed 타입</span>
+  settings: {
+    navContentPaneEnabled: <span class="kw">false</span>,   <span class="cm">// 보고서 내부 페이지 탭 숨김</span>
+    filterPaneEnabled:     <span class="kw">false</span>,   <span class="cm">// 필터 패널 숨김</span>
+    panes: {
+      pageNavigation: { visible: <span class="kw">false</span> },  <span class="cm">// 하단 페이지 네비 숨김</span>
+      filters:        { visible: <span class="kw">false</span> },  <span class="cm">// 오른쪽 필터 숨김</span>
+    }
+  }
+});
+
+<span class="cm">// 'loaded' 이벤트: 렌더링 완료 → 로딩 스피너 제거</span>
+report.on(<span class="st">'loaded'</span>, () => { loading.style.display = <span class="st">'none'</span>; });
+
+<span class="cm">// 'error' 이벤트: Fabric 자체 오류 (토큰 만료, RLS 설정 오류 등)</span>
+report.on(<span class="st">'error'</span>, (e) => { container.innerHTML = <span class="st">`오류: ${e.detail}`</span>; });
+    </div>
+
+    <h3>⑧ closeTab(name) — 탭 닫기</h3>
+    <div class="code-block">
+<span class="cm">// SDK 인스턴스 정리 (메모리 누수 방지)</span>
+pbi.reset(embedEl);
+
+<span class="cm">// DOM 제거</span>
+openTabs[name].tabEl.remove();
+openTabs[name].panelEl.remove();
+<span class="kw">delete</span> openTabs[name];
+
+<span class="cm">// 남은 탭이 있으면 마지막 탭으로 전환, 없으면 빈 화면</span>
+    </div>
+
+    <h3>⑨ login.html 구조</h3>
+    <div class="info-box">
+      단순한 HTML 폼. <code>method="post" action="/login"</code>으로 서버에 전송.<br>
+      Jinja2 템플릿 변수 <code>&#123;% if error %&#125;</code>로 로그인 실패 메시지 표시.<br>
+      이미 로그인된 상태면 <code>GET /login</code> 접속 시 <code>GET /</code>로 자동 이동.
+    </div>
+
+    <h3>⑩ 왜 SPA(Single Page Application)인가?</h3>
+    <table class="info-table">
+      <thead><tr><th>방식</th><th>보고서 전환 시</th><th>UX</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>SPA (현재 방식)</td>
+          <td>CSS display 토글만 → 서버 요청 없음</td>
+          <td>즉시 전환, 스크롤 위치 유지</td>
+        </tr>
+        <tr>
+          <td>MPA (전통 방식)</td>
+          <td>페이지 이동 → 새 HTML 요청 → 보고서 재로드</td>
+          <td>매번 2~5초 로딩 대기</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 6. API 엔드포인트 -->
+  <div class="section" id="api">
+    <div class="section-title">6️⃣ API 엔드포인트</div>
+    <table class="info-table">
+      <thead><tr><th>메서드</th><th>경로</th><th>설명</th><th>인증</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge-blue">GET</span></td><td><code>/</code></td><td>메인 SPA 화면 (보고서 뷰어)</td><td>필요 → /login 리디렉션</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td><code>/login</code></td><td>로그인 페이지</td><td>불필요</td></tr>
+        <tr><td><span class="badge badge-ok">POST</span></td><td><code>/login</code></td><td>로그인 처리 (form: username, password)</td><td>불필요</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td><code>/logout</code></td><td>로그아웃 → /login 이동</td><td>불필요</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/embed/{name}</code></td><td>Embed Token JSON 발급 (AJAX 전용)</td><td>필요 + 보고서 권한</td></tr>
+        <tr><td><span class="badge badge-blue">GET</span></td><td><code>/docs</code></td><td>이 문서 페이지</td><td>불필요</td></tr>
+      </tbody>
+    </table>
+
+    <h3>왜 GET을 쓰는가? (POST 대신)</h3>
+    <div class="info-box">
+      <strong>/api/embed/{name}은 GET으로 구현되어 있습니다.</strong> 이유:<br><br>
+      • 세션 쿠키가 없으면 서버가 <strong>401 반환</strong> — URL만 알아도 토큰 발급 불가<br>
+      • 권한 없는 보고서는 서버가 <strong>403 반환</strong> — 세션이 있어도 본인 것만 접근<br>
+      • 사내 내부망 전용 서버라 로그에 URL 경로가 남아도 외부 유출 위험 없음<br><br>
+      POST로 바꾸면 JS 코드(<code>fetch</code> 호출 방식)도 함께 수정해야 하는 번거로움이 있고,
+      보안상 실질적인 개선이 없어 GET을 유지합니다.
+    </div>
+
+    <h3>/api/embed/{name} 응답 예시</h3>
+    <div class="code-block">
+{
+  <span class="st">"embed_token"</span>: <span class="st">"H4sIAAAA..."</span>,          <span class="cm">// Power BI 일회성 토큰 (1시간)</span>
+  <span class="st">"embed_url"</span>:   <span class="st">"https://app.powerbi.com/reportEmbed?..."</span>,
+  <span class="st">"report_id"</span>:   <span class="st">"c3964925-74ee-4500-..."</span>,
+  <span class="st">"report_name"</span>: <span class="st">"생산현황"</span>
+}
+    </div>
+  </div>
+
+  <!-- 7. RLS -->
+  <div class="section" id="rls">
+    <div class="section-title">7️⃣ RLS (행 수준 보안) 구조</div>
+
+    <div class="two-col">
+      <div>
+        <h3>레이어 1 — 게이트웨이 접근 제어 ✅ 적용</h3>
+        <div class="success-box">
+          <strong>누가 어떤 보고서 탭을 볼 수 있는지</strong> 제어<br><br>
+          • PostgreSQL <code>user_reports</code> 테이블 기반<br>
+          • 권한 없는 보고서는 사이드바에 아예 안 보임<br>
+          • AJAX 요청 시에도 서버에서 403 반환<br>
+          • 현재 완전히 작동 중
+        </div>
+      </div>
+      <div>
+        <h3>레이어 2 — Fabric 데이터 RLS ⚠️ Fabric 설정 필요</h3>
+        <div class="warn-box">
+          <strong>보고서 안에서 어떤 데이터 행이 보이는지</strong> 제어<br><br>
+          • GenerateToken에 pbi_username + roles 전달 → 메커니즘은 구현됨<br>
+          • 현재 "도메인" 역할 = DAX 필터 없음 = 전체 데이터 표시<br>
+          • Fabric에서 HR_RLS 역할에 DAX 필터 설정 시 즉시 작동
+        </div>
+      </div>
+    </div>
+
+    <h3>아키텍처 — PostgreSQL이 RLS에서 맡는 역할</h3>
+    <div class="info-box">
+      두 레이어 모두 <strong>출발점은 PostgreSQL</strong>이다. 레이어 1은 <code>user_reports</code>가,
+      레이어 2는 <code>users.pbi_username</code> + <code>users.roles</code> 두 컬럼이 결정한다.
+      즉 <strong>RLS 적용/변경은 Fabric의 DAX 필터 설정 + PostgreSQL UPDATE 한 쌍의 작업</strong>이다.
+    </div>
+    <div class="code-block">
+[PostgreSQL powerbi_gateway]          [FastAPI 게이트웨이]                  [Microsoft Fabric]
+
+users.username / password  ────▶  ① 로그인 인증 (bcrypt 비교)
+user_reports               ────▶  ② 보고서 접근 권한 체크          <span class="cm">← 레이어 1 (탭 단위 차단)</span>
+report_meta.pbi_report_id  ────▶  ③ DB에서 Fabric Report ID 조회
+users.pbi_username ┐
+users.roles        ┴───────▶  ④ GenerateToken identity 전달  ──▶  ⑤ roles와 같은 이름의 RLS 역할 탐색
+                                  { username: pbi_username,            DAX 필터의 USERNAME() 자리에
+                                    roles: [roles] }                   pbi_username 값이 대입됨
+                                                                       <span class="cm">← 레이어 2 (행 단위 필터)</span>
+    </div>
+
+    <h3>RLS 적용 시 PostgreSQL 쪽 작업 목록</h3>
+    <table class="info-table" style="margin-bottom:4px;">
+      <thead><tr><th>순서</th><th>SQL 작업</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td><code>UPDATE users SET roles = 'RLS_사번' WHERE username = '...';</code></td>
+          <td>Fabric에 만든 역할명과 <strong>철자까지 일치</strong>해야 함 (콤마로 여러 역할 가능)</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td><code>UPDATE users SET pbi_username = '1001' WHERE username = '...';</code></td>
+          <td>DAX 필터의 <code>USERNAME()</code>이 받게 될 값 — 사번이든 이메일이든 <strong>DAX가 비교하는 컬럼 기준</strong>으로</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td><code>user_reports</code>는 그대로 유지</td>
+          <td>보고서 접근 권한(레이어 1)은 RLS와 <strong>독립</strong> — RLS를 켜도 탭 권한 관리는 기존 방식 그대로</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="warn-box" style="margin-top:10px;">
+      <strong>순서 주의:</strong> DB의 <code>roles</code>를 먼저 바꾸면 안 된다.
+      Fabric 데이터셋에 해당 역할이 아직 없는 상태에서 로그인하면 <strong>MSOLAP 연결 오류</strong>로 보고서가 아예 안 열린다.
+      반드시 <strong>Fabric DAX 역할 생성 → 게시 → DB UPDATE</strong> 순서로.
+    </div>
+
+    <h3>레이어 2가 필요한가? — 판단 기준</h3>
+    <table class="info-table" style="margin-bottom:4px;">
+      <thead><tr><th>상황</th><th>결론</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>같은 보고서를 볼 수 있는 사람들이 <strong>모두 동일한 데이터</strong>를 봐도 된다</td>
+          <td><span class="badge badge-ok">레이어 1만으로 충분 — 현재 완성</span></td>
+        </tr>
+        <tr>
+          <td>같은 보고서인데 사람마다 <strong>보이는 데이터 행이 달라야 한다</strong><br><small>(예: 팀장은 전체 공장, 직원은 본인 공장만)</small></td>
+          <td><span class="badge badge-warn">레이어 2 필요 — Fabric DAX 설정 + DB roles 변경</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="info-box" style="margin-top:10px;">
+      코드는 이미 준비되어 있습니다. <code>GenerateToken</code> 호출 시 <code>pbi_username</code>과 <code>roles</code>를 전달하는 구조가 구현되어 있어,
+      Fabric에서 해당 역할에 DAX 필터만 설정하면 즉시 작동합니다.
+    </div>
+
+    <h3>레이어 2 활성화 방법 (Fabric 담당자 필요)</h3>
+    <div class="code-block">
+<span class="cm">// Fabric에서 HR_RLS 역할 DAX 필터 예시</span>
+[사번] = USERNAME()
+<span class="cm">// 또는 부서 기반</span>
+[부서코드] = LOOKUPVALUE(직원[부서], 직원[이메일], USERNAME())
+
+<span class="cm">-- DAX 설정 후 DB에서 역할 변경</span>
+UPDATE users SET roles = <span class="st">'HR_RLS'</span>, pbi_username = <span class="st">'실제AD이메일@qualisoft.co.kr'</span>
+WHERE username = <span class="st">'user01'</span>;
+    </div>
+
+    <h3>쉽게 이해하기 — RLS는 "행 거름망"이다</h3>
+    <div class="info-box">
+      RLS는 <strong>보고서를 숨기는 기능이 아니다.</strong>
+      같은 보고서를 열어도 <strong>안에 있는 데이터 표의 행(row)이 사람마다 다르게 걸러져 보이는 것</strong>이다.<br><br>
+      예를 들어 생산현황 보고서 안에 이런 데이터가 있다고 하면:
+    </div>
+    <table class="info-table">
+      <thead><tr><th>사번</th><th>이름</th><th>생산량</th></tr></thead>
+      <tbody>
+        <tr><td>1001</td><td>김철수</td><td>500</td></tr>
+        <tr><td>1002</td><td>이영희</td><td>300</td></tr>
+        <tr><td>1003</td><td>박민수</td><td>700</td></tr>
+      </tbody>
+    </table>
+    <table class="info-table" style="margin-top:10px;">
+      <thead><tr><th>계정</th><th>roles (DB)</th><th>pbi_username (DB)</th><th>같은 보고서를 열면</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>user01</code></td>
+          <td>도메인 (필터 없음)</td>
+          <td>user01@qualisoft.co.kr</td>
+          <td><strong>3행 전부</strong> 보임 (현재와 동일)</td>
+        </tr>
+        <tr>
+          <td><code>rls01</code> <small>(RLS 데모 계정)</small></td>
+          <td>RLS_사번</td>
+          <td><strong>1001</strong> ← 사번을 넣음</td>
+          <td><strong>1001 김철수 행만</strong> 보임, 차트도 500만 집계</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>동작 원리 — 양쪽이 한 쌍으로 맞아야 한다</h3>
+    <div class="code-block">
+[사내 서버]  rls01 로그인
+    │  GenerateToken 호출: { username: "1001", roles: ["RLS_사번"] }
+    ▼
+[Fabric]     데이터셋에서 "RLS_사번" 역할을 찾음
+    │  역할의 DAX 필터:  [사번] = USERNAME()
+    │  → USERNAME() 자리에 서버가 보낸 "1001"이 들어감
+    ▼
+[결과]       사번이 1001인 행만 브라우저로 전달
+    </div>
+    <div class="info-box">
+      핵심: <code>pbi_username</code>은 <strong>실제 이메일일 필요가 없다.</strong>
+      DAX의 <code>USERNAME()</code>이 돌려받는 <strong>그냥 문자열</strong>이므로,
+      Fabric 필터가 <code>[사번] = USERNAME()</code>이면 사번을, <code>[이메일] = USERNAME()</code>이면 이메일을 넣으면 된다.
+      <strong>"Fabric의 DAX 필터가 무엇과 비교하는가"에 맞춰 DB 값을 넣는 것이 전부다.</strong>
+    </div>
+
+    <h3>자주 보는 오류 — "Failed to open the MSOLAP connection"</h3>
+    <div class="warn-box">
+      DB에는 <code>roles = 'RLS_사번'</code>으로 넣었는데 <strong>Fabric 데이터셋에 그 이름의 역할이 아직 없으면</strong>
+      Fabric이 모델 연결 자체를 거부하면서 이 오류가 난다.<br><br>
+      • 서버는 "RLS_사번 역할로 봐주세요"라고 <strong>요청만</strong> 하는 입장<br>
+      • 역할의 실체(DAX 필터)는 Power BI Desktop에서 만들어 <strong>게시해야</strong> Fabric에 생긴다<br>
+      • 같은 보고서를 <code>도메인</code> 역할 계정(user01 등)으로 열면 정상 → 역할 부재가 원인이라는 증거
+    </div>
+
+    <h3>RLS 데모 적용 순서 (생산현황 1개로 시연)</h3>
+    <table class="info-table">
+      <thead><tr><th>순서</th><th>어디서</th><th>할 일</th><th>상태</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>PostgreSQL</td>
+          <td>데모 계정 추가: <code>rls01</code> / roles=<code>RLS_사번</code> / pbi_username=<code>1001</code> + 생산현황 권한</td>
+          <td><span class="badge badge-ok">완료</span></td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>Power BI Desktop</td>
+          <td>생산현황 .pbix 열기 → 모델링 → 역할 관리 → <code>RLS_사번</code> 역할 생성 → 필터 <code>[사번] = USERNAME()</code></td>
+          <td><span class="badge badge-warn">필요</span></td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>Power BI Desktop</td>
+          <td>저장한 .pbix를 <code>scripts/pbxifile/</code>에 넣고 <code>python3 scripts/publish_pbix.py</code>로 게시 (보고서 게시 섹션 참고).
+              같은 이름이 있으면 업로드를 중단하여 기존 항목을 보호</td>
+          <td><span class="badge badge-warn">필요</span></td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>게이트웨이</td>
+          <td><code>rls01</code> / <code>rls01pw</code> 로그인 → 생산현황 열기 → 사번 1001 행만 보이면 성공</td>
+          <td><span class="badge badge-warn">확인</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="info-box" style="margin-top:10px;">
+      데모 성공 후 실제 적용은 직원마다 SQL 한 줄:
+      <code>UPDATE users SET roles='RLS_사번', pbi_username='사번' WHERE username='...';</code><br>
+      단, <code>도메인</code> 역할(필터 없음)도 Fabric에 함께 남겨둬야 아직 전환 안 한 계정들이 계속 전체 데이터를 볼 수 있다.
+    </div>
+  </div>
+
+  <!-- 8. 서버 운영 -->
+  <div class="section" id="ops">
+    <div class="section-title">8️⃣ 서버 운영</div>
+
+    <table class="info-table" style="margin-bottom:16px;">
+      <thead><tr><th>항목</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td>서버 시작</td><td><code>./scripts/server.sh start</code></td></tr>
+        <tr><td>서버 종료</td><td><code>./scripts/server.sh stop</code></td></tr>
+        <tr><td>서버 재시작</td><td><code>./scripts/server.sh restart</code></td></tr>
+        <tr><td>상태 확인</td><td><code>./scripts/server.sh status</code></td></tr>
+        <tr><td>실시간 로그</td><td><code>tail -f logs/server.log</code></td></tr>
+        <tr><td>과거 로그</td><td><code>cat logs/20260609/server.log</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>로그 롤링 (Log Rotation)</h3>
+    <div class="info-box">
+      서버를 시작할 때마다 기존 <code>logs/server.log</code>를 <strong>어제 날짜 폴더</strong>로 자동 이동하고 새로 시작합니다.<br>
+      매일 아침 출근 후 서버를 켜면 전날 로그가 날짜 폴더에 보관됩니다.<br><br>
+      <code>logs/20260609/server.log</code> ← 어제 로그<br>
+      <code>logs/server.log</code> ← 오늘 현재 로그
+    </div>
+
+    <h3>server.sh 동작 원리</h3>
+    <div class="code-block">
+<span class="cm">#!/bin/bash</span>
+PYTHON=/home/test01/.pyenv/versions/3.11.9/bin/python3
+PID_FILE=<span class="st">"$PROJECT_ROOT/.server.pid"</span>
+LOG_FILE=<span class="st">"$LOG_DIR/server.log"</span>
+
+<span class="cm"># ── rotate_log(): 기존 로그 → 어제 날짜 폴더로 이동</span>
+rotate_log() {
+  YESTERDAY=$(date -d <span class="st">"yesterday"</span> +%Y%m%d)  <span class="cm"># 20260609</span>
+  mv <span class="st">"$LOG_FILE"</span> <span class="st">"$LOG_DIR/$YESTERDAY/server.log"</span>
+}
+<span class="cm"># start() 진입 시 rotate_log() 호출 → 매일 아침 start하면 전날 로그 보관</span>
+
+<span class="cm"># ── start(): 프로세스 시작</span>
+start() {
+  <span class="cm"># kill -0 PID: 프로세스 존재 여부만 확인 (실제 신호 보내지 않음)</span>
+  <span class="kw">if</span> [ -f <span class="st">"$PID_FILE"</span> ] &amp;&amp; kill -0 <span class="st">"$(cat $PID_FILE)"</span> 2>/dev/null; <span class="kw">then</span>
+    echo <span class="st">"이미 실행 중"</span>; <span class="kw">return</span>
+  <span class="kw">fi</span>
+  rotate_log
+  <span class="cm"># nohup: 터미널 닫혀도 프로세스 유지</span>
+  <span class="cm"># &amp;: 백그라운드 실행</span>
+  <span class="cm"># $!: 방금 실행한 프로세스 PID → PID_FILE에 저장</span>
+  nohup $PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8082 > <span class="st">"$LOG_FILE"</span> 2&gt;&amp;1 &amp;
+  echo $! > <span class="st">"$PID_FILE"</span>
+}
+
+<span class="cm"># ── stop(): 프로세스 종료</span>
+stop() {
+  PID=$(cat <span class="st">"$PID_FILE"</span>)
+  kill <span class="st">"$PID"</span>          <span class="cm"># SIGTERM → uvicorn 정상 종료</span>
+  rm -f <span class="st">"$PID_FILE"</span>   <span class="cm"># PID 파일 제거</span>
+}
+
+<span class="cm"># restart = stop → sleep 1 → start</span>
+    </div>
+
+    <div class="info-box">
+      <strong>PID 파일(<code>.server.pid</code>)이란?</strong><br>
+      실행 중인 서버 프로세스 ID를 저장하는 텍스트 파일.
+      <code>stop</code>이나 <code>status</code> 시 이 파일을 읽어 어떤 프로세스를 제어할지 알 수 있습니다.
+      비정상 종료로 PID 파일이 남아있을 경우 <code>rm -f .server.pid</code>로 수동 삭제 후 <code>start</code> 가능.
+    </div>
+
+    <h3>보고서 추가 방법</h3>
+    <div class="code-block">
+<span class="cm"># 개인 보고서: 로그인 후 "내 보고서 올리기" 사용</span>
+<span class="cm"># Fabric ID, 소유자, user_reports 권한이 자동 등록됨</span>
+
+<span class="cm"># 관리/RLS 보고서: report_meta에 Fabric ID를 등록하고</span>
+<span class="cm"># user_reports로 열람 사용자를 지정</span>
+
+<span class="cm"># 보고서 ID는 .env가 아니라 PostgreSQL에서 관리</span>
+    </div>
+  </div>
+
+  <!-- 보고서 게시 섹션 -->
+  <div class="section" id="publish">
+    <div class="section-title">🚀 보고서 게시 (.pbix 업로드)</div>
+
+    <div class="info-box">
+      Power BI Desktop의 <strong>"게시" 버튼은 Pro 라이선스가 있어야</strong> 쓸 수 있다.
+      이 시스템에서는 서버가 <strong>서비스 주체(CLIENT_ID/SECRET)로 대신 게시</strong>하므로
+      보고서를 만드는 직원도, 게시하는 관리자도 Power BI 라이선스가 필요 없다.
+    </div>
+
+    <h3>사용자 웹 업로드 절차</h3>
+    <table class="info-table" style="margin-bottom:16px;">
+      <thead><tr><th>누가</th><th>할 일</th></tr></thead>
+      <tbody>
+        <tr><td>직원</td><td>Power BI Desktop(무료)으로 보고서 작성 → 게이트웨이 로그인 → 왼쪽 아래 <strong>내 보고서 올리기</strong> 선택</td></tr>
+        <tr><td>서버</td><td>사용자 ID 폴더 생성 → 보고서와 의미 모델 게시 → DB 등록 → 업로드 사용자와 <code>admin</code>에게 열람 권한 부여</td></tr>
+      </tbody>
+    </table>
+
+    <h3>관리자용 CLI</h3>
+    <div class="code-block">
+<span class="cm"># 파일명(확장자 제외)을 보고서 이름으로 사용</span>
+<span class="cmd">python3 scripts/publish_pbix.py scripts/pbxifile/생산현황.pbix</span>
+
+<span class="cm"># 보고서 이름을 직접 지정</span>
+<span class="cmd">python3 scripts/publish_pbix.py scripts/pbxifile/신규.pbix 월간실적</span>
+    </div>
+
+    <h3>게시 후 처리</h3>
+    <table class="info-table" style="margin-bottom:16px;">
+      <thead><tr><th>경우</th><th>동작</th><th>관리자 추가 작업</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>같은 이름의 보고서가 이미 있음</td>
+          <td>업로드 중단</td>
+          <td>기존 항목은 수정하지 않고 다른 이름 사용 안내</td>
+        </tr>
+        <tr>
+          <td>새 보고서</td>
+          <td>새 Report ID 발급</td>
+          <td><span class="badge badge-warn">등록 필요</span> 스크립트가 출력하는 안내대로
+              웹 업로드에서는 DB 등록과 본인 권한 부여까지 자동 처리</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="info-box">
+      일반 사용자는 웹 업로드를 사용한다. <code>publish_pbix.py</code>는 장애 대응이나 공용 보고서 수동 게시용이다.
+      같은 이름이 DB나 Fabric에 이미 있으면 업로드를 중단하며 기존 보고서는 수정하거나 삭제하지 않는다.
+    </div>
+  </div>
+
+  <!-- 의존 패키지 섹션 -->
+  <div class="section" id="packages">
+    <div class="section-title">📦 의존 패키지 설명 (requirements.txt)</div>
+    <table class="info-table">
+      <thead><tr><th>패키지</th><th>버전 제약</th><th>역할 및 선택 이유</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>fastapi</code></td>
+          <td>latest</td>
+          <td>웹 프레임워크. async/await 기반 비동기 처리, 자동 타입 검증, 간결한 라우팅. Flask보다 빠르고 현대적.</td>
+        </tr>
+        <tr>
+          <td><code>uvicorn[standard]</code></td>
+          <td>[standard]</td>
+          <td>ASGI 서버 (FastAPI 실행). <code>[standard]</code>는 <code>websockets</code>·<code>httptools</code> 포함해 성능 최적화.</td>
+        </tr>
+        <tr>
+          <td><code>msal</code></td>
+          <td>latest</td>
+          <td>Microsoft Authentication Library. Azure AD Client Credentials Flow로 서비스 주체 토큰 발급. 토큰 캐시 내장.</td>
+        </tr>
+        <tr>
+          <td><code>jinja2</code></td>
+          <td>latest</td>
+          <td>HTML 템플릿 엔진. FastAPI가 내부적으로 사용. <code>&#123;&#123; user.display_name &#125;&#125;</code> 같은 변수 삽입.</td>
+        </tr>
+        <tr>
+          <td><code>python-dotenv</code></td>
+          <td>latest</td>
+          <td><code>.env</code> 파일을 환경변수로 로드 (<code>load_dotenv()</code>). 코드에 비밀 키를 하드코딩하지 않기 위해 사용.</td>
+        </tr>
+        <tr>
+          <td><code>httpx</code></td>
+          <td>latest</td>
+          <td>비동기 HTTP 클라이언트. Power BI REST API 호출에 사용. <code>async with httpx.AsyncClient()</code>로 비블로킹 I/O.</td>
+        </tr>
+        <tr>
+          <td><code>python-multipart</code></td>
+          <td>latest</td>
+          <td>HTML 폼 데이터 파싱. FastAPI의 <code>Form()</code> 의존성이 이 패키지를 필요로 함. 없으면 POST /login 오류.</td>
+        </tr>
+        <tr>
+          <td><code>itsdangerous</code></td>
+          <td>latest</td>
+          <td>세션 쿠키 서명·검증. Starlette SessionMiddleware가 내부적으로 사용. SECRET_KEY로 쿠키 변조 방지.</td>
+        </tr>
+        <tr>
+          <td><code>psycopg2-binary</code></td>
+          <td>binary</td>
+          <td>PostgreSQL 드라이버. <code>-binary</code>는 컴파일 없이 설치 가능한 사전빌드 버전. <code>RealDictCursor</code>로 결과를 dict로 반환.</td>
+        </tr>
+        <tr>
+          <td><code>bcrypt</code></td>
+          <td>latest</td>
+          <td>비밀번호 해시. <code>bcrypt.hashpw()</code>로 저장, <code>bcrypt.checkpw()</code>로 검증. 원문 복원 불가능한 단방향 해시.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="info-box" style="margin-top:14px;">
+      <strong>설치 방법:</strong> <code>pip install -r requirements.txt</code><br>
+      버전 고정이 없으므로 최신 버전이 설치됩니다. 운영 환경에서는 <code>pip freeze &gt; requirements.lock</code>으로 버전을 고정하는 것을 권장합니다.
+    </div>
+  </div>
+
+  <!-- .env 구조 섹션 -->
+  <div class="section" id="env-config">
+    <div class="section-title">⚙️ 환경 설정 (.env 구조)</div>
+
+    <div class="warn-box" style="margin-bottom:16px;">
+      <strong>.env 파일은 git에 포함되지 않습니다.</strong> (<code>.gitignore</code>로 제외)<br>
+      새 서버 배포 시 <code>.env.example</code>을 복사해 실제 값을 입력해야 합니다: <code>cp .env.example .env</code>
+    </div>
+
+    <table class="info-table">
+      <thead><tr><th>변수명</th><th>그룹</th><th>설명</th><th>어디서 확인하는가</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>TENANT_ID</code></td>
+          <td>Azure AD</td>
+          <td>회사 Azure 테넌트 ID (qualisoft.co.kr)</td>
+          <td>Azure Portal → Azure Active Directory → 개요</td>
+        </tr>
+        <tr>
+          <td><code>CLIENT_ID</code></td>
+          <td>Azure AD</td>
+          <td>앱 등록 클라이언트 ID (PowerBI-Gateway 앱)</td>
+          <td>Azure Portal → 앱 등록 → 해당 앱 → 개요</td>
+        </tr>
+        <tr>
+          <td><code>CLIENT_SECRET</code></td>
+          <td>Azure AD</td>
+          <td>앱 비밀 키. <strong>만료 주의</strong> (보통 12~24개월)</td>
+          <td>Azure Portal → 앱 등록 → 인증서 및 암호 → 새 비밀</td>
+        </tr>
+        <tr>
+          <td><code>WORKSPACE_ID</code></td>
+          <td>Power BI</td>
+          <td>BI_Report 워크스페이스 GUID</td>
+          <td>app.powerbi.com → 워크스페이스 → 설정 → 프리미엄 탭의 워크스페이스 ID</td>
+        </tr>
+        <tr>
+          <td><code>SECRET_KEY</code></td>
+          <td>세션</td>
+          <td>세션 쿠키 서명 키. 임의 문자열. <strong>운영 시 반드시 변경</strong></td>
+          <td>직접 생성: <code>python3 -c "import secrets; print(secrets.token_hex(32))"</code></td>
+        </tr>
+        <tr>
+          <td><code>DB_HOST</code></td>
+          <td>PostgreSQL</td>
+          <td>DB 서버 주소 (기본값: 127.0.0.1)</td>
+          <td>로컬 DB면 127.0.0.1 유지</td>
+        </tr>
+        <tr>
+          <td><code>DB_PORT</code></td>
+          <td>PostgreSQL</td>
+          <td>DB 포트 (기본값: 5432)</td>
+          <td>PostgreSQL 기본 포트</td>
+        </tr>
+        <tr>
+          <td><code>DB_NAME</code></td>
+          <td>PostgreSQL</td>
+          <td>데이터베이스 이름 (powerbi_gateway)</td>
+          <td>DB 생성 시 지정한 이름</td>
+        </tr>
+        <tr>
+          <td><code>DB_USER</code></td>
+          <td>PostgreSQL</td>
+          <td>DB 접속 계정 (test01)</td>
+          <td>DB 생성 시 만든 사용자</td>
+        </tr>
+        <tr>
+          <td><code>DB_PASSWORD</code></td>
+          <td>PostgreSQL</td>
+          <td>DB 비밀번호</td>
+          <td>DB 생성 시 설정한 비밀번호</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>코드에서 읽는 방식</h3>
+    <div class="code-block">
+<span class="cm"># main.py 상단 — load_dotenv()가 .env를 환경변수로 로드</span>
+<span class="kw">from</span> dotenv <span class="kw">import</span> load_dotenv
+load_dotenv()
+
+TENANT_ID     = os.getenv(<span class="st">"TENANT_ID"</span>)
+CLIENT_SECRET = os.getenv(<span class="st">"CLIENT_SECRET"</span>)
+SECRET_KEY    = os.getenv(<span class="st">"SECRET_KEY"</span>)
+<span class="cm"># 32자 미만이거나 없으면 서버 시작 중단</span>
+
+<span class="cm"># 보고서 ID는 report_meta.pbi_report_id에서 조회</span>
+    </div>
+  </div>
+
+  <!-- 9. 사용자 관리 -->
+  <div class="section" id="user-mgmt">
+    <div class="section-title">9️⃣ 사용자 관리 (SQL)</div>
+
+    <div class="info-box" style="margin-bottom:16px;">
+      psql 접속: <code>su - postgres</code> → <code>psql -d powerbi_gateway</code>
+    </div>
+
+    <h3>현재 테스트 계정 (10명)</h3>
+    <table class="info-table">
+      <thead><tr><th>계정</th><th>이름</th><th>접근 가능 보고서</th></tr></thead>
+      <tbody>
+        <tr><td><code>user01~07</code> / pass01~07</td><td>김생산 외 6명</td><td>각 1개 (본인 담당 보고서)</td></tr>
+        <tr><td><code>mgr01</code> / mgr01pw</td><td>생산팀장</td><td>생산현황, 비가동, 불량현황, 달성률 (4개)</td></tr>
+        <tr><td><code>mgr02</code> / mgr02pw</td><td>경영팀장</td><td>관계사, 영업구매, 회계원가 (3개)</td></tr>
+        <tr><td><code>admin</code> / admin123</td><td>관리자</td><td>전체 7개</td></tr>
+      </tbody>
+    </table>
+
+    <h3>사용자 추가</h3>
+    <div class="code-block">
+<span class="cm">-- 1. 비밀번호 해시 생성 (터미널에서)</span>
+<span class="cmd">python3 -c "import bcrypt; print(bcrypt.hashpw(b'새비밀번호', bcrypt.gensalt()).decode())"</span>
+
+<span class="cm">-- 2. 사용자 추가 (psql)</span>
+INSERT INTO users (username, password, display_name, pbi_username, roles)
+VALUES (<span class="st">'hong'</span>, <span class="st">'$2b$12$해시값...'</span>, <span class="st">'홍길동'</span>, <span class="st">'hong@qualisoft.co.kr'</span>, <span class="st">'도메인'</span>);
+
+<span class="cm">-- 3. 보고서 권한 부여</span>
+INSERT INTO user_reports (user_id, report_id)
+VALUES ((SELECT id FROM users WHERE username=<span class="st">'hong'</span>),
+        (SELECT id FROM reports WHERE name=<span class="st">'생산현황'</span>));
+    </div>
+
+    <h3>권한 추가 / 제거</h3>
+    <div class="code-block">
+<span class="cm">-- 권한 추가 (비가동 열람 허용)</span>
+INSERT INTO user_reports (user_id, report_id)
+VALUES ((SELECT id FROM users WHERE username=<span class="st">'user01'</span>),
+        (SELECT id FROM reports WHERE name=<span class="st">'비가동'</span>));
+
+<span class="cm">-- 권한 제거</span>
+DELETE FROM user_reports
+WHERE user_id=(SELECT id FROM users WHERE username=<span class="st">'user01'</span>)
+  AND report_id=(SELECT id FROM reports WHERE name=<span class="st">'비가동'</span>);
+
+<span class="cm">-- 전체 권한 현황 확인</span>
+SELECT u.username, u.display_name, r.name
+FROM user_reports ur
+JOIN users u ON u.id=ur.user_id
+JOIN reports r ON r.id=ur.report_id
+ORDER BY u.username, r.id;
+    </div>
+  </div>
+
+  <!-- 10. 보안 -->
+  <div class="section" id="security">
+    <div class="section-title">🔟 보안 현황</div>
+    <table class="info-table">
+      <thead><tr><th>항목</th><th>현재 상태</th><th>비고</th></tr></thead>
+      <tbody>
+        <tr><td>비밀번호 저장</td><td><span class="badge badge-ok">bcrypt 해시</span></td><td>DB에 $2b$12$... 형태로 저장. 원문 복원 불가</td></tr>
+        <tr><td>세션 쿠키</td><td><span class="badge badge-ok">서명 + 8시간 만료</span></td><td>itsdangerous로 서명. 변조 불가. 8시간 후 자동 만료</td></tr>
+        <tr><td>SECRET_KEY</td><td><span class="badge badge-warn">.env 설정 필요</span></td><td>운영 시 랜덤 문자열로 변경 필수</td></tr>
+        <tr><td>통신 암호화</td><td><span class="badge badge-warn">HTTP (내부망)</span></td><td>외부 노출 시 HTTPS 필수</td></tr>
+        <tr><td>DB 접속</td><td><span class="badge badge-ok">127.0.0.1 전용</span></td><td>외부에서 DB 직접 접근 불가</td></tr>
+        <tr><td>Azure 비밀 키</td><td><span class="badge badge-ok">.env 격리</span></td><td>.gitignore로 git 제외. 파일 권한 600 권장</td></tr>
+      </tbody>
+    </table>
+    <div class="warn-box">
+      <strong>운영 전환 전 필수 체크:</strong><br>
+      1. <code>.env</code>의 SECRET_KEY를 임의의 긴 문자열로 변경<br>
+      2. <code>chmod 600 .env</code>로 파일 권한 제한<br>
+      3. 외부 인터넷 노출 시 HTTPS (nginx + Let's Encrypt) 적용
+    </div>
+  </div>
+
+  <!-- 11. 장애 대응 -->
+  <div class="section" id="trouble">
+    <div class="section-title">1️⃣1️⃣ 장애 대응</div>
+    <table class="info-table">
+      <thead><tr><th>증상</th><th>원인</th><th>해결</th></tr></thead>
+      <tbody>
+        <tr><td>접속 안 됨</td><td>서버 중지</td><td><code>./scripts/server.sh start</code></td></tr>
+        <tr><td>로그인 후 흰 화면</td><td>DB 연결 실패</td><td>PostgreSQL 실행 확인: <code>systemctl status postgresql</code></td></tr>
+        <tr><td>보고서 로드 실패</td><td>Azure 토큰 오류</td><td><code>tail -f logs/server.log</code>에서 에러 확인</td></tr>
+        <tr><td>500 에러</td><td>Power BI API 오류</td><td>WORKSPACE_ID / REPORT_ID 값 확인 (.env)</td></tr>
+        <tr><td>토큰 발급 실패</td><td>CLIENT_SECRET 만료</td><td>Azure Portal에서 새 Secret 발급 → .env 업데이트 → 재시작</td></tr>
+        <tr><td>보고서 빈 화면</td><td>RLS 역할 오류</td><td>users.roles 값이 Fabric 역할명과 일치하는지 확인</td></tr>
+        <tr><td>워크스페이스 401</td><td>서비스 주체 권한 해제</td><td>BI_Report 워크스페이스에 PowerBI-Gateway 서비스 사용자 재추가</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 12. 라이선스 -->
+  <div class="section" id="license">
+    <div class="section-title">1️⃣2️⃣ 라이선스 / 비용</div>
+    <div class="cost-grid" style="margin-bottom:20px;">
+      <div class="cost-card current">
+        <div class="cost-label">현재 방식</div>
+        <div class="cost-title">게이트웨이 (서비스 주체)</div>
+        <div class="cost-price">₩0 / 월 추가비용</div>
+        <div class="cost-desc">기존 Power BI 라이선스 활용<br>내부 업무용 소규모 운영<br>사내 내부망 전용</div>
+      </div>
+      <div class="cost-card">
+        <div class="cost-label">Microsoft 정식 방식</div>
+        <div class="cost-title">Azure Embedded A1</div>
+        <div class="cost-price">$735 / 월</div>
+        <div class="cost-desc">Microsoft 공식 지원<br>약관 위반 리스크 없음<br>손익분기: 직원 약 75명 이상</div>
+      </div>
+    </div>
+    <div class="danger-box">
+      <strong>🔴 반드시 지켜야 할 조건</strong><br><br>
+      • <strong>사내 내부망 전용</strong> — 인터넷에 서버를 공개하면 약관 위반<br>
+      • <strong>읽기 전용</strong> — 데이터 편집 기능 추가 금지<br>
+      • <strong>상업적 재판매 금지</strong> — 외부 고객에게 제공하거나 유료 서비스화 금지<br>
+      • <strong>소규모 운영</strong> — 수백 명 이상 동시 접속 시 Microsoft 감사 대상 가능성
+    </div>
+    <div class="success-box">✅ 현재 운영 조건 (안전한 범위): 사내 내부망 · 읽기 전용 · 업무 목적 · 소규모(100명 이하) · 비공개</div>
+  </div>
+
+  <!-- 추후 고도화 로드맵 섹션 -->
+  <div class="section" id="roadmap">
+    <div class="section-title">🗺️ 추후 고도화 로드맵</div>
+
+    <div class="info-box">
+      현재 시스템은 정상 운영 가능한 상태이며, 아래는 <strong>시간 여유가 있을 때 적용할 개선 항목</strong>이다.
+      위에서부터 보안 영향이 큰 순서.
+    </div>
+
+    <table class="info-table">
+      <thead><tr><th>항목</th><th>내용</th><th>참고</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>HTTPS/TLS 적용</strong></td>
+          <td>현재 HTTP 평문 통신 → nginx 리버스 프록시 + 인증서 적용.
+              로그인 비밀번호와 세션 쿠키가 네트워크에 노출되지 않도록.</td>
+          <td><span class="badge badge-warn">예정</span></td>
+        </tr>
+        <tr>
+          <td><strong>SECRET_KEY 교체</strong></td>
+          <td>운영 전환 시 <code>.env</code>의 SECRET_KEY를 충분히 긴 랜덤 문자열로 교체
+              (<code>python3 -c "import secrets; print(secrets.token_hex(32))"</code>)</td>
+          <td><span class="badge badge-warn">예정</span></td>
+        </tr>
+        <tr>
+          <td><strong>진짜 RLS 전환</strong></td>
+          <td>Fabric 데이터셋에 RLS 역할(DAX 필터 <code>[사번] = USERNAME()</code> 등) 설정 후,
+              DB의 <code>pbi_username</code>을 실제 값(사번/이메일)으로, <code>roles</code>를 해당 역할명으로 변경.
+              데모 계정 <code>rls01</code>로 절차 검증 가능 (RLS 섹션 참고).</td>
+          <td><span class="badge badge-warn">Fabric 작업 필요</span></td>
+        </tr>
+        <tr>
+          <td><strong>게시 자동화 재검토</strong></td>
+          <td>이번에 폐기한 Samba 공유 폴더 + 감시 데몬 방식, 또는 게이트웨이에
+              관리자용 웹 업로드 페이지 추가 방식. 게시 빈도가 늘어나면 재검토.</td>
+          <td><span class="badge badge-warn">보류</span></td>
+        </tr>
+        <tr>
+          <td><strong>Azure Embedded A1 전환 검토</strong></td>
+          <td>이용 직원이 약 75명을 넘으면 정식 라이선스($735/월)가 약관 리스크 대비 유리
+              (라이선스/비용 섹션 참고)</td>
+          <td><span class="badge badge-warn">규모 확대 시</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<footer>Power BI 게이트웨이 · http://192.168.56.10:8082</footer>
+</body>
+</html>
