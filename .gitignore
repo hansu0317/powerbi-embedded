@@ -1,20 +1,38 @@
 # 환경 설정 (비밀 키, DB 비밀번호 등 — 절대 커밋 금지)
 .env
+.env.*
+!.env.example
 
-# Claude Code 내부 설정 파일 (git 제외)
+# Claude Code 내부 설정 파일
 CLAUDE.md
+.claude/
+
+# 문서 (docs/ 는 내부 참고용, git 제외)
+docs/
+
+# 발표 자료 / 바이너리
+*.pptx
+*.ppt
+*.pdf
 
 # Python 캐시
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 token_cache.json
 
 # 서버 런타임 파일
 .server.pid
 logs/
+*.log
 
 # 가상환경
 venv/
 .venv/
 env/
+
+# 기타 임시 파일
+0
+*.tmp
+*.bak
