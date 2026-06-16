@@ -373,13 +373,37 @@
 
     _restoreGroupStates();
 
+    // ── 탭 상태 세션 저장/복원 ──────────────────────────────────────────────────
+    function _saveTabState() {
+      const tabs = Object.entries(openTabs).map(([id, { tabEl }]) => ({
+        id: Number(id),
+        name: tabEl.querySelector('.tab-label').textContent,
+      }));
+      sessionStorage.setItem('open-tabs', JSON.stringify(tabs));
+      sessionStorage.setItem('active-tab', String(activeTab ?? ''));
+    }
+
+    function _restoreTabState() {
+      try {
+        const tabs = JSON.parse(sessionStorage.getItem('open-tabs') || '[]');
+        const savedActive = Number(sessionStorage.getItem('active-tab') || '0');
+        for (const { id, name } of tabs) {
+          createTab(id, name);
+          fetchAndEmbed(id, name);
+        }
+        if (savedActive && openTabs[savedActive]) switchTab(savedActive);
+      } catch (_) {}
+    }
+
     function openReport(reportId, name) {
       if (openTabs[reportId]) {
         switchTab(reportId);
+        _saveTabState();
         return;
       }
       createTab(reportId, name);
       fetchAndEmbed(reportId, name);
+      _saveTabState();
     }
 
     function createTab(reportId, name) {
@@ -433,6 +457,7 @@
       openTabs[reportId].panelEl.classList.add('active');
       activeTab = reportId;
       updateSidebarActive(reportId);
+      sessionStorage.setItem('active-tab', String(reportId));
 
       // 탭이 화면에 보이도록 스크롤
       openTabs[reportId].tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -450,7 +475,6 @@
 
       const remaining = Object.keys(openTabs);
       if (remaining.length > 0) {
-        // 닫힌 탭 오른쪽 탭 또는 마지막 탭으로
         switchTab(remaining[remaining.length - 1]);
       } else {
         activeTab = null;
@@ -458,6 +482,7 @@
         document.getElementById('empty-state').style.display = '';
         updateSidebarActive(null);
       }
+      _saveTabState();
     }
 
     async function fetchAndEmbed(reportId, name) {
@@ -514,6 +539,9 @@
       });
     }
 
+    // 페이지 로드 시 이전에 열었던 탭 복원
+    _restoreTabState();
+
     // ── .pbix 업로드 ──
     document.getElementById('pbix-file').addEventListener('change', async (e) => {
       const file = e.target.files[0];
@@ -539,6 +567,9 @@
 
         status.className = 'upload-status ok';
         status.textContent = `'${data.report_name}' 게시 완료! 목록을 새로고침합니다...`;
+        // 업로드 후 리로드는 새 보고서 목록을 받아야 하므로 탭 상태 초기화
+        sessionStorage.removeItem('open-tabs');
+        sessionStorage.removeItem('active-tab');
         setTimeout(() => location.reload(), 1500);
       } catch (err) {
         status.className = 'upload-status err';
