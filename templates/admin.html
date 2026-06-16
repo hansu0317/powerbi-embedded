@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>관리자 포털 - Power BI 게이트웨이</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; height: 100vh; background: #f0f2f5; }
+
+    header {
+      background: #0078d4;
+      color: white;
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    .header-right { display: flex; align-items: center; gap: 12px; font-size: 0.85rem; }
+    .hdr-btn {
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.35);
+      color: white;
+      padding: 5px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .hdr-btn:hover { background: rgba(255,255,255,0.3); }
+    .hdr-btn.yellow { background: rgba(255,200,0,0.22); border-color: rgba(255,200,0,0.5); }
+
+    .layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* 사이드바 */
+    .sidebar {
+      width: 200px;
+      background: #1e1e2e;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .sidebar-title {
+      padding: 18px 16px 10px;
+      font-size: 0.70rem;
+      font-weight: 600;
+      color: #666;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .sidebar-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 16px;
+      color: #ccc;
+      font-size: 0.88rem;
+      border-left: 3px solid transparent;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+      user-select: none;
+    }
+    .sidebar-item:hover { background: rgba(255,255,255,0.07); color: white; }
+    .sidebar-item.active {
+      background: rgba(0,120,212,0.22);
+      color: #60b4ff;
+      border-left-color: #0078d4;
+    }
+
+    /* 메인 콘텐츠 */
+    .content { flex: 1; overflow-y: auto; overflow-x: hidden; min-width: 0; padding: 28px 32px; }
+
+    .section { display: none; }
+    .section.active { display: block; }
+
+    h2 { font-size: 1.1rem; font-weight: 600; color: #333; margin-bottom: 20px; }
+
+    /* 통계 카드 */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .stat-card {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    }
+    .stat-card .label { font-size: 0.75rem; color: #888; margin-bottom: 8px; }
+    .stat-card .value { font-size: 2rem; font-weight: 700; color: #0078d4; }
+    .stat-card .sub { font-size: 0.72rem; color: #aaa; margin-top: 4px; }
+
+    /* 시스템 정보 */
+    .info-box {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+      margin-bottom: 24px;
+      font-size: 0.85rem;
+    }
+    .info-row { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid #f2f2f2; }
+    .info-row:last-child { border: none; }
+    .info-key { width: 160px; color: #888; flex-shrink: 0; }
+    .info-val { color: #333; font-weight: 500; word-break: break-all; }
+
+    /* 테이블 공통 */
+    .table-wrap { background: white; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); overflow-x: auto; margin-bottom: 28px; }
+    table { width: 100%; min-width: 600px; border-collapse: collapse; font-size: 0.84rem; table-layout: fixed; }
+    thead { background: #f7f9fc; }
+    th { padding: 11px 14px; text-align: left; color: #666; font-weight: 600; font-size: 0.76rem; letter-spacing: 0.04em; border-bottom: 1px solid #eee; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    td { padding: 10px 14px; border-bottom: 1px solid #f2f2f2; color: #333; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    tr:last-child td { border: none; }
+    tr:hover td { background: #fafbff; }
+
+    /* 폼 영역 */
+    .form-box {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+      padding: 24px;
+      margin-bottom: 28px;
+    }
+    .form-box h3 { font-size: 0.9rem; font-weight: 600; color: #333; margin-bottom: 16px; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 0.75rem; color: #666; margin-bottom: 4px; font-weight: 500; }
+    .form-group input, .form-group select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 0.85rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .form-group input:focus, .form-group select:focus { border-color: #0078d4; }
+
+    .btn {
+      padding: 8px 18px;
+      border-radius: 5px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.84rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #0078d4; color: white; }
+    .btn-danger  { background: #d93025; color: white; }
+    .btn-warn    { background: #e6a817; color: white; }
+    .btn-sm { padding: 4px 12px; font-size: 0.76rem; }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .pill.active  { background: #eafaf1; color: #1a7a3c; }
+    .pill.inactive{ background: #fff3f3; color: #b91c1c; }
+    .pill.admin   { background: #fff8e0; color: #8a6400; }
+    .pill.ok      { background: #eafaf1; color: #1a7a3c; }
+    .pill.fail    { background: #fff3f3; color: #b91c1c; }
+    .pill.pending { background: #f0f4ff; color: #3050a0; }
+
+    .toast {
+      position: fixed; top: 20px; right: 24px;
+      padding: 12px 20px; border-radius: 6px;
+      font-size: 0.85rem; font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      z-index: 9999; opacity: 0; transform: translateY(-8px);
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.ok  { background: #eafaf1; color: #1a7a3c; border: 1px solid #a3d9a3; }
+    .toast.err { background: #fff3f3; color: #b91c1c; border: 1px solid #fca5a5; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚙ 관리자 포털</h1>
+    <div class="header-right">
+      <span>{{ user.display_name }}</span>
+      <a href="/" class="hdr-btn yellow">보고서 뷰어</a>
+      <a href="/logout" class="hdr-btn">로그아웃</a>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">관리 메뉴</div>
+      <div class="sidebar-item active" onclick="showSection('overview', this)"><span>🏠</span>현황</div>
+      <div class="sidebar-item" onclick="showSection('users', this)"><span>👥</span>사용자</div>
+      <div class="sidebar-item" onclick="showSection('reports', this)"><span>📊</span>보고서</div>
+      <div class="sidebar-item" onclick="showSection('jobs', this)"><span>📋</span>업로드 이력</div>
+      <div class="sidebar-item" onclick="showSection('system', this)"><span>🛠</span>시스템</div>
+    </nav>
+
+    <div class="content">
+
+      <!-- 현황 -->
+      <div class="section active" id="section-overview">
+        <h2>현황</h2>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="label">활성 사용자</div>
+            <div class="value">{{ stats.active_users }}</div>
+            <div class="sub">계정 비활성 제외</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">활성 보고서</div>
+            <div class="value">{{ stats.active_reports }}</div>
+            <div class="sub">삭제·아카이브 제외</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">오늘 업로드</div>
+            <div class="value">{{ stats.today_uploads }}</div>
+            <div class="sub">성공 {{ stats.today_success }}건</div>
+          </div>
+        </div>
+
+        <h2>최근 업로드</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>사용자</th><th>보고서명</th><th>상태</th><th>일시</th></tr></thead>
+            <tbody>
+              {% for j in jobs[:10] %}
+              <tr>
+                <td>#{{ j.id }}</td>
+                <td>{{ j.username }}</td>
+                <td>{{ j.report_name }}</td>
+                <td>
+                  {% if j.status == 'completed' %}<span class="pill ok">완료</span>
+                  {% elif j.status in ('publishing','accepted','pbi_succeeded') %}<span class="pill pending">진행 중</span>
+                  {% else %}<span class="pill fail">{{ j.status }}</span>
+                  {% endif %}
+                </td>
+                <td>{{ j.created_at.strftime('%m-%d %H:%M') if j.created_at else '-' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 사용자 -->
+      <div class="section" id="section-users">
+        <h2>사용자 관리</h2>
+
+        <div class="form-box">
+          <h3>새 사용자 추가</h3>
+          <form id="add-user-form" onsubmit="submitAddUser(event)">
+            <input type="hidden" name="csrf" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>아이디 *</label>
+                <input name="username" required placeholder="login_id">
+              </div>
+              <div class="form-group">
+                <label>비밀번호 * (8자 이상)</label>
+                <input name="password" type="password" required placeholder="••••••••">
+              </div>
+              <div class="form-group">
+                <label>표시 이름 *</label>
+                <input name="display_name" required placeholder="홍길동">
+              </div>
+              <div class="form-group">
+                <label>PBI 사용자명 (RLS 식별자)</label>
+                <input name="pbi_username" placeholder="아이디와 동일하면 공란">
+              </div>
+              <div class="form-group">
+                <label>역할 (RLS)</label>
+                <input name="roles" value="도메인">
+              </div>
+              <div class="form-group">
+                <label>관리자 권한</label>
+                <select name="is_admin">
+                  <option value="false">일반 사용자</option>
+                  <option value="true">관리자</option>
+                </select>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">사용자 추가</button>
+          </form>
+        </div>
+
+        <div class="table-wrap">
+          <table id="users-table" style="min-width:700px;">
+            <colgroup>
+              <col style="width:44px">
+              <col style="width:130px">
+              <col style="width:110px">
+              <col style="width:130px">
+              <col style="width:80px">
+              <col style="width:60px">
+              <col style="width:130px">
+              <col style="width:70px">
+              <col style="width:100px">
+            </colgroup>
+            <thead><tr>
+              <th>ID</th><th>아이디</th><th>표시 이름</th><th>PBI 사용자명</th>
+              <th>역할</th><th>보고서</th><th>마지막 로그인</th><th>상태</th><th>액션</th>
+            </tr></thead>
+            <tbody>
+              {% for u in users %}
+              <tr id="user-row-{{ u.id }}">
+                <td>{{ u.id }}</td>
+                <td>
+                  {{ u.username }}
+                  {% if u.is_admin %}<span class="pill admin" style="margin-left:4px">관리자</span>{% endif %}
+                </td>
+                <td>{{ u.display_name }}</td>
+                <td>{{ u.pbi_username }}</td>
+                <td>{{ u.roles }}</td>
+                <td>{{ u.report_count }}</td>
+                <td>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else '-' }}</td>
+                <td>
+                  <span class="pill {{ 'active' if u.is_active else 'inactive' }}" id="user-status-{{ u.id }}">
+                    {{ '활성' if u.is_active else '비활성' }}
+                  </span>
+                </td>
+                <td>
+                  {% if u.username != 'admin' %}
+                  <button class="btn btn-warn btn-sm" onclick="toggleUser({{ u.id }})">활성/비활성</button>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 보고서 -->
+      <div class="section" id="section-reports">
+        <h2>보고서 관리</h2>
+        <div class="table-wrap">
+          <table style="min-width:700px;">
+            <colgroup>
+              <col style="width:50px">
+              <col style="width:200px">
+              <col style="width:60px">
+              <col style="width:110px">
+              <col style="width:80px">
+              <col style="width:70px">
+              <col style="width:100px">
+              <col style="width:80px">
+            </colgroup>
+            <thead><tr>
+              <th>ID</th><th>보고서명</th><th>유형</th><th>소유자</th>
+              <th>열람 수</th><th>상태</th><th>등록일</th><th>액션</th>
+            </tr></thead>
+            <tbody>
+              {% for r in reports %}
+              <tr id="report-row-{{ r.id }}">
+                <td>{{ r.id }}</td>
+                <td title="{{ r.name }}">{{ r.name }}</td>
+                <td>{{ '공용' if r.report_type == 'managed' else '개인' }}</td>
+                <td title="{{ r.owner_username or '-' }}">{{ r.owner_username or '-' }}</td>
+                <td>{{ r.viewer_count }}</td>
+                <td>
+                  {% if r.status == 'active' %}<span class="pill active">활성</span>
+                  {% elif r.status == 'deleted' %}<span class="pill inactive">삭제됨</span>
+                  {% else %}<span class="pill pending">{{ r.status }}</span>
+                  {% endif %}
+                </td>
+                <td>{{ r.created_at.strftime('%Y-%m-%d') if r.created_at else '-' }}</td>
+                <td>
+                  {% if r.status != 'deleted' %}
+                  <button class="btn btn-danger btn-sm" onclick="deleteReport({{ r.id }}, '{{ r.name }}')">삭제</button>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 업로드 이력 -->
+      <div class="section" id="section-jobs">
+        <h2>업로드 이력 (최근 30건)</h2>
+        <div class="table-wrap">
+          <table style="min-width:700px;">
+            <colgroup>
+              <col style="width:54px">
+              <col style="width:100px">
+              <col style="width:160px">
+              <col style="width:80px">
+              <col>
+              <col style="width:100px">
+              <col style="width:100px">
+            </colgroup>
+            <thead><tr><th>ID</th><th>사용자</th><th>보고서명</th><th>상태</th><th>오류</th><th>시작</th><th>갱신</th></tr></thead>
+            <tbody>
+              {% for j in jobs %}
+              <tr>
+                <td>#{{ j.id }}</td>
+                <td>{{ j.username }}</td>
+                <td>{{ j.report_name }}</td>
+                <td>
+                  {% if j.status == 'completed' %}<span class="pill ok">완료</span>
+                  {% elif j.status in ('publishing','accepted','pbi_succeeded') %}<span class="pill pending">진행 중</span>
+                  {% else %}<span class="pill fail">{{ j.status }}</span>
+                  {% endif %}
+                </td>
+                <td style="font-size:0.76rem;color:#b91c1c;" title="{{ j.error_message or '' }}">{{ j.error_message or '-' }}</td>
+                <td>{{ j.created_at.strftime('%m-%d %H:%M') if j.created_at else '-' }}</td>
+                <td>{{ j.updated_at.strftime('%m-%d %H:%M') if j.updated_at else '-' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 시스템 -->
+      <div class="section" id="section-system">
+        <h2>시스템 정보</h2>
+        <div class="info-box">
+          <div class="info-row">
+            <span class="info-key">운영 모드</span>
+            <span class="info-val">Power BI Pro (공유 용량)</span>
+          </div>
+          <div class="info-row">
+            <span class="info-key">활성 사용자</span>
+            <span class="info-val">{{ stats.active_users }}명</span>
+          </div>
+          <div class="info-row">
+            <span class="info-key">활성 보고서</span>
+            <span class="info-val">{{ stats.active_reports }}건</span>
+          </div>
+          <div class="info-row">
+            <span class="info-key">오늘 업로드</span>
+            <span class="info-val">{{ stats.today_uploads }}건 (성공 {{ stats.today_success }}건)</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const csrfToken = {{ csrf_token|tojson }};
+
+    function showSection(name, el) {
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.sidebar-item').forEach(s => s.classList.remove('active'));
+      document.getElementById('section-' + name).classList.add('active');
+      el.classList.add('active');
+    }
+
+    function showToast(msg, type) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast show ' + type;
+      setTimeout(() => { t.classList.remove('show'); }, 3000);
+    }
+
+    async function submitAddUser(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = new FormData(form);
+      const res = await fetch('/api/admin/users/add', { method: 'POST', body: data });
+      if (res.ok) {
+        showToast('사용자가 추가되었습니다. 페이지를 새로고침해 확인하세요.', 'ok');
+        form.reset();
+        form.querySelector('[name=roles]').value = '도메인';
+      } else {
+        const j = await res.json().catch(() => ({}));
+        showToast('오류: ' + (j.detail || res.statusText), 'err');
+      }
+    }
+
+    async function toggleUser(userId) {
+      const res = await fetch('/api/admin/users/' + userId + '/toggle-active', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrfToken },
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const pill = document.getElementById('user-status-' + userId);
+        pill.textContent = j.is_active ? '활성' : '비활성';
+        pill.className = 'pill ' + (j.is_active ? 'active' : 'inactive');
+        showToast(j.is_active ? '계정이 활성화됐습니다.' : '계정이 비활성화됐습니다.', 'ok');
+      } else {
+        const j = await res.json().catch(() => ({}));
+        showToast('오류: ' + (j.detail || res.statusText), 'err');
+      }
+    }
+
+    async function deleteReport(reportId, name) {
+      if (!confirm('"' + name + '" 보고서를 삭제(소프트)하시겠습니까?')) return;
+      const res = await fetch('/api/admin/reports/' + reportId + '/delete', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrfToken },
+      });
+      if (res.ok) {
+        const row = document.getElementById('report-row-' + reportId);
+        const statusCell = row.cells[5];
+        statusCell.innerHTML = '<span class="pill inactive">삭제됨</span>';
+        const actionCell = row.cells[7];
+        actionCell.innerHTML = '';
+        showToast('"' + name + '" 보고서가 삭제됐습니다.', 'ok');
+      } else {
+        const j = await res.json().catch(() => ({}));
+        showToast('오류: ' + (j.detail || res.statusText), 'err');
+      }
+    }
+  </script>
+</body>
+</html>

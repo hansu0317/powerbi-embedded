@@ -57,13 +57,14 @@ def migrate():
             )
             cur.execute(
                 """CREATE TABLE IF NOT EXISTS report_meta (
-                    report_id INTEGER PRIMARY KEY REFERENCES reports(id) ON DELETE CASCADE,
-                    pbi_report_id VARCHAR(50) NOT NULL,
-                    pbi_workspace_id VARCHAR(36),
-                    pbi_dataset_id VARCHAR(36),
-                    fabric_folder_id VARCHAR(36),
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    report_id        INTEGER PRIMARY KEY REFERENCES reports(id) ON DELETE CASCADE,
+                    pbi_report_id    VARCHAR(50)  NOT NULL,   -- Power BI 보고서 ID
+                    pbi_workspace_id VARCHAR(36),             -- Power BI 워크스페이스 ID
+                    pbi_dataset_id   VARCHAR(36),             -- Power BI 데이터셋 ID
+                    pbi_display_name VARCHAR(105),            -- 워크스페이스 표시 이름 (username__name)
+                    folder_id        VARCHAR(36),             -- [Fabric only] 사용자 폴더 ID, Pro 모드는 NULL
+                    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )"""
             )
             cur.execute(
@@ -140,21 +141,54 @@ def migrate():
                     viewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )"""
             )
+            # 런타임 설정 — 코드 재배포 없이 관리자가 관리자 포털 또는 SQL로 변경 가능
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS app_config (
+                    key         VARCHAR(64) PRIMARY KEY,
+                    value       TEXT        NOT NULL,
+                    description TEXT,
+                    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )"""
+            )
 
             # ── 2. 기존 서버 보강 (컬럼이 없으면 추가) ───────────────────────
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE")
             cur.execute("UPDATE users SET is_admin = TRUE WHERE username = 'admin'")
-            # 계정 활성화 여부 — FALSE 시 로그인 차단 (계정 삭제 없이 비활성화)
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
-            # 계정 생성·수정 시각
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
-            # 마지막 로그인 시각 — 휴면 계정 탐지, 보안 감사용
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ")
             cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
             cur.execute("ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pbi_workspace_id VARCHAR(36)")
-            # 어떤 upload_job이 어떤 report를 만들었는지 추적
             cur.execute("ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS report_id INTEGER REFERENCES reports(id) ON DELETE SET NULL")
+
+            # report_meta: 컬럼 이름 정규화 (Fabric 전용 명칭 → 공통 명칭, 멱등)
+            cur.execute(
+                """DO $$
+                   BEGIN
+                     IF EXISTS (SELECT 1 FROM information_schema.columns
+                                WHERE table_name='report_meta' AND column_name='fabric_folder_id') THEN
+                       ALTER TABLE report_meta RENAME COLUMN fabric_folder_id TO folder_id;
+                     END IF;
+                     IF EXISTS (SELECT 1 FROM information_schema.columns
+                                WHERE table_name='report_meta' AND column_name='fabric_display_name') THEN
+                       ALTER TABLE report_meta RENAME COLUMN fabric_display_name TO pbi_display_name;
+                     END IF;
+                   END $$"""
+            )
+            cur.execute("ALTER TABLE report_meta ADD COLUMN IF NOT EXISTS pbi_display_name VARCHAR(105)")
+            cur.execute("ALTER TABLE report_meta ADD COLUMN IF NOT EXISTS folder_id VARCHAR(36)")
+            # 불필요 컬럼 제거 (로컬 디스크 저장 방식 폐기)
+            cur.execute("ALTER TABLE report_meta DROP COLUMN IF EXISTS local_file_path")
+
+            # app_config 키 이름 정규화 (fabric_ → pbi_, 기존 값 이관 후 구키 삭제)
+            cur.execute(
+                """INSERT INTO app_config (key, value, description)
+                   SELECT 'pbi_sync_interval', value, description
+                   FROM app_config WHERE key = 'fabric_sync_interval'
+                   ON CONFLICT (key) DO NOTHING"""
+            )
+            cur.execute("DELETE FROM app_config WHERE key = 'fabric_sync_interval'")
 
             # ── 3. 레거시 정리 (Sys_PbiReport 이관 잔재 — 사용 코드 없음) ────
             cur.execute("DROP INDEX IF EXISTS reports_source_key_uidx")
@@ -192,11 +226,15 @@ def migrate():
             # 진행 중인 같은 이름의 업로드는 사용자당 1건만 허용.
             # 'completed'는 제외 — 완료 후 Fabric에서 삭제했다가 같은 이름으로
             # 다시 올리는 흐름을 막지 않는다 (살아있는 중복은 reports 인덱스가 막음).
+            # upload_jobs: fabric_succeeded → pbi_succeeded 상태 이관
+            cur.execute("UPDATE upload_jobs SET status='pbi_succeeded' WHERE status='fabric_succeeded'")
+
             cur.execute("DROP INDEX IF EXISTS upload_jobs_active_name_uidx")
+            cur.execute("DROP INDEX IF EXISTS upload_jobs_inflight_name_uidx")
             cur.execute(
                 """CREATE UNIQUE INDEX IF NOT EXISTS upload_jobs_inflight_name_uidx
                    ON upload_jobs (user_id, LOWER(report_name))
-                   WHERE status IN ('publishing', 'accepted', 'unknown', 'fabric_succeeded', 'db_failed')"""
+                   WHERE status IN ('publishing', 'accepted', 'unknown', 'pbi_succeeded', 'db_failed')"""
             )
             cur.execute("CREATE INDEX IF NOT EXISTS user_reports_report_idx ON user_reports (report_id)")
             cur.execute(
@@ -231,7 +269,34 @@ def migrate():
                 "CREATE INDEX IF NOT EXISTS report_views_user_idx ON report_views (user_id, viewed_at)"
             )
 
-            # ── 5. 시퀀스 복구 (초기 데이터를 명시적 ID로 넣은 DB 대비) ──────
+            # ── 5. app_config 기본값 씨드 (없는 키만 INSERT) ─────────────────
+            # use_fabric 키 제거 (Pro 전용으로 고정)
+            cur.execute("DELETE FROM app_config WHERE key = 'use_fabric'")
+
+            defaults = [
+                ("max_pbix_size_mb",         "1024", "업로드 허용 최대 파일 크기 (MB). Power BI Import API 한도 1 GB."),
+                ("max_uploads_per_day",       "10",  "사용자당 하루 업로드 최대 횟수."),
+                ("max_personal_reports",      "20",  "사용자당 개인 보고서 최대 등록 수."),
+                ("report_name_max_len",       "50",  "보고서 이름 최대 글자 수."),
+                ("password_min_len",           "8",  "사용자 비밀번호 최소 글자 수."),
+                ("pbi_sync_interval",        "600",  "PBI 삭제 동기화 주기 (초). 0 이면 자동 동기화 비활성."),
+                ("login_block_max_fail",       "5",  "로그인 실패 N회 초과 시 IP+계정 차단."),
+                ("login_block_minutes",       "15",  "로그인 차단 유지 시간 (분)."),
+                ("import_poll_max",          "100",  "게시 완료 대기 최대 횟수 (import_poll_interval_sec 간격)."),
+                ("import_poll_interval_sec",   "3",  "게시 상태 조회 간격 (초). 기본 3초 × 100회 = 최대 5분 대기."),
+                ("embed_token_lifetime_min",  "60",  "임베드 토큰 유효 시간 (분). Power BI 기본값 60분."),
+                ("pbi_token_cache_margin_sec","300", "Azure AD 토큰 만료 N초 전에 갱신. 기본 5분."),
+                ("max_embed_rls_roles",       "10",  "GenerateToken 시 identity에 담을 RLS 역할 최대 개수."),
+            ]
+            for key, value, desc in defaults:
+                cur.execute(
+                    """INSERT INTO app_config (key, value, description)
+                       VALUES (%s, %s, %s)
+                       ON CONFLICT (key) DO NOTHING""",
+                    (key, value, desc),
+                )
+
+            # ── 6. 시퀀스 복구 (초기 데이터를 명시적 ID로 넣은 DB 대비) ──────
             cur.execute(
                 """
                 SELECT setval(

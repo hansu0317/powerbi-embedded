@@ -1,0 +1,219 @@
+"""보고서 열람·업로드 라우트: /, /api/embed, /api/upload, /health, /docs."""
+import asyncio
+import io
+import logging
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+import httpx
+import psycopg2
+from fastapi import APIRouter, File, Form, UploadFile
+from fastapi.requests import Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from config import (
+    WORKSPACE_ID,
+    MAX_PBIX_SIZE, REPORT_NAME_MAX_LEN,
+    IMPORT_POLL_MAX, IMPORT_POLL_INTERVAL,
+)
+from database import (
+    db_get_reports, db_find_report, db_reserve_upload,
+    db_update_upload_job, db_register_report, db_record_view, db_health_check,
+)
+from deps import current_user, csrf_token, verify_csrf
+from errors import AppError
+from services.azure import get_access_token
+from services.powerbi import get_embed_token, pbi_rename_report, pbi_rename_dataset
+
+router = APIRouter()
+templates = Jinja2Templates(directory="templates")
+logger = logging.getLogger("powerbi-gateway")
+
+
+@router.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    user = await current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    return templates.TemplateResponse(request, "report.html", {
+        "user":    user,
+        "reports": await asyncio.to_thread(db_get_reports, user["username"]),
+        "csrf_token": csrf_token(request),
+    })
+
+
+@router.get("/health")
+async def health():
+    try:
+        await asyncio.to_thread(db_health_check)
+    except psycopg2.Error:
+        raise AppError.DB_UNAVAILABLE.http()
+    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+
+
+@router.get("/docs", response_class=HTMLResponse)
+async def docs(request: Request):
+    user = await current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    if not user["is_admin"]:
+        raise AppError.FORBIDDEN_ADMIN.http()
+    return templates.TemplateResponse(request, "docs.html", {})
+
+
+@router.get("/api/embed/{report_id}")
+async def api_embed(request: Request, report_id: int):
+    ip = request.client.host
+    user = await current_user(request)
+    if not user:
+        logger.warning("EMBED DENY | user=미로그인       | ip=%s | report_id=%s", ip, report_id)
+        raise AppError.NOT_AUTHENTICATED.http()
+    allowed_ids = {row["id"] for row in await asyncio.to_thread(db_get_reports, user["username"])}
+    if report_id not in allowed_ids:
+        logger.warning("EMBED DENY | user=%-12s | ip=%s | report_id=%s (권한없음)", user["username"], ip, report_id)
+        raise AppError.FORBIDDEN_REPORT.http()
+    logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
+    result = await get_embed_token(report_id, user["pbi_username"], user["roles"])
+    asyncio.create_task(asyncio.to_thread(db_record_view, report_id, user["id"]))
+    return result
+
+
+@router.post("/api/upload")
+async def api_upload(request: Request, file: UploadFile = File(...), report_name: str = Form("")):
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    try:
+        return await _process_upload(request, file, report_name)
+    except Exception as exc:
+        if hasattr(exc, "status_code"):  # HTTPException
+            raise
+        logger.exception("UPLOAD UNEXPECTED FAIL | file=%s", file.filename)
+        raise AppError.UPLOAD_INTERNAL.http() from exc
+
+
+async def _process_upload(request: Request, file: UploadFile, report_name: str):
+    ip   = request.client.host
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+
+    if not file.filename or not file.filename.lower().endswith(".pbix"):
+        raise AppError.FILE_WRONG_TYPE.http()
+
+    name = report_name.strip() or Path(file.filename).stem.strip()
+    if not name or len(name) > REPORT_NAME_MAX_LEN:
+        raise AppError.NAME_INVALID.http(max=REPORT_NAME_MAX_LEN)
+
+    if await asyncio.to_thread(db_find_report, user["id"], name):
+        raise AppError.REPORT_NAME_CONFLICT.http(name=name)
+
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    if not file_size:
+        raise AppError.FILE_EMPTY.http()
+    if file_size > MAX_PBIX_SIZE:
+        raise AppError.FILE_TOO_LARGE.http(max_mb=MAX_PBIX_SIZE // (1024 * 1024))
+    if file.file.read(4)[:2] != b"PK":
+        raise AppError.FILE_INVALID_CONTENT.http()
+    file.file.seek(0)
+
+    pbix_bytes = await asyncio.to_thread(file.file.read)
+
+    logger.info("UPLOAD START | user=%-12s | ip=%s | report=%s | bytes=%s", user["username"], ip, name, file_size)
+
+    job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name)
+    logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s", user["username"], name, job_id)
+
+    try:
+        access_token = await asyncio.to_thread(get_access_token)
+    except Exception as exc:
+        await asyncio.to_thread(db_update_upload_job, job_id, "failed", error_message=f"token: {exc}")
+        raise
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    # 1) .pbix 신규 게시
+    import_name   = f"{user['username']}__{name}__{uuid.uuid4().hex[:12]}"
+    import_params = {"datasetDisplayName": f"{import_name}.pbix", "nameConflict": "Abort"}
+
+    async with httpx.AsyncClient(timeout=300) as client:
+        pbi_api = f"https://api.powerbi.com/v1.0/myorg/groups/{WORKSPACE_ID}"
+        try:
+            resp = await client.post(
+                f"{pbi_api}/imports", params=import_params, headers=headers,
+                files={"file": (f"{import_name}.pbix", io.BytesIO(pbix_bytes), "application/octet-stream")},
+            )
+        except httpx.RequestError as exc:
+            await asyncio.to_thread(db_update_upload_job, job_id, "unknown", error_message=f"import request: {exc}")
+            raise AppError.IMPORT_UNCONFIRMED.http() from exc
+
+        if resp.status_code == 409:
+            await asyncio.to_thread(db_update_upload_job, job_id, "conflict", error_message="name conflict")
+            raise AppError.IMPORT_NAME_CONFLICT.http()
+        if resp.status_code not in (200, 202):
+            await asyncio.to_thread(db_update_upload_job, job_id, "failed", error_message=f"import HTTP {resp.status_code}")
+            logger.warning("UPLOAD FAIL| user=%-12s | ip=%s | report=%s (%s)", user["username"], ip, name, resp.status_code)
+            raise AppError.IMPORT_REQUEST_FAILED.http(detail=resp.text)
+
+        import_id = resp.json()["id"]
+        await asyncio.to_thread(db_update_upload_job, job_id, "accepted", import_id=import_id, pbi_workspace_id=WORKSPACE_ID)
+        logger.info("UPLOAD ACCEPT | user=%-12s | report=%s | import_id=%s", user["username"], name, import_id)
+
+        # 2) 변환 완료 대기
+        for _ in range(IMPORT_POLL_MAX):
+            await asyncio.sleep(IMPORT_POLL_INTERVAL)
+            resp = await client.get(f"{pbi_api}/imports/{import_id}", headers=headers)
+            if resp.status_code != 200:
+                await asyncio.to_thread(db_update_upload_job, job_id, "unknown", error_message=f"poll HTTP {resp.status_code}")
+                raise AppError.IMPORT_POLL_FAILED.http(detail=resp.text)
+            result = resp.json()
+            state  = result.get("importState")
+            if state == "Succeeded":
+                break
+            if state == "Failed":
+                await asyncio.to_thread(db_update_upload_job, job_id, "failed", error_message=str(result.get("error")))
+                raise AppError.IMPORT_FAILED.http(detail=str(result.get("error")))
+        else:
+            await asyncio.to_thread(db_update_upload_job, job_id, "unknown", error_message="poll timeout")
+            raise AppError.IMPORT_TIMEOUT.http()
+
+    reports = result.get("reports", [])
+    if not reports:
+        await asyncio.to_thread(db_update_upload_job, job_id, "unknown", error_message="no report in response")
+        raise AppError.IMPORT_NO_REPORT.http()
+
+    pbi_report_id    = reports[0]["id"]
+    dataset_ids      = [d["id"] for d in result.get("datasets", [])]
+    pbi_display_name = f"{user['username']}__{name}"
+    rename_warning   = None
+
+    try:
+        await pbi_rename_report(WORKSPACE_ID, pbi_report_id, pbi_display_name)
+        for ds_id in dataset_ids:
+            await pbi_rename_dataset(WORKSPACE_ID, ds_id, pbi_display_name)
+        logger.info("UPLOAD RENAME OK | user=%-12s | display=%s", user["username"], pbi_display_name)
+    except Exception as exc:
+        pbi_display_name = import_name
+        rename_warning = f"rename failed (UUID name kept): {exc}"
+        logger.warning("UPLOAD RENAME WARN | user=%s | report=%s | error=%s", user["username"], name, exc)
+
+    await asyncio.to_thread(db_update_upload_job, job_id, "pbi_succeeded",
+                            pbi_report_id=pbi_report_id, error_message=rename_warning)
+    logger.info("UPLOAD PBI OK | user=%-12s | report=%s | pbi_report_id=%s", user["username"], name, pbi_report_id)
+
+    # 3) 게이트웨이 DB 등록
+    try:
+        gateway_report_id = await asyncio.to_thread(
+            db_register_report, name, pbi_report_id, user["id"],
+            dataset_ids[0] if dataset_ids else None,
+            WORKSPACE_ID, pbi_display_name,
+        )
+    except psycopg2.Error as exc:
+        await asyncio.to_thread(db_update_upload_job, job_id, "db_failed", error_message=str(exc))
+        logger.exception("UPLOAD DB FAIL | user=%s | report=%s | pbi_report_id=%s", user["username"], name, pbi_report_id)
+        raise AppError.UPLOAD_DB_FAILED.http() from exc
+
+    await asyncio.to_thread(db_update_upload_job, job_id, "completed", report_id=gateway_report_id)
+    logger.info("UPLOAD OK  | user=%-12s | ip=%s | report=%s", user["username"], ip, name)
+    return {"report_name": name, "pbi_display_name": pbi_display_name, "new": True}

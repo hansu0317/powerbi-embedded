@@ -40,12 +40,19 @@
     /* 사이드바 */
     .sidebar {
       width: 200px;
+      min-width: 200px;   /* 스크롤바 생겨도 너비 고정 */
       background: #1e1e2e;
       flex-shrink: 0;
       display: flex;
       flex-direction: column;
       overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.15) transparent;
     }
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+    .sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
     .sidebar-title {
       padding: 18px 16px 10px;
       font-size: 0.70rem;
@@ -239,6 +246,9 @@
     <h1>Power BI 보고서 뷰어</h1>
     <div class="user-info">
       <span>{{ user.display_name }}</span>
+      {% if user.is_admin %}
+      <a href="/admin" class="logout-btn" style="background:rgba(255,200,0,0.22);border-color:rgba(255,200,0,0.5);">관리자</a>
+      {% endif %}
       <a href="/logout" class="logout-btn">로그아웃</a>
     </div>
   </header>
@@ -340,7 +350,28 @@
 
     function toggleGroup(id) {
       document.getElementById(id).classList.toggle('collapsed');
+      _saveGroupStates();
     }
+
+    function _saveGroupStates() {
+      const states = {};
+      document.querySelectorAll('.sidebar-group').forEach(g => {
+        if (g.id) states[g.id] = g.classList.contains('collapsed');
+      });
+      sessionStorage.setItem('sb-groups', JSON.stringify(states));
+    }
+
+    function _restoreGroupStates() {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem('sb-groups') || '{}');
+        Object.entries(saved).forEach(([id, collapsed]) => {
+          const el = document.getElementById(id);
+          if (el) el.classList.toggle('collapsed', collapsed);
+        });
+      } catch (_) {}
+    }
+
+    _restoreGroupStates();
 
     function openReport(reportId, name) {
       if (openTabs[reportId]) {
