@@ -1,5 +1,6 @@
 """PostgreSQL 커넥션 풀 + 모든 DB 쿼리 함수."""
 import logging
+import os
 from contextlib import contextmanager
 
 import bcrypt
@@ -14,8 +15,6 @@ from config import (
     LOGIN_BLOCK_MAX_FAIL, LOGIN_BLOCK_MINUTES,
 )
 from errors import AppError
-
-import os
 
 logger = logging.getLogger("powerbi-gateway")
 
@@ -55,12 +54,7 @@ def db_conn():
 def db_health_check():
     with db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """SELECT COUNT(*)
-                   FROM reports r
-                   JOIN report_meta m ON m.report_id = r.id
-                   LEFT JOIN users u ON u.id = r.owner_id"""
-            )
+            cur.execute("SELECT 1")
 
 
 # ── 인증 ─────────────────────────────────────────────────────────────────────
@@ -145,6 +139,21 @@ def db_get_reports(username: str) -> list:
                 (username,),
             )
             return cur.fetchall()
+
+
+def db_can_view_report(username: str, report_id: int) -> bool:
+    """사용자가 해당 보고서를 열람할 수 있는지 단건 조회."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT 1 FROM user_reports ur
+                   JOIN reports r ON r.id = ur.report_id
+                   JOIN users   u ON u.id = ur.user_id
+                   WHERE u.username = %s AND ur.report_id = %s
+                     AND ur.can_view = TRUE AND r.status = 'active'""",
+                (username, report_id),
+            )
+            return cur.fetchone() is not None
 
 
 def db_get_report(report_id: int):

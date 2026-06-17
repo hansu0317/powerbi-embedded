@@ -18,7 +18,7 @@ from config import (
     IMPORT_POLL_MAX, IMPORT_POLL_INTERVAL,
 )
 from database import (
-    db_get_reports, db_find_report, db_reserve_upload,
+    db_get_reports, db_can_view_report, db_find_report, db_reserve_upload,
     db_update_upload_job, db_register_report, db_record_view, db_health_check,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
@@ -70,8 +70,7 @@ async def api_embed(request: Request, report_id: int):
     if not user:
         logger.warning("EMBED DENY | user=미로그인       | ip=%s | report_id=%s", ip, report_id)
         raise AppError.NOT_AUTHENTICATED.http()
-    allowed_ids = {row["id"] for row in await asyncio.to_thread(db_get_reports, user["username"])}
-    if report_id not in allowed_ids:
+    if not await asyncio.to_thread(db_can_view_report, user["username"], report_id):
         logger.warning("EMBED DENY | user=%-12s | ip=%s | report_id=%s (권한없음)", user["username"], ip, report_id)
         raise AppError.FORBIDDEN_REPORT.http()
     logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
@@ -97,12 +96,10 @@ async def api_upload(request: Request, file: UploadFile = File(...), report_name
         raise AppError.UPLOAD_INTERNAL.http() from exc
 
 
-async def _process_upload(request: Request, file: UploadFile, report_name: str):
-    ip   = request.client.host
-    user = await current_user(request)
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
-
+async def _read_and_validate_pbix(
+    file: UploadFile, report_name: str, user_id: int
+) -> tuple[str, bytes, int]:
+    """파일 검증 후 (report_name, pbix_bytes, file_size) 반환."""
     if not file.filename or not file.filename.lower().endswith(".pbix"):
         raise AppError.FILE_WRONG_TYPE.http()
 
@@ -110,7 +107,7 @@ async def _process_upload(request: Request, file: UploadFile, report_name: str):
     if not name or len(name) > REPORT_NAME_MAX_LEN:
         raise AppError.NAME_INVALID.http(max=REPORT_NAME_MAX_LEN)
 
-    if await asyncio.to_thread(db_find_report, user["id"], name):
+    if await asyncio.to_thread(db_find_report, user_id, name):
         raise AppError.REPORT_NAME_CONFLICT.http(name=name)
 
     file.file.seek(0, 2)
@@ -124,7 +121,43 @@ async def _process_upload(request: Request, file: UploadFile, report_name: str):
         raise AppError.FILE_INVALID_CONTENT.http()
     file.file.seek(0)
 
-    pbix_bytes = await asyncio.to_thread(file.file.read)
+    return name, await asyncio.to_thread(file.file.read), file_size
+
+
+async def _rename_with_retry(
+    workspace_id: str, pbi_report_id: str, dataset_ids: list[str],
+    display_name: str, fallback_name: str, username: str,
+) -> tuple[str, str | None]:
+    """보고서·데이터셋 이름 변경. 최대 5회 시도, 최종 실패 시 (fallback_name, warning) 반환."""
+    await asyncio.sleep(8)  # PBI가 import 직후 보고서를 활성화하는 데 시간이 걸림
+    final_name = display_name
+    warning    = None
+    for attempt in range(5):
+        if attempt > 0:
+            await asyncio.sleep(5)
+        try:
+            await pbi_rename_report(workspace_id, pbi_report_id, display_name)
+            for ds_id in dataset_ids:
+                await pbi_rename_dataset(workspace_id, ds_id, display_name)
+            logger.info("UPLOAD RENAME OK | user=%-12s | display=%s (attempt=%s)", username, display_name, attempt + 1)
+            return display_name, None
+        except Exception as exc:
+            if attempt < 3:
+                logger.warning("UPLOAD RENAME RETRY | user=%s | attempt=%s | error=%s", username, attempt + 1, exc)
+            else:
+                final_name = fallback_name
+                warning    = f"rename failed after 4 attempts: {exc}"
+                logger.warning("UPLOAD RENAME WARN | user=%s | display=%s | error=%s", username, display_name, exc)
+    return final_name, warning
+
+
+async def _process_upload(request: Request, file: UploadFile, report_name: str):
+    ip   = request.client.host
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+
+    name, pbix_bytes, file_size = await _read_and_validate_pbix(file, report_name, user["id"])
 
     logger.info("UPLOAD START | user=%-12s | ip=%s | report=%s | bytes=%s", user["username"], ip, name, file_size)
 
@@ -191,26 +224,9 @@ async def _process_upload(request: Request, file: UploadFile, report_name: str):
     pbi_report_id    = reports[0]["id"]
     dataset_ids      = [d["id"] for d in result.get("datasets", [])]
     pbi_display_name = f"{user['username']}__{name}"
-    rename_warning   = None
-
-    # import 직후 PBI가 report를 활성화하는 데 시간이 걸리므로 초기 대기 후 재시도한다.
-    await asyncio.sleep(8)
-    for attempt in range(5):
-        if attempt > 0:
-            await asyncio.sleep(5)
-        try:
-            await pbi_rename_report(WORKSPACE_ID, pbi_report_id, pbi_display_name)
-            for ds_id in dataset_ids:
-                await pbi_rename_dataset(WORKSPACE_ID, ds_id, pbi_display_name)
-            logger.info("UPLOAD RENAME OK | user=%-12s | display=%s (attempt=%s)", user["username"], pbi_display_name, attempt + 1)
-            break
-        except Exception as exc:
-            if attempt < 3:
-                logger.warning("UPLOAD RENAME RETRY | user=%s | attempt=%s | error=%s", user["username"], attempt + 1, exc)
-            else:
-                pbi_display_name = import_name
-                rename_warning = f"rename failed after 4 attempts: {exc}"
-                logger.warning("UPLOAD RENAME WARN | user=%s | report=%s | error=%s", user["username"], name, exc)
+    pbi_display_name, rename_warning = await _rename_with_retry(
+        WORKSPACE_ID, pbi_report_id, dataset_ids, pbi_display_name, import_name, user["username"]
+    )
 
     await asyncio.to_thread(db_update_upload_job, job_id, "pbi_succeeded",
                             pbi_report_id=pbi_report_id, error_message=rename_warning)
