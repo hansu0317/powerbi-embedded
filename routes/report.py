@@ -2,7 +2,6 @@
 import asyncio
 import io
 import logging
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +24,7 @@ from database import (
 from deps import current_user, csrf_token, verify_csrf
 from errors import AppError
 from services.azure import get_access_token
+from services.fabric_folders import get_or_create_folder, move_item_to_folder
 from services.powerbi import get_embed_token, pbi_rename_report, pbi_rename_dataset
 
 router = APIRouter()
@@ -76,7 +76,12 @@ async def api_embed(request: Request, report_id: int):
         raise AppError.FORBIDDEN_REPORT.http()
     logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
     result = await get_embed_token(report_id, user["pbi_username"], user["roles"])
-    asyncio.create_task(asyncio.to_thread(db_record_view, report_id, user["id"]))
+    async def _record_view():
+        try:
+            await asyncio.to_thread(db_record_view, report_id, user["id"])
+        except Exception:
+            logger.exception("RECORD VIEW FAIL | report_id=%s | user=%s", report_id, user["username"])
+    asyncio.create_task(_record_view())
     return result
 
 
@@ -134,8 +139,8 @@ async def _process_upload(request: Request, file: UploadFile, report_name: str):
     headers = {"Authorization": f"Bearer {access_token}"}
 
     # 1) .pbix 신규 게시
-    import_name   = f"{user['username']}__{name}__{uuid.uuid4().hex[:12]}"
-    import_params = {"datasetDisplayName": f"{import_name}.pbix", "nameConflict": "Abort"}
+    import_name   = f"{user['username']}__{name}"
+    import_params = {"datasetDisplayName": f"{import_name}.pbix", "nameConflict": "CreateOrOverwrite"}
 
     async with httpx.AsyncClient(timeout=300) as client:
         pbi_api = f"https://api.powerbi.com/v1.0/myorg/groups/{WORKSPACE_ID}"
@@ -188,21 +193,44 @@ async def _process_upload(request: Request, file: UploadFile, report_name: str):
     pbi_display_name = f"{user['username']}__{name}"
     rename_warning   = None
 
-    try:
-        await pbi_rename_report(WORKSPACE_ID, pbi_report_id, pbi_display_name)
-        for ds_id in dataset_ids:
-            await pbi_rename_dataset(WORKSPACE_ID, ds_id, pbi_display_name)
-        logger.info("UPLOAD RENAME OK | user=%-12s | display=%s", user["username"], pbi_display_name)
-    except Exception as exc:
-        pbi_display_name = import_name
-        rename_warning = f"rename failed (UUID name kept): {exc}"
-        logger.warning("UPLOAD RENAME WARN | user=%s | report=%s | error=%s", user["username"], name, exc)
+    # import 직후 PBI가 report를 활성화하는 데 시간이 걸리므로 초기 대기 후 재시도한다.
+    await asyncio.sleep(8)
+    for attempt in range(5):
+        if attempt > 0:
+            await asyncio.sleep(5)
+        try:
+            await pbi_rename_report(WORKSPACE_ID, pbi_report_id, pbi_display_name)
+            for ds_id in dataset_ids:
+                await pbi_rename_dataset(WORKSPACE_ID, ds_id, pbi_display_name)
+            logger.info("UPLOAD RENAME OK | user=%-12s | display=%s (attempt=%s)", user["username"], pbi_display_name, attempt + 1)
+            break
+        except Exception as exc:
+            if attempt < 3:
+                logger.warning("UPLOAD RENAME RETRY | user=%s | attempt=%s | error=%s", user["username"], attempt + 1, exc)
+            else:
+                pbi_display_name = import_name
+                rename_warning = f"rename failed after 4 attempts: {exc}"
+                logger.warning("UPLOAD RENAME WARN | user=%s | report=%s | error=%s", user["username"], name, exc)
 
     await asyncio.to_thread(db_update_upload_job, job_id, "pbi_succeeded",
                             pbi_report_id=pbi_report_id, error_message=rename_warning)
     logger.info("UPLOAD PBI OK | user=%-12s | report=%s | pbi_report_id=%s", user["username"], name, pbi_report_id)
 
-    # 3) 게이트웨이 DB 등록
+    # /* fabric */
+    # 3) Fabric 사용자 폴더로 이동 (비치명적 — 실패해도 보고서 기능에 영향 없음)
+    folder_id = await get_or_create_folder(WORKSPACE_ID, user["username"])
+    if folder_id:
+        items = [pbi_report_id] + dataset_ids
+        results = await asyncio.gather(
+            *[move_item_to_folder(WORKSPACE_ID, iid, folder_id) for iid in items],
+            return_exceptions=True,
+        )
+        moved = sum(1 for r in results if r is True)
+        logger.info("FOLDER MOVE | user=%-12s | moved=%d/%d", user["username"], moved, len(items))
+    else:
+        logger.warning("FOLDER UNAVAILABLE | user=%s | report will stay at workspace root", user["username"])
+
+    # 4) 게이트웨이 DB 등록
     try:
         gateway_report_id = await asyncio.to_thread(
             db_register_report, name, pbi_report_id, user["id"],
