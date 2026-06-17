@@ -62,13 +62,14 @@ az webapp config appsettings set \
     DB_POOL_MIN=2 \
     DB_POOL_MAX=10 \
     COOKIE_SECURE=true \
-    FABRIC_SYNC_INTERVAL=600
+    FABRIC_SYNC_INTERVAL=600 \
+    WEBSITES_PORT=8247
 
 echo "7. 시작 명령어 설정"
 az webapp config set \
   --name $APP_NAME \
   --resource-group $RESOURCE_GROUP \
-  --startup-file "python3 scripts/migrate_report_meta.py && uvicorn main:app --host 0.0.0.0 --port 8000"
+  --startup-file "python3 scripts/migrate_report_meta.py && uvicorn main:app --host 0.0.0.0 --port 8247"
 
 echo ""
 echo "✅ 완료"

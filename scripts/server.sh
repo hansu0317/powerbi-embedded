@@ -31,10 +31,10 @@ start() {
     fi
     rotate_log
     cd "$PROJECT_ROOT"
-    setsid -f $PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8082 \
+    setsid -f $PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8247 \
         </dev/null > "$LOG_FILE" 2>&1
     sleep 2
-    PID=$(pgrep -n -f "$PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8082")
+    PID=$(pgrep -n -f "$PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8247")
     if [ -z "$PID" ]; then
         echo "서버 시작 실패. 로그를 확인하세요: $LOG_FILE"
         return 1
@@ -43,7 +43,7 @@ start() {
     # 시작 시 복구 작업 때문에 포트 바인딩이 늦을 수 있어 최대 15초까지 재시도한다.
     HEALTHY=""
     for _ in $(seq 1 15); do
-        if curl -fsS --max-time 3 http://127.0.0.1:8082/health >/dev/null 2>&1; then
+        if curl -fsS --max-time 3 http://127.0.0.1:8247/health >/dev/null 2>&1; then
             HEALTHY=1
             break
         fi

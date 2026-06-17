@@ -15,7 +15,7 @@ COPY templates/ templates/
 RUN mkdir -p logs
 
 # 포트
-EXPOSE 8082
+EXPOSE 8247
 
 # 시작 시 마이그레이션 실행 후 서버 기동
-CMD ["sh", "-c", "python3 scripts/migrate_report_meta.py && uvicorn main:app --host 0.0.0.0 --port 8082 --workers 2"]
+CMD ["sh", "-c", "python3 scripts/migrate_report_meta.py && uvicorn main:app --host 0.0.0.0 --port 8247 --workers 2"]

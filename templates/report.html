@@ -255,63 +255,74 @@
 
   <div class="layout">
     <nav class="sidebar">
-      {% if user.is_admin %}
-        {# 관리자: 공용 / 개인(사용자별 그룹) 트리 구조 #}
-        {% set managed = reports | selectattr('report_type', 'equalto', 'managed') | list %}
-        {% set personal = reports | selectattr('report_type', 'equalto', 'personal') | list %}
+      {# 공용 / 내 보고서 / 공유받은 보고서 3-섹션 트리 — 관리자·일반 사용자 공통 #}
+      {% set managed  = reports | selectattr('report_type', 'equalto', 'managed') | list %}
+      {% set mine     = reports | selectattr('report_type', 'equalto', 'personal')
+                                | selectattr('owner_username', 'equalto', user.username) | list %}
+      {% set shared   = reports | selectattr('report_type', 'equalto', 'personal')
+                                | rejectattr('owner_username', 'equalto', user.username) | list %}
 
-        {% if managed %}
-        <div class="sidebar-group" id="group-managed">
-          <div class="sidebar-group-header" onclick="toggleGroup('group-managed')">
-            <span class="sidebar-group-arrow">▼</span> 공용 보고서
-          </div>
-          <div class="sidebar-group-body">
-            {% for report in managed %}
-            <div class="sidebar-item" data-report-id="{{ report['id'] }}" onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
-              <span>📊</span>{{ report['name'] }}
-            </div>
-            {% endfor %}
-          </div>
+      {% if managed %}
+      <div class="sidebar-group" id="group-managed">
+        <div class="sidebar-group-header" onclick="toggleGroup('group-managed')">
+          <span class="sidebar-group-arrow">▼</span> 공용 보고서
         </div>
-        {% endif %}
-
-        {% if personal %}
-        <div class="sidebar-group" id="group-personal">
-          <div class="sidebar-group-header" onclick="toggleGroup('group-personal')">
-            <span class="sidebar-group-arrow">▼</span> 개인 보고서
+        <div class="sidebar-group-body">
+          {% for report in managed %}
+          <div class="sidebar-item" data-report-id="{{ report['id'] }}" onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
+            <span>📊</span>{{ report['name'] }}
           </div>
-          <div class="sidebar-group-body">
-            {% set ns = namespace(cur_owner='') %}
-            {% for report in personal | sort(attribute='owner_username') %}
-              {% if report['owner_username'] != ns.cur_owner %}
-                {% set ns.cur_owner = report['owner_username'] %}
-                {% set owner_group_id = 'owner-' ~ report['owner_username'] %}
-                <div class="sidebar-group" id="{{ owner_group_id }}" style="margin-left:0">
-                  <div class="sidebar-group-header" style="padding-left:28px; font-size:0.68rem" onclick="toggleGroup('{{ owner_group_id }}')">
-                    <span class="sidebar-group-arrow">▼</span> {{ report['owner_username'] }}
-                  </div>
-                  <div class="sidebar-group-body">
-              {% endif %}
-              <div class="sidebar-item" style="padding-left:44px" data-report-id="{{ report['id'] }}" onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
-                <span>📁</span>{{ report['name'] }}
-              </div>
-              {% if loop.last or (loop.nextitem is defined and loop.nextitem['owner_username'] != report['owner_username']) %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if mine %}
+      <div class="sidebar-group" id="group-mine">
+        <div class="sidebar-group-header" onclick="toggleGroup('group-mine')">
+          <span class="sidebar-group-arrow">▼</span> 내 보고서
+        </div>
+        <div class="sidebar-group-body">
+          {% for report in mine %}
+          <div class="sidebar-item" data-report-id="{{ report['id'] }}" onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
+            <span>📁</span>{{ report['name'] }}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if shared %}
+      <div class="sidebar-group" id="group-shared">
+        <div class="sidebar-group-header" onclick="toggleGroup('group-shared')">
+          <span class="sidebar-group-arrow">▼</span> 공유받은 보고서
+        </div>
+        <div class="sidebar-group-body">
+          {% set ns = namespace(cur_owner='') %}
+          {% for report in shared | sort(attribute='owner_username') %}
+            {% if report['owner_username'] != ns.cur_owner %}
+              {% if ns.cur_owner != '' %}
                   </div>{# sidebar-group-body #}
                 </div>{# owner group #}
               {% endif %}
-            {% endfor %}
-          </div>
+              {% set ns.cur_owner = report['owner_username'] %}
+              {% set owner_group_id = 'shared-' ~ report['owner_username'] %}
+              <div class="sidebar-group" id="{{ owner_group_id }}" style="margin-left:0">
+                <div class="sidebar-group-header" style="padding-left:28px; font-size:0.68rem" onclick="toggleGroup('{{ owner_group_id }}')">
+                  <span class="sidebar-group-arrow">▼</span> {{ report['owner_username'] }}
+                </div>
+                <div class="sidebar-group-body">
+            {% endif %}
+            <div class="sidebar-item" style="padding-left:44px" data-report-id="{{ report['id'] }}" onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
+              <span>📁</span>{{ report['name'] }}
+            </div>
+            {% if loop.last %}
+                </div>{# sidebar-group-body #}
+              </div>{# owner group #}
+            {% endif %}
+          {% endfor %}
         </div>
-        {% endif %}
-
-      {% else %}
-        {# 일반 사용자: 단순 목록 #}
-        <div class="sidebar-title">보고서</div>
-        {% for report in reports %}
-        <div class="sidebar-item" data-report-id="{{ report['id'] }}" onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
-          <span>📊</span>{{ report['name'] }}
-        </div>
-        {% endfor %}
+      </div>
       {% endif %}
 
       <div class="sidebar-upload">
