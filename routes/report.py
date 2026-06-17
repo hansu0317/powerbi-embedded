@@ -21,7 +21,7 @@ from database import (
     db_get_reports, db_find_report, db_reserve_upload,
     db_update_upload_job, db_register_report, db_record_view, db_health_check,
 )
-from deps import current_user, csrf_token, verify_csrf
+from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError
 from services.azure import get_access_token
 from services.fabric_folders import get_or_create_folder, move_item_to_folder
@@ -65,7 +65,7 @@ async def docs(request: Request):
 
 @router.get("/api/embed/{report_id}")
 async def api_embed(request: Request, report_id: int):
-    ip = request.client.host
+    ip = get_client_ip(request)
     user = await current_user(request)
     if not user:
         logger.warning("EMBED DENY | user=미로그인       | ip=%s | report_id=%s", ip, report_id)

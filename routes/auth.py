@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from database import db_login_allowed, db_authenticate, db_record_login
-from deps import current_user, csrf_token, verify_csrf
+from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError
 
 router = APIRouter()
@@ -28,7 +28,7 @@ async def login_page(request: Request):
 @router.post("/login", response_class=HTMLResponse)
 async def login(request: Request, username: str = Form(), password: str = Form(), csrf: str = Form()):
     verify_csrf(request, csrf)
-    ip = request.client.host
+    ip = get_client_ip(request)
     if not await asyncio.to_thread(db_login_allowed, username, ip):
         logger.warning("LOGIN BLOCK | user=%-12s | ip=%s", username, ip)
         return templates.TemplateResponse(request, "login.html", {
@@ -58,6 +58,6 @@ async def login(request: Request, username: str = Form(), password: str = Form()
 async def logout(request: Request):
     user = await current_user(request)
     if user:
-        logger.info("LOGOUT     | user=%-12s | ip=%s", user["username"], request.client.host)
+        logger.info("LOGOUT     | user=%-12s | ip=%s", user["username"], get_client_ip(request))
     request.session.clear()
     return RedirectResponse("/login", status_code=302)

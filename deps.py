@@ -35,3 +35,11 @@ def require_admin(user):
         raise AppError.NOT_AUTHENTICATED.http()
     if not user["is_admin"]:
         raise AppError.FORBIDDEN_ADMIN.http()
+
+
+def get_client_ip(request: Request) -> str:
+    """실제 클라이언트 IP 반환. 리버스 프록시 뒤에서는 X-Forwarded-For 첫 번째 값 사용."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host
