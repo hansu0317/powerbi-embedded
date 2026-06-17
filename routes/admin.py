@@ -9,15 +9,17 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from config import PASSWORD_MIN_LEN
+from config import PASSWORD_MIN_LEN, WORKSPACE_ID
 from database import (
     db_admin_get_stats, db_admin_get_users, db_admin_add_user,
     db_admin_toggle_user_active, db_admin_get_reports,
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
+    db_get_report, db_get_report_access, db_set_report_access,
 )
 from deps import current_user, csrf_token, verify_csrf, require_admin
 from errors import AppError
 from services.fabric import sync_pbi_reports
+from services.powerbi import pbi_delete_report
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -91,11 +93,51 @@ async def api_admin_toggle_user(request: Request, user_id: int):
 
 @router.post("/api/admin/reports/{report_id}/delete")
 async def api_admin_delete_report(request: Request, report_id: int):
+    """PBI 워크스페이스에서 실제 삭제 후 DB 소프트 삭제."""
     verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     user = await current_user(request)
     require_admin(user)
+
+    report = await asyncio.to_thread(db_get_report, report_id)
+
+    pbi_warning = None
+    if report and report.get("pbi_report_id"):
+        ws_id = report.get("pbi_workspace_id") or WORKSPACE_ID
+        try:
+            await pbi_delete_report(ws_id, report["pbi_report_id"])
+        except Exception as exc:
+            pbi_warning = str(exc)
+            logger.warning("PBI DELETE WARN | report_id=%s | error=%s", report_id, exc)
+
     deleted = await asyncio.to_thread(db_admin_soft_delete_report, report_id, user["id"])
     if not deleted:
         raise AppError.REPORT_ALREADY_DELETED.http()
+
     logger.info("ADMIN DELETE REPORT | admin=%s | report_id=%s", user["username"], report_id)
-    return {"deleted": True}
+    result = {"deleted": True}
+    if pbi_warning:
+        result["pbi_warning"] = pbi_warning
+    return result
+
+
+@router.get("/api/admin/reports/{report_id}/access")
+async def api_admin_get_access(request: Request, report_id: int):
+    """보고서의 사용자별 열람 권한 현황 조회."""
+    user = await current_user(request)
+    require_admin(user)
+    access = await asyncio.to_thread(db_get_report_access, report_id)
+    return {"users": [dict(row) for row in access]}
+
+
+@router.post("/api/admin/reports/{report_id}/access/{user_id}")
+async def api_admin_set_access(request: Request, report_id: int, user_id: int):
+    """보고서에 대한 특정 사용자의 열람 권한을 설정한다."""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    require_admin(user)
+    body = await request.json()
+    can_view = bool(body.get("can_view", False))
+    await asyncio.to_thread(db_set_report_access, report_id, user_id, can_view, user["id"])
+    logger.info("ADMIN ACCESS | admin=%s | report_id=%s | user_id=%s | can_view=%s",
+                user["username"], report_id, user_id, can_view)
+    return {"can_view": can_view}

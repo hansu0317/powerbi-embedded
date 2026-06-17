@@ -36,7 +36,13 @@ async def login(request: Request, username: str = Form(), password: str = Form()
             "csrf_token": csrf_token(request),
         }, status_code=AppError.LOGIN_RATE_LIMIT.status)
     user = await asyncio.to_thread(db_authenticate, username, password)
-    await asyncio.to_thread(db_record_login, username, ip, bool(user))
+    await asyncio.to_thread(db_record_login, username, ip, isinstance(user, dict))
+    if user == "inactive":
+        logger.warning("LOGIN INACTIVE | user=%-12s | ip=%s", username, ip)
+        return templates.TemplateResponse(request, "login.html", {
+            "error": "계정이 비활성화되었습니다. 관리자에게 문의하세요.",
+            "csrf_token": csrf_token(request),
+        })
     if not user:
         logger.warning("LOGIN FAIL | user=%-12s | ip=%s", username, ip)
         return templates.TemplateResponse(request, "login.html", {

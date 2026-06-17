@@ -66,12 +66,14 @@ def db_health_check():
 # ── 인증 ─────────────────────────────────────────────────────────────────────
 
 def db_authenticate(username: str, password: str):
-    """아이디+비밀번호 확인 후 사용자 정보 반환. 불일치하거나 비활성 계정이면 None."""
+    """아이디+비밀번호 확인 후 사용자 정보 반환.
+    반환값: user dict(성공) / "inactive"(비활성 계정) / None(아이디·비밀번호 불일치)
+    """
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, username, display_name, pbi_username, roles, password, is_admin "
-                "FROM users WHERE username = %s AND is_active = TRUE",
+                "SELECT id, username, display_name, pbi_username, roles, password, is_admin, is_active "
+                "FROM users WHERE username = %s",
                 (username,),
             )
             row = cur.fetchone()
@@ -79,6 +81,8 @@ def db_authenticate(username: str, password: str):
         return None
     if not bcrypt.checkpw(password.encode(), row["password"].encode()):
         return None
+    if not row["is_active"]:
+        return "inactive"
     return row
 
 
@@ -494,6 +498,41 @@ def db_admin_get_upload_jobs(limit: int = 30) -> list:
                 (limit,),
             )
             return cur.fetchall()
+
+
+def db_get_report_access(report_id: int) -> list:
+    """보고서에 대한 모든 활성 사용자의 열람 권한 현황을 반환한다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT u.id, u.username, u.display_name, u.is_admin,
+                          COALESCE(ur.can_view, FALSE) AS can_view
+                   FROM users u
+                   LEFT JOIN user_reports ur ON ur.user_id = u.id AND ur.report_id = %s
+                   WHERE u.is_active = TRUE
+                   ORDER BY u.is_admin DESC, u.username""",
+                (report_id,),
+            )
+            return cur.fetchall()
+
+
+def db_set_report_access(report_id: int, user_id: int, can_view: bool, granted_by: int) -> None:
+    """보고서에 대한 특정 사용자의 열람 권한을 설정한다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            if can_view:
+                cur.execute(
+                    """INSERT INTO user_reports (user_id, report_id, can_view, granted_by)
+                       VALUES (%s, %s, TRUE, %s)
+                       ON CONFLICT (user_id, report_id) DO UPDATE SET can_view = TRUE, granted_by = EXCLUDED.granted_by""",
+                    (user_id, report_id, granted_by),
+                )
+            else:
+                cur.execute(
+                    "UPDATE user_reports SET can_view = FALSE WHERE user_id = %s AND report_id = %s",
+                    (user_id, report_id),
+                )
+        conn.commit()
 
 
 def db_update_app_config(key: str, value: str) -> None:

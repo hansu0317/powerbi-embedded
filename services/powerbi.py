@@ -96,6 +96,20 @@ async def pbi_rename_report(workspace_id: str, report_id: str, new_name: str) ->
             resp.raise_for_status()
 
 
+async def pbi_delete_report(workspace_id: str, report_id: str) -> None:
+    """Power BI 워크스페이스에서 보고서를 삭제한다. 이미 없으면(404) 조용히 무시한다."""
+    token = await asyncio.to_thread(get_access_token)
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.delete(
+            f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/reports/{report_id}",
+            headers=headers,
+        )
+        if resp.status_code == 404:
+            return
+        resp.raise_for_status()
+
+
 async def pbi_rename_dataset(workspace_id: str, dataset_id: str, new_name: str) -> None:
     """표준 PBI REST API로 데이터셋 이름을 변경한다. 409 시 ValueError('name_conflict:...') 발생."""
     token = await asyncio.to_thread(get_access_token)
