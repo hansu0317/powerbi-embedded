@@ -142,12 +142,9 @@ async def _rename_with_retry(
             logger.info("UPLOAD RENAME OK | user=%-12s | display=%s (attempt=%s)", username, display_name, attempt + 1)
             return display_name, None
         except Exception as exc:
-            if attempt < 3:
-                logger.warning("UPLOAD RENAME RETRY | user=%s | attempt=%s | error=%s", username, attempt + 1, exc)
-            else:
-                final_name = fallback_name
-                warning    = f"rename failed after 4 attempts: {exc}"
+            if attempt == 4:
                 logger.warning("UPLOAD RENAME WARN | user=%s | display=%s | error=%s", username, display_name, exc)
+                return fallback_name, f"rename failed after 5 attempts: {exc}"
     return final_name, warning
 
 
