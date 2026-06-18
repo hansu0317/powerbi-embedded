@@ -114,7 +114,7 @@ def register_report(
     pbi_report_id: str,
     pbi_dataset_id: str | None,
     pbi_workspace_id: str,
-    fabric_folder_id: str | None,
+    folder_id: str | None,
     actor_id: int,
 ):
     cur.execute(
@@ -126,9 +126,9 @@ def register_report(
     report_id = cur.fetchone()["id"]
     cur.execute(
         """INSERT INTO report_meta (report_id, pbi_report_id, pbi_workspace_id,
-                                    pbi_dataset_id, fabric_folder_id)
+                                    pbi_dataset_id, folder_id)
            VALUES (%s, %s, %s, %s, %s)""",
-        (report_id, pbi_report_id, pbi_workspace_id, pbi_dataset_id, fabric_folder_id),
+        (report_id, pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id),
     )
     cur.execute("INSERT INTO report_settings (report_id) VALUES (%s)", (report_id,))
     cur.execute("INSERT INTO report_rls (report_id) VALUES (%s)", (report_id,))
@@ -216,7 +216,7 @@ def main():
                     pbi_report_id=r["id"],
                     pbi_dataset_id=r.get("datasetId"),
                     pbi_workspace_id=WORKSPACE_ID,
-                    fabric_folder_id=folder_id,
+                    folder_id=folder_id,
                     actor_id=actor_id,
                 )
                 if grant_ids:
