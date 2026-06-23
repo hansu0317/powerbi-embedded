@@ -14,6 +14,7 @@ from database import (
     db_admin_get_stats, db_admin_get_users, db_admin_add_user,
     db_admin_toggle_user_active, db_admin_get_reports,
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
+    db_admin_set_category,
     db_get_report, db_get_report_access, db_set_report_access,
 )
 from deps import current_user, csrf_token, verify_csrf, require_admin
@@ -118,6 +119,19 @@ async def api_admin_delete_report(request: Request, report_id: int):
     if pbi_warning:
         result["pbi_warning"] = pbi_warning
     return result
+
+
+@router.post("/api/admin/reports/{report_id}/category")
+async def api_admin_set_category(request: Request, report_id: int):
+    """공용 보고서의 카테고리를 변경한다."""
+    user = await current_user(request)
+    require_admin(user)
+    body = await request.json()
+    category = (body.get("category") or "").strip() or None
+    await asyncio.to_thread(db_admin_set_category, report_id, category, user["id"])
+    logger.info("ADMIN CATEGORY | admin=%s | report_id=%s | category=%s",
+                user["username"], report_id, category)
+    return {"category": category}
 
 
 @router.get("/api/admin/reports/{report_id}/access")

@@ -1,23 +1,22 @@
 """
 Fabric 워크스페이스에 이미 있는 보고서를 게이트웨이 DB에 등록하는 스크립트.
 
-on-prem 서버 최초 구축 시나리오:
-  Fabric에 "SECO" 같은 폴더로 보고서가 이미 올라가 있을 때, 그것들을 managed 타입으로
-  DB에 등록해 게이트웨이 웹에서 열람할 수 있게 한다.
-
 사용법:
-    python3 scripts/import_fabric_reports.py [--folder SECO] [--dry-run]
+    python3 scripts/import_fabric_reports.py [--folder 제조] [--dry-run]
 
-    --folder FOLDER  : 특정 폴더 이름만 등록 (생략 시 워크스페이스 루트 전체)
+    --folder FOLDER  : 특정 폴더만 등록 (생략 시 모든 폴더 자동 순회)
     --dry-run        : DB에 쓰지 않고 목록만 출력
     --grant USER     : 등록한 보고서에 열람 권한 부여할 사용자명 (여러 번 사용 가능)
 
 예시:
-    # SECO 폴더 보고서를 전부 등록하고 user01, user02에게 권한 부여
-    python3 scripts/import_fabric_reports.py --folder SECO --grant user01 --grant user02
+    # 워크스페이스의 모든 폴더(제조/화학/경제 등)를 카테고리로 자동 등록
+    python3 scripts/import_fabric_reports.py
+
+    # 제조 폴더만 등록하고 user01에게 권한 부여
+    python3 scripts/import_fabric_reports.py --folder 제조 --grant user01
 
     # 먼저 뭐가 있는지 확인
-    python3 scripts/import_fabric_reports.py --folder SECO --dry-run
+    python3 scripts/import_fabric_reports.py --dry-run
 """
 
 import argparse
@@ -115,13 +114,14 @@ def register_report(
     pbi_dataset_id: str | None,
     pbi_workspace_id: str,
     folder_id: str | None,
+    category: str | None,
     actor_id: int,
 ):
     cur.execute(
-        """INSERT INTO reports (name, report_type, owner_id, status, created_by, updated_by)
-           VALUES (%s, 'managed', NULL, 'active', %s, %s)
+        """INSERT INTO reports (name, report_type, owner_id, status, category, created_by, updated_by)
+           VALUES (%s, 'managed', NULL, 'active', %s, %s, %s)
            RETURNING id""",
-        (name, actor_id, actor_id),
+        (name, category, actor_id, actor_id),
     )
     report_id = cur.fetchone()["id"]
     cur.execute(
@@ -135,8 +135,8 @@ def register_report(
     cur.execute(
         """INSERT INTO report_audit_log (report_id, actor_user_id, action, details)
            VALUES (%s, %s, 'managed_report_imported',
-                   jsonb_build_object('pbi_report_id', %s, 'name', %s))""",
-        (report_id, actor_id, pbi_report_id, name),
+                   jsonb_build_object('pbi_report_id', %s, 'name', %s, 'category', %s))""",
+        (report_id, actor_id, pbi_report_id, name, category),
     )
     return report_id
 
@@ -161,24 +161,35 @@ def main():
     fabric_token = get_token("https://api.fabric.microsoft.com/.default")
     pbi_token    = get_token("https://analysis.windows.net/powerbi/api/.default")
 
-    # 폴더 탐색
-    folder_id = None
+    # 폴더 목록 조회 — 항상 수행 (--folder 없으면 전체 순회)
+    folders = list_fabric_folders(fabric_token)  # {displayName: folderId}
+
     if args.folder:
-        folders = list_fabric_folders(fabric_token)
         folder_id = folders.get(args.folder)
         if not folder_id:
             available = ", ".join(folders.keys()) or "(없음)"
             sys.exit(f"폴더 '{args.folder}'를 찾을 수 없습니다.\n사용 가능한 폴더: {available}")
-        print(f"폴더: {args.folder} (id={folder_id})")
+        # 지정 폴더 하나만
+        targets = [(args.folder, folder_id)]
+    else:
+        # 모든 폴더 + 루트(폴더 없는 보고서)
+        targets = list(folders.items()) + [(None, None)]
 
-    reports = list_reports_in_folder(pbi_token, folder_id)
-    if not reports:
+    # 폴더별 보고서 수집
+    all_reports: list[tuple[str | None, str | None, dict]] = []  # (category, folder_id, report)
+    for folder_name, folder_id in targets:
+        batch = list_reports_in_folder(pbi_token, folder_id)
+        for r in batch:
+            all_reports.append((folder_name, folder_id, r))
+
+    if not all_reports:
         print("등록할 보고서가 없습니다.")
         return
 
-    print(f"\nFabric에서 발견된 보고서 {len(reports)}개:")
-    for r in reports:
-        print(f"  - {r['name']:<30}  id={r['id']}")
+    print(f"\nFabric에서 발견된 보고서 {len(all_reports)}개:")
+    for category, _, r in all_reports:
+        label = f"[{category}]" if category else "[루트]"
+        print(f"  {label:<12} {r['name']:<30}  id={r['id']}")
 
     if args.dry_run:
         print("\n--dry-run 모드: DB에 쓰지 않습니다.")
@@ -186,14 +197,12 @@ def main():
 
     with psycopg2.connect(**DB_CONFIG) as conn:
         with conn.cursor() as cur:
-            # 관리자 계정을 actor로 사용
             cur.execute("SELECT id FROM users WHERE is_admin = TRUE LIMIT 1")
             admin = cur.fetchone()
             if not admin:
                 sys.exit("관리자 계정이 없습니다. 먼저 users 테이블에 is_admin=TRUE 계정을 추가하세요.")
             actor_id = admin["id"]
 
-            # 권한 부여 대상 사용자 ID 조회
             grant_ids: list[int] = []
             for uname in args.grant:
                 cur.execute("SELECT id FROM users WHERE username = %s", (uname,))
@@ -205,7 +214,7 @@ def main():
 
             registered = 0
             skipped = 0
-            for r in reports:
+            for category, folder_id, r in all_reports:
                 if already_registered(cur, r["id"]):
                     print(f"  건너뜀(이미 등록됨): {r['name']}")
                     skipped += 1
@@ -217,11 +226,13 @@ def main():
                     pbi_dataset_id=r.get("datasetId"),
                     pbi_workspace_id=WORKSPACE_ID,
                     folder_id=folder_id,
+                    category=category,
                     actor_id=actor_id,
                 )
                 if grant_ids:
                     grant_access(cur, report_id, grant_ids, actor_id)
-                print(f"  등록 완료: {r['name']:<30}  db_id={report_id}")
+                label = f"[{category}]" if category else "[루트]"
+                print(f"  등록 완료: {label:<12} {r['name']:<30}  db_id={report_id}")
                 registered += 1
 
         conn.commit()

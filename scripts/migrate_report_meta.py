@@ -159,6 +159,7 @@ def migrate():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ")
             cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
+            cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS category VARCHAR(50)")
             cur.execute("ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pbi_workspace_id VARCHAR(36)")
             cur.execute("ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS report_id INTEGER REFERENCES reports(id) ON DELETE SET NULL")
 

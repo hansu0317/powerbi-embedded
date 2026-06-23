@@ -375,20 +375,21 @@
       <div class="section" id="section-reports">
         <h2>보고서 관리</h2>
         <div class="table-wrap">
-          <table style="min-width:700px;">
+          <table style="min-width:800px;">
             <colgroup>
-              <col style="width:50px">
-              <col style="width:200px">
-              <col style="width:60px">
-              <col style="width:110px">
-              <col style="width:80px">
-              <col style="width:70px">
+              <col style="width:44px">
+              <col style="width:180px">
+              <col style="width:55px">
+              <col style="width:120px">
               <col style="width:100px">
-              <col style="width:80px">
+              <col style="width:55px">
+              <col style="width:60px">
+              <col style="width:90px">
+              <col style="width:90px">
             </colgroup>
             <thead><tr>
               <th>ID</th><th>보고서명</th><th>유형</th><th>소유자</th>
-              <th>열람 수</th><th>상태</th><th>등록일</th><th>액션</th>
+              <th>카테고리</th><th>열람 수</th><th>상태</th><th>등록일</th><th>액션</th>
             </tr></thead>
             <tbody>
               {% for r in reports %}
@@ -397,6 +398,23 @@
                 <td title="{{ r.name }}">{{ r.name }}</td>
                 <td>{{ '공용' if r.report_type == 'managed' else '개인' }}</td>
                 <td title="{{ r.owner_username or '-' }}">{{ r.owner_username or '-' }}</td>
+                <td>
+                  {% if r.report_type == 'managed' %}
+                  <span class="category-label" id="cat-label-{{ r.id }}"
+                        onclick="startEditCategory({{ r.id }}, this)"
+                        style="cursor:pointer;color:#0078d4;text-decoration:underline dotted"
+                        title="클릭해서 수정">{{ r.category or '(없음)' }}</span>
+                  <span id="cat-edit-{{ r.id }}" style="display:none">
+                    <input id="cat-input-{{ r.id }}" type="text" value="{{ r.category or '' }}"
+                           style="width:80px;padding:2px 6px;font-size:0.8rem;border:1px solid #0078d4;border-radius:4px"
+                           onkeydown="if(event.key==='Enter')saveCategory({{ r.id }});if(event.key==='Escape')cancelEditCategory({{ r.id }})">
+                    <button class="btn btn-primary btn-sm" style="padding:2px 8px;margin-left:2px" onclick="saveCategory({{ r.id }})">저장</button>
+                    <button class="btn btn-sm" style="padding:2px 8px;background:#eee;color:#666" onclick="cancelEditCategory({{ r.id }})">취소</button>
+                  </span>
+                  {% else %}
+                  <span style="color:#aaa">-</span>
+                  {% endif %}
+                </td>
                 <td>{{ r.viewer_count }}</td>
                 <td>
                   {% if r.status == 'active' %}<span class="pill active">활성</span>
@@ -509,6 +527,36 @@
       t.textContent = msg;
       t.className = 'toast show ' + type;
       setTimeout(() => { t.classList.remove('show'); }, 3000);
+    }
+
+    // ── 카테고리 인라인 수정 ──────────────────────────────────────────────────
+    function startEditCategory(reportId, labelEl) {
+      labelEl.style.display = 'none';
+      document.getElementById('cat-edit-' + reportId).style.display = 'inline';
+      document.getElementById('cat-input-' + reportId).focus();
+    }
+
+    function cancelEditCategory(reportId) {
+      document.getElementById('cat-edit-' + reportId).style.display = 'none';
+      document.getElementById('cat-label-' + reportId).style.display = '';
+    }
+
+    async function saveCategory(reportId) {
+      const val = document.getElementById('cat-input-' + reportId).value.trim();
+      const res = await fetch('/api/admin/reports/' + reportId + '/category', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+        body: JSON.stringify({ category: val }),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const label = document.getElementById('cat-label-' + reportId);
+        label.textContent = j.category || '(없음)';
+        cancelEditCategory(reportId);
+        showToast('카테고리가 변경됐습니다.', 'ok');
+      } else {
+        showToast('카테고리 변경 실패', 'err');
+      }
     }
 
     async function submitAddUser(e) {

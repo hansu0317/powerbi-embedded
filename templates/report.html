@@ -268,8 +268,31 @@
           <span class="sidebar-group-arrow">▼</span> 공용 보고서
         </div>
         <div class="sidebar-group-body">
-          {% for report in managed %}
-          <div class="sidebar-item" data-report-id="{{ report['id'] }}" onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
+          {# category 있는 보고서는 카테고리 서브그룹, 없는 건 바로 표시 #}
+          {% set categorized = managed | selectattr('category') | list %}
+          {% set uncategorized = managed | rejectattr('category') | list %}
+
+          {% for cat, group in categorized | groupby('category') %}
+          {% set cat_group_id = 'cat-' ~ cat | replace(' ', '-') %}
+          <div class="sidebar-group" id="{{ cat_group_id }}">
+            <div class="sidebar-group-header" style="padding-left:16px; font-size:0.70rem"
+                 onclick="toggleGroup('{{ cat_group_id }}')">
+              <span class="sidebar-group-arrow">▼</span> {{ cat }}
+            </div>
+            <div class="sidebar-group-body">
+              {% for report in group %}
+              <div class="sidebar-item" style="padding-left:36px" data-report-id="{{ report['id'] }}"
+                   onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
+                <span>📊</span>{{ report['name'] }}
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+
+          {% for report in uncategorized %}
+          <div class="sidebar-item" data-report-id="{{ report['id'] }}"
+               onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
             <span>📊</span>{{ report['name'] }}
           </div>
           {% endfor %}

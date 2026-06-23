@@ -125,7 +125,7 @@ def db_get_reports(username: str) -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT r.id, r.name, r.report_type, r.owner_id,
+                """SELECT r.id, r.name, r.report_type, r.owner_id, r.category,
                           owner.username AS owner_username,
                           s.preview_image_url, s.tab_type
                    FROM user_reports ur
@@ -135,7 +135,7 @@ def db_get_reports(username: str) -> list:
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    JOIN users   u ON u.id = ur.user_id
                    WHERE u.username = %s AND ur.can_view = TRUE AND r.status = 'active'
-                   ORDER BY r.id""",
+                   ORDER BY r.category NULLS LAST, r.name""",
                 (username,),
             )
             return cur.fetchall()
@@ -462,7 +462,7 @@ def db_admin_get_reports() -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT r.id, r.name, r.report_type, r.status, r.created_at,
+                """SELECT r.id, r.name, r.report_type, r.status, r.created_at, r.category,
                           u.username AS owner_username,
                           m.pbi_report_id, m.pbi_display_name,
                           COUNT(ur.user_id) AS viewer_count
@@ -474,6 +474,21 @@ def db_admin_get_reports() -> list:
                    ORDER BY r.id"""
             )
             return cur.fetchall()
+
+
+def db_admin_set_category(report_id: int, category: str | None, admin_user_id: int):
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE reports SET category=%s, updated_at=NOW(), updated_by=%s WHERE id=%s",
+                (category or None, admin_user_id, report_id),
+            )
+            cur.execute(
+                "INSERT INTO report_audit_log (report_id, actor_user_id, action, details) "
+                "VALUES (%s, %s, 'admin_set_category', jsonb_build_object('category', %s))",
+                (report_id, admin_user_id, category),
+            )
+        conn.commit()
 
 
 def db_admin_soft_delete_report(report_id: int, admin_user_id: int) -> bool:
