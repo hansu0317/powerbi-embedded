@@ -373,7 +373,15 @@
 
       <!-- 보고서 -->
       <div class="section" id="section-reports">
-        <h2>보고서 관리</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <h2 style="margin-bottom:0">보고서 관리</h2>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="import-result" style="font-size:0.82rem;color:#555"></span>
+            <button class="btn btn-primary" id="import-pbi-btn" onclick="importFromPbi()">
+              ⬇ PBI에서 가져오기
+            </button>
+          </div>
+        </div>
         <div class="table-wrap">
           <table style="min-width:800px;">
             <colgroup>
@@ -556,6 +564,39 @@
         showToast('카테고리가 변경됐습니다.', 'ok');
       } else {
         showToast('카테고리 변경 실패', 'err');
+      }
+    }
+
+    // ── PBI에서 공용 보고서 가져오기 ─────────────────────────────────────────
+    async function importFromPbi() {
+      const btn    = document.getElementById('import-pbi-btn');
+      const result = document.getElementById('import-result');
+      btn.disabled = true;
+      btn.textContent = '가져오는 중...';
+      result.textContent = '';
+      try {
+        const res = await fetch('/api/admin/import-pbi', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': csrfToken },
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.detail || res.statusText);
+        result.textContent = `신규 ${j.registered}개 등록 / 건너뜀 ${j.skipped}개`;
+        result.style.color = j.registered > 0 ? '#0a7c42' : '#888';
+        showToast(
+          j.registered > 0
+            ? `${j.registered}개 보고서가 새로 등록됐습니다. 권한 설정 후 사용자에게 노출됩니다.`
+            : '새로 등록된 보고서가 없습니다.',
+          j.registered > 0 ? 'ok' : ''
+        );
+        if (j.registered > 0) setTimeout(() => location.reload(), 2000);
+      } catch (e) {
+        result.textContent = '오류: ' + e.message;
+        result.style.color = '#b91c1c';
+        showToast('가져오기 실패: ' + e.message, 'err');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '⬇ PBI에서 가져오기';
       }
     }
 

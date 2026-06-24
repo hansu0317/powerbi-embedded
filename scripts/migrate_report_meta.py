@@ -152,6 +152,17 @@ def migrate():
             )
 
             # ── 2. 기존 서버 보강 (컬럼이 없으면 추가) ───────────────────────
+            # 기존 개인 보고서 중 category가 NULL인 것에 소유자 username을 소급 적용한다.
+            # UI가 category 기준 폴더 트리로 변경되면서 개인 보고서도 Fabric 폴더명(username)이
+            # category가 되어야 사이드바에 올바른 폴더로 표시된다.
+            cur.execute(
+                """UPDATE reports r
+                   SET category = u.username
+                   FROM users u
+                   WHERE r.owner_id = u.id
+                     AND r.report_type = 'personal'
+                     AND r.category IS NULL"""
+            )
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE")
             cur.execute("UPDATE users SET is_admin = TRUE WHERE username = 'admin'")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
@@ -248,6 +259,13 @@ def migrate():
             )
             # 홈 화면 보고서 목록 — status='active' 필터가 가장 빈번한 쿼리
             cur.execute("CREATE INDEX IF NOT EXISTS reports_status_idx ON reports (status)")
+            # 보고서 목록 ORDER BY category NULLS LAST, name 쿼리 대응 복합 인덱스.
+            # category가 NULL인 보고서(카테고리 미지정)는 항상 끝에 오도록 NULLS LAST 포함.
+            # WHERE status='active' 부분 인덱스로 deleted·disabled 행을 스캔에서 제외한다.
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS reports_category_name_idx "
+                "ON reports (category NULLS LAST, name) WHERE status = 'active'"
+            )
             # 서버 시작 복구: status로 진행 중 작업을 찾는 쿼리
             cur.execute("CREATE INDEX IF NOT EXISTS upload_jobs_status_idx ON upload_jobs (status)")
             # upload_job → report 역방향 조회 (어떤 작업이 이 보고서를 만들었나)
@@ -261,6 +279,12 @@ def migrate():
             )
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS report_audit_log_created_idx ON report_audit_log (created_at)"
+            )
+            # audit_log.details JSONB 검색용 GIN 인덱스.
+            # details @> '{"category":"제조"}' 같은 쿼리가 풀스캔 없이 동작하도록.
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS report_audit_log_details_gin "
+                "ON report_audit_log USING gin (details)"
             )
             # 인기 보고서 / 사용자 열람 이력 조회
             cur.execute(

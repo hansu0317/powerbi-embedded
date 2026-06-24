@@ -4,13 +4,13 @@ import logging
 
 import httpx
 
-from config import PBI_API, PBI_SYNC_INTERVAL
+from config import PBI_API, PBI_GROUPS, PBI_SYNC_INTERVAL, WORKSPACE_ID
 from database import (
     db_get_synced_reports, db_mark_report_deleted, db_restore_report,
     db_get_pending_imports, db_get_recoverable_jobs,
     db_update_upload_job, db_register_report,
 )
-from services.azure import get_access_token
+from services.azure import get_access_token, get_fabric_token
 
 logger = logging.getLogger("powerbi-gateway")
 
@@ -91,6 +91,74 @@ def recover_db_jobs():
             logger.info("UPLOAD RECOVERED | job_id=%s | report=%s", job["id"], job["report_name"])
         except psycopg2.Error:
             logger.exception("UPLOAD RECOVERY FAIL | job_id=%s", job["id"])
+
+
+async def fetch_pbi_folders_and_reports() -> list[dict]:
+    """Fabric 폴더 목록 + PBI 보고서 목록을 조합해 반환한다.
+
+    반환: [{"folder_name": str|None, "folder_id": str|None,
+             "pbi_report_id": str, "name": str, "dataset_id": str|None}]
+
+    폴더 목록은 Fabric API(다른 스코프), 보고서 목록은 PBI API로 각각 조회한다.
+    folder_id로 매핑해 각 보고서가 어느 폴더에 속하는지 결정한다.
+    폴더 없는 보고서(루트)는 folder_name=None으로 반환한다.
+    """
+    fabric_token = await asyncio.to_thread(get_fabric_token)
+    pbi_token    = await asyncio.to_thread(get_access_token)
+
+    fabric_headers = {"Authorization": f"Bearer {fabric_token}"}
+    pbi_headers    = {"Authorization": f"Bearer {pbi_token}"}
+
+    fabric_api = f"https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_ID}"
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        # 1. Fabric 폴더 목록 (folderId → displayName)
+        folder_map: dict[str, str] = {}
+        params: dict = {"recursive": "false"}
+        while True:
+            resp = await client.get(f"{fabric_api}/folders", headers=fabric_headers, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            for item in data.get("value", []):
+                folder_map[item["id"]] = item["displayName"]
+            ct = data.get("continuationToken")
+            if not ct:
+                break
+            params = {"continuationToken": ct}
+
+        # 2. Fabric /items → 보고서별 folderId 매핑
+        #    PBI REST API(/reports)는 folderId를 반환하지 않으므로 Fabric /items를 사용한다.
+        report_folder_map: dict[str, str | None] = {}
+        params = {}
+        while True:
+            resp = await client.get(f"{fabric_api}/items", headers=fabric_headers, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            for item in data.get("value", []):
+                if item.get("type") == "Report":
+                    report_folder_map[item["id"]] = item.get("folderId")
+            ct = data.get("continuationToken")
+            if not ct:
+                break
+            params = {"continuationToken": ct}
+
+        # 3. PBI /reports → datasetId 조회 (Fabric /items에는 datasetId 없음)
+        resp = await client.get(f"{PBI_GROUPS}/{WORKSPACE_ID}/reports", headers=pbi_headers)
+        resp.raise_for_status()
+        pbi_reports = resp.json().get("value", [])
+
+    result = []
+    for r in pbi_reports:
+        report_id = r["id"]
+        folder_id = report_folder_map.get(report_id)
+        result.append({
+            "folder_name":   folder_map.get(folder_id) if folder_id else None,
+            "folder_id":     folder_id,
+            "pbi_report_id": report_id,
+            "name":          r["name"],
+            "dataset_id":    r.get("datasetId"),
+        })
+    return result
 
 
 async def recover_pending_imports():
