@@ -63,6 +63,15 @@ def _set_cached_token(
         }
 
 
+def invalidate_embed_cache(report_id: int) -> int:
+    """보고서의 모든 사용자 embed 토큰 캐시를 즉시 퇴거한다. 삭제된 키 수 반환."""
+    with _embed_lock:
+        keys = [k for k in _embed_cache if k[0] == report_id]
+        for k in keys:
+            del _embed_cache[k]
+    return len(keys)
+
+
 def _parse_token_expiry(expiration_str: str) -> float:
     """PBI GenerateToken 응답의 expiration 문자열을 Unix timestamp로 변환."""
     try:

@@ -21,7 +21,7 @@ from database import (
 from deps import current_user, csrf_token, verify_csrf, require_admin
 from errors import AppError
 from services.fabric import sync_pbi_reports, fetch_pbi_folders_and_reports
-from services.powerbi import pbi_delete_report, pbi_refresh_dataset
+from services.powerbi import pbi_delete_report, pbi_refresh_dataset, invalidate_embed_cache
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -115,6 +115,7 @@ async def api_admin_delete_report(request: Request, report_id: int):
     if not deleted:
         raise AppError.REPORT_ALREADY_DELETED.http()
 
+    invalidate_embed_cache(report_id)
     logger.info("ADMIN DELETE REPORT | admin=%s | report_id=%s", user["username"], report_id)
     result = {"deleted": True}
     if pbi_warning:
@@ -216,6 +217,8 @@ async def api_admin_set_access(request: Request, report_id: int, user_id: int):
     body = await request.json()
     can_view = bool(body.get("can_view", False))
     await asyncio.to_thread(db_set_report_access, report_id, user_id, can_view, user["id"])
+    if not can_view:
+        invalidate_embed_cache(report_id)
     logger.info("ADMIN ACCESS | admin=%s | report_id=%s | user_id=%s | can_view=%s",
                 user["username"], report_id, user_id, can_view)
     return {"can_view": can_view}

@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from config import (
-    WORKSPACE_ID,
+    PBI_API, WORKSPACE_ID,
     MAX_PBIX_SIZE, REPORT_NAME_MAX_LEN,
     IMPORT_POLL_MAX, IMPORT_POLL_INTERVAL,
 )
@@ -191,7 +191,6 @@ async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: i
     import_params = {"datasetDisplayName": f"{import_name}.pbix", "nameConflict": "CreateOrOverwrite"}
 
     async with httpx.AsyncClient(timeout=300) as client:
-        pbi_api = f"https://api.powerbi.com/v1.0/myorg/groups/{WORKSPACE_ID}"
         try:
             resp = await client.post(
                 f"{pbi_api}/imports", params=import_params, headers=headers,

@@ -162,7 +162,7 @@ async def fetch_pbi_folders_and_reports() -> list[dict]:
 
 
 async def recover_pending_imports():
-    """accepted 상태 업로드의 PBI Import를 재조회해 이어서 처리한다."""
+    """accepted·unknown 상태 업로드의 PBI Import를 재조회해 이어서 처리한다."""
     jobs = await asyncio.to_thread(db_get_pending_imports)
     if not jobs:
         return

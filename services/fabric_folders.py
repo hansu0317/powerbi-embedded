@@ -9,7 +9,7 @@ import logging
 
 import httpx
 
-from services.azure import get_access_token
+from services.azure import get_fabric_token
 
 FABRIC_BASE = "https://api.fabric.microsoft.com/v1"
 logger = logging.getLogger("powerbi-gateway")
@@ -17,7 +17,7 @@ logger = logging.getLogger("powerbi-gateway")
 
 async def get_or_create_folder(workspace_id: str, folder_name: str) -> str | None:
     """폴더 ID 반환. 없으면 생성. 실패 시 None 반환 (비치명적)."""
-    token = await asyncio.to_thread(get_access_token)
+    token = await asyncio.to_thread(get_fabric_token)
     headers = {"Authorization": f"Bearer {token}"}
     url = f"{FABRIC_BASE}/workspaces/{workspace_id}/folders"
 
@@ -46,7 +46,7 @@ async def get_or_create_folder(workspace_id: str, folder_name: str) -> str | Non
 
 async def move_item_to_folder(workspace_id: str, item_id: str, folder_id: str) -> bool:
     """Fabric 아이템을 폴더로 이동. 성공 여부 반환."""
-    token = await asyncio.to_thread(get_access_token)
+    token = await asyncio.to_thread(get_fabric_token)
     headers = {"Authorization": f"Bearer {token}"}
     url = f"{FABRIC_BASE}/workspaces/{workspace_id}/items/{item_id}/move"
 

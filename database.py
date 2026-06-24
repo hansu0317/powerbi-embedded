@@ -71,10 +71,10 @@ def db_check_and_get_user(username: str, ip: str):
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"""SELECT COUNT(*) AS count FROM login_attempts
-                    WHERE username = %s AND ip_address = %s AND succeeded = FALSE
-                      AND attempted_at >= NOW() - INTERVAL '{LOGIN_BLOCK_MINUTES} minutes'""",
-                (username, ip),
+                "SELECT COUNT(*) AS count FROM login_attempts "
+                "WHERE username = %s AND ip_address = %s AND succeeded = FALSE "
+                "AND attempted_at >= NOW() - %s * INTERVAL '1 minute'",
+                (username, ip, LOGIN_BLOCK_MINUTES),
             )
             if cur.fetchone()["count"] >= LOGIN_BLOCK_MAX_FAIL:
                 return "blocked", None
@@ -445,7 +445,7 @@ def db_get_pending_imports():
                 """SELECT j.id, j.user_id, j.report_name, j.import_id, u.username
                    FROM upload_jobs j
                    JOIN users u ON u.id = j.user_id
-                   WHERE j.status = 'accepted' AND j.import_id IS NOT NULL
+                   WHERE j.status IN ('accepted', 'unknown') AND j.import_id IS NOT NULL
                    ORDER BY j.id"""
             )
             return cur.fetchall()
@@ -609,12 +609,11 @@ def db_import_managed_report(
             )
             existing = cur.fetchone()
             if existing:
-                # 이미 등록된 보고서라도 category가 없으면 Fabric 폴더명으로 채운다
                 if category:
                     cur.execute(
                         "UPDATE reports SET category = %s, updated_at = NOW() "
-                        "WHERE id = %s AND category IS NULL",
-                        (category, existing["id"]),
+                        "WHERE id = %s AND category IS DISTINCT FROM %s",
+                        (category, existing["id"], category),
                     )
                     conn.commit()
                 return False
