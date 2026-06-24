@@ -16,12 +16,12 @@ from database import (
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
     db_import_managed_report,
     db_get_report, db_get_report_access, db_set_report_access,
-    db_get_synced_reports, db_hard_delete_report,
+    db_get_synced_reports, db_hard_delete_report, db_get_view_stats,
 )
 from deps import current_user, csrf_token, verify_csrf, require_admin
 from errors import AppError
 from services.fabric import sync_pbi_reports, fetch_pbi_folders_and_reports
-from services.powerbi import pbi_delete_report
+from services.powerbi import pbi_delete_report, pbi_refresh_dataset
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -168,6 +168,34 @@ async def api_admin_import_pbi(request: Request):
     return {"registered": registered, "skipped": skipped, "deleted": deleted, "total": len(reports)}
 
 
+@router.post("/api/admin/reports/{report_id}/refresh")
+async def api_admin_refresh_dataset(request: Request, report_id: int):
+    """보고서의 데이터셋 새로고침을 PBI에 요청한다."""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    require_admin(user)
+    report = await asyncio.to_thread(db_get_report, report_id)
+    if not report:
+        raise AppError.REPORT_NOT_FOUND.http()
+    dataset_id   = report.get("pbi_dataset_id")
+    workspace_id = report.get("pbi_workspace_id") or WORKSPACE_ID
+    if not dataset_id:
+        raise AppError.REPORT_NOT_FOUND.http()
+    try:
+        await pbi_refresh_dataset(workspace_id, dataset_id)
+        logger.info("DATASET REFRESH | admin=%s | report_id=%d | dataset=%s", user["username"], report_id, dataset_id)
+        return {"status": "accepted"}
+    except Exception as exc:
+        logger.warning("DATASET REFRESH FAIL | admin=%s | dataset=%s | error=%s", user["username"], dataset_id, exc)
+        raise AppError.REPORT_FETCH_FAILED.http(detail=str(exc))
+
+
+@router.get("/api/admin/stats/views")
+async def api_admin_view_stats(request: Request):
+    """보고서 열람 통계 반환."""
+    user = await current_user(request)
+    require_admin(user)
+    return await asyncio.to_thread(db_get_view_stats)
 
 
 @router.get("/api/admin/reports/{report_id}/access")

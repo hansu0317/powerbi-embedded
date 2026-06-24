@@ -530,17 +530,59 @@ def db_admin_get_reports() -> list:
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.status, r.created_at, r.category,
                           u.username AS owner_username,
-                          m.pbi_report_id, m.pbi_display_name,
+                          m.pbi_report_id, m.pbi_display_name, m.pbi_dataset_id,
+                          COALESCE(m.pbi_workspace_id, %s) AS pbi_workspace_id,
                           COUNT(ur.user_id) AS viewer_count
                    FROM reports r
                    LEFT JOIN users u ON u.id = r.owner_id
                    LEFT JOIN report_meta m ON m.report_id = r.id
                    LEFT JOIN user_reports ur ON ur.report_id = r.id AND ur.can_view = TRUE
                    WHERE r.status <> 'deleted'
-                   GROUP BY r.id, u.username, m.pbi_report_id, m.pbi_display_name
-                   ORDER BY r.id"""
+                   GROUP BY r.id, u.username, m.pbi_report_id, m.pbi_display_name, m.pbi_dataset_id, m.pbi_workspace_id
+                   ORDER BY r.id""",
+                (WORKSPACE_ID,)
             )
             return cur.fetchall()
+
+
+def db_get_view_stats() -> dict:
+    """보고서 열람 통계: 보고서별 조회 수, 일별 추이(7일), 사용자별 조회 수."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT r.name, r.category, COUNT(*) AS view_count
+                   FROM report_views rv
+                   JOIN reports r ON r.id = rv.report_id
+                   GROUP BY r.id, r.name, r.category
+                   ORDER BY view_count DESC
+                   LIMIT 20"""
+            )
+            by_report = cur.fetchall()
+
+            cur.execute(
+                """SELECT DATE(viewed_at) AS day, COUNT(*) AS view_count
+                   FROM report_views
+                   WHERE viewed_at >= CURRENT_DATE - INTERVAL '6 days'
+                   GROUP BY day
+                   ORDER BY day"""
+            )
+            by_day = cur.fetchall()
+
+            cur.execute(
+                """SELECT u.username, COUNT(*) AS view_count
+                   FROM report_views rv
+                   JOIN users u ON u.id = rv.user_id
+                   GROUP BY u.id, u.username
+                   ORDER BY view_count DESC
+                   LIMIT 10"""
+            )
+            by_user = cur.fetchall()
+
+    return {
+        "by_report": [dict(r) for r in by_report],
+        "by_day":    [{"day": str(r["day"]), "view_count": r["view_count"]} for r in by_day],
+        "by_user":   [dict(r) for r in by_user],
+    }
 
 
 def db_import_managed_report(

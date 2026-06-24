@@ -205,6 +205,20 @@ async def pbi_rename_dataset(workspace_id: str, dataset_id: str, new_name: str) 
     await _pbi_patch_name(url, new_name)
 
 
+async def pbi_refresh_dataset(workspace_id: str, dataset_id: str) -> None:
+    """데이터셋 새로고침 요청. 202 Accepted 이면 성공(비동기 처리)."""
+    token = await asyncio.to_thread(get_access_token)
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}/refreshes",
+            headers=headers,
+            json={"notifyOption": "NoNotification"},
+        )
+    if resp.status_code not in (200, 202):
+        raise RuntimeError(f"refresh HTTP {resp.status_code}: {resp.text}")
+
+
 async def pbi_delete_report(workspace_id: str, report_id: str) -> None:
     """Power BI 워크스페이스에서 보고서를 삭제한다. 이미 없으면(404) 조용히 무시한다."""
     token = await asyncio.to_thread(get_access_token)

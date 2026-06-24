@@ -234,6 +234,7 @@
       <div class="sidebar-item" onclick="showSection('reports', this)"><span>📊</span>보고서</div>
       <div class="sidebar-item" onclick="showSection('jobs', this)"><span>📋</span>업로드 이력</div>
       <div class="sidebar-item" onclick="showSection('system', this)"><span>🛠</span>시스템</div>
+      <div class="sidebar-item" onclick="showSection('stats', this); loadViewStats()"><span>📈</span>열람 통계</div>
     </nav>
 
     <div class="content">
@@ -407,7 +408,6 @@
                 <td>{{ '공용' if r.report_type == 'managed' else '개인' }}</td>
                 <td title="{{ r.owner_username or '-' }}">{{ r.owner_username or '-' }}</td>
                 <td>{{ r.category or '-' }}</td>
-                </td>
                 <td>{{ r.viewer_count }}</td>
                 <td>
                   {% if r.status == 'active' %}<span class="pill active">활성</span>
@@ -418,6 +418,9 @@
                 <td>{{ r.created_at.strftime('%Y-%m-%d') if r.created_at else '-' }}</td>
                 <td style="display:flex;gap:4px;flex-wrap:wrap;">
                   <button class="btn btn-primary btn-sm" data-rid="{{ r.id }}" data-rname="{{ r.name }}" onclick="openAccessModal(+this.dataset.rid, this.dataset.rname)">권한</button>
+                  {% if r.pbi_dataset_id %}
+                  <button class="btn btn-sm" style="background:#0078d4;color:white" data-rid="{{ r.id }}" data-rname="{{ r.name }}" onclick="refreshDataset(+this.dataset.rid, this.dataset.rname)">새로고침</button>
+                  {% endif %}
                   {% if r.status != 'deleted' %}
                   <button class="btn btn-danger btn-sm" data-rid="{{ r.id }}" data-rname="{{ r.name }}" onclick="deleteReport(+this.dataset.rid, this.dataset.rname)">삭제</button>
                   {% endif %}
@@ -489,6 +492,12 @@
             <span class="info-val">{{ stats.today_uploads }}건 (성공 {{ stats.today_success }}건)</span>
           </div>
         </div>
+      </div>
+
+      <!-- 열람 통계 -->
+      <div class="section" id="section-stats">
+        <h2>보고서 열람 통계</h2>
+        <div id="stats-content" style="color:#aaa;padding:24px">불러오는 중...</div>
       </div>
 
     </div>
@@ -672,6 +681,68 @@
       if (!event || event.target === document.getElementById('access-modal')) {
         document.getElementById('access-modal').style.display = 'none';
         _accessReportId = null;
+      }
+    }
+
+    // ── 데이터셋 새로고침 ─────────────────────────────────────────────────────
+    async function refreshDataset(reportId, reportName) {
+      if (!confirm(`'${reportName}' 데이터셋을 새로고침 하시겠습니까?`)) return;
+      const res = await fetch(`/api/admin/reports/${reportId}/refresh`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrfToken },
+      });
+      if (res.ok) {
+        showToast(`'${reportName}' 새로고침 요청 완료 (PBI가 백그라운드에서 처리합니다)`, 'ok');
+      } else {
+        const j = await res.json().catch(() => ({}));
+        showToast(`새로고침 실패: ${j.detail?.message || j.detail || '알 수 없는 오류'}`, 'err');
+      }
+    }
+
+    // ── 열람 통계 로드 ────────────────────────────────────────────────────────
+    let _statsLoaded = false;
+    async function loadViewStats() {
+      if (_statsLoaded) return;
+      const el = document.getElementById('stats-content');
+      try {
+        const res = await fetch('/api/admin/stats/views');
+        const d = await res.json();
+
+        const topReports = d.by_report.map(r =>
+          `<tr><td>${r.category || '-'}</td><td>${r.name}</td><td style="text-align:right"><b>${r.view_count}</b></td></tr>`
+        ).join('');
+
+        const topUsers = d.by_user.map(u =>
+          `<tr><td>${u.username}</td><td style="text-align:right"><b>${u.view_count}</b></td></tr>`
+        ).join('');
+
+        const dayLabels = d.by_day.map(x => `'${x.day.slice(5)}'`).join(',');
+        const dayCounts = d.by_day.map(x => x.view_count).join(',');
+        const maxCnt = Math.max(...d.by_day.map(x => x.view_count), 1);
+
+        el.innerHTML = `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px">
+            <div class="table-wrap"><h3 style="padding:12px 16px;margin:0;font-size:0.95rem">보고서별 조회 수 (상위 20)</h3>
+              <table><thead><tr><th>폴더</th><th>보고서</th><th style="text-align:right">조회 수</th></tr></thead>
+              <tbody>${topReports || '<tr><td colspan="3" style="text-align:center;color:#aaa">데이터 없음</td></tr>'}</tbody></table></div>
+            <div class="table-wrap"><h3 style="padding:12px 16px;margin:0;font-size:0.95rem">사용자별 조회 수 (상위 10)</h3>
+              <table><thead><tr><th>사용자</th><th style="text-align:right">조회 수</th></tr></thead>
+              <tbody>${topUsers || '<tr><td colspan="2" style="text-align:center;color:#aaa">데이터 없음</td></tr>'}</tbody></table></div>
+          </div>
+          <div class="table-wrap"><h3 style="padding:12px 16px;margin:0;font-size:0.95rem">최근 7일 일별 조회 수</h3>
+            <div style="padding:16px;display:flex;align-items:flex-end;gap:8px;height:120px">
+              ${d.by_day.map(x => {
+                const h = Math.round((x.view_count / maxCnt) * 90);
+                return `<div style="display:flex;flex-direction:column;align-items:center;flex:1;gap:4px">
+                  <span style="font-size:0.72rem;font-weight:600">${x.view_count}</span>
+                  <div style="width:100%;height:${h}px;background:#0078d4;border-radius:3px 3px 0 0;min-height:4px"></div>
+                  <span style="font-size:0.68rem;color:#666">${x.day.slice(5)}</span></div>`;
+              }).join('') || '<span style="color:#aaa">데이터 없음</span>'}
+            </div>
+          </div>`;
+        _statsLoaded = true;
+      } catch (e) {
+        el.innerHTML = `<div style="color:#b91c1c">통계 로드 실패: ${e.message}</div>`;
       }
     }
   </script>
