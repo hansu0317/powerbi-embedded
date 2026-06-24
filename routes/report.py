@@ -19,7 +19,8 @@ from config import (
 )
 from database import (
     db_get_reports, db_get_all_active_reports, db_can_view_report, db_find_report,
-    db_reserve_upload, db_update_upload_job, db_register_report, db_record_view, db_health_check,
+    db_reserve_upload, db_update_upload_job, db_get_upload_job, db_register_report,
+    db_record_view, db_health_check,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError
@@ -90,14 +91,36 @@ async def api_embed(request: Request, report_id: int):
 
 @router.post("/api/upload")
 async def api_upload(request: Request, file: UploadFile = File(...), report_name: str = Form("")):
+    """파일 수신 후 즉시 job_id 반환. 실제 PBI 게시는 백그라운드에서 진행."""
     verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    try:
-        return await _process_upload(request, file, report_name)
-    except Exception as exc:
-        if hasattr(exc, "status_code"):  # HTTPException
-            raise
-        logger.exception("UPLOAD UNEXPECTED FAIL | file=%s", file.filename)
-        raise AppError.UPLOAD_INTERNAL.http() from exc
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+
+    name, pbix_bytes, file_size = await _read_and_validate_pbix(file, report_name, user["id"])
+    job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name)
+    logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s", user["username"], name, job_id)
+
+    asyncio.create_task(_process_upload(user, name, pbix_bytes, file_size, job_id, request.client.host))
+    return {"job_id": job_id, "report_name": name, "status": "accepted"}
+
+
+@router.get("/api/upload/status/{job_id}")
+async def api_upload_status(request: Request, job_id: int):
+    """업로드 잡 상태 폴링 엔드포인트."""
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    job = await asyncio.to_thread(db_get_upload_job, job_id, user["id"])
+    if not job:
+        raise AppError.REPORT_NOT_FOUND.http()
+    return {
+        "job_id":      job["id"],
+        "status":      job["status"],
+        "report_name": job["report_name"],
+        "report_id":   job["report_id"],
+        "error":       job["error_message"] if job["status"] not in ("completed", "accepted", "publishing", "accepted", "pbi_succeeded") else None,
+    }
 
 
 async def _read_and_validate_pbix(
@@ -152,18 +175,9 @@ async def _rename_with_retry(
     return final_name, warning
 
 
-async def _process_upload(request: Request, file: UploadFile, report_name: str):
-    ip   = request.client.host
-    user = await current_user(request)
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
-
-    name, pbix_bytes, file_size = await _read_and_validate_pbix(file, report_name, user["id"])
-
+async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str):
+    """백그라운드 태스크: 파일 검증·예약은 호출자(api_upload)에서 완료된 상태로 진입."""
     logger.info("UPLOAD START | user=%-12s | ip=%s | report=%s | bytes=%s", user["username"], ip, name, file_size)
-
-    job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name)
-    logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s", user["username"], name, job_id)
 
     try:
         access_token = await asyncio.to_thread(get_access_token)

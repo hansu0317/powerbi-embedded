@@ -280,6 +280,18 @@ def db_reserve_upload(user_id: int, report_name: str) -> int:
     return row["id"]
 
 
+def db_get_upload_job(job_id: int, user_id: int) -> dict | None:
+    """업로드 잡 단건 조회. user_id로 소유자 검증."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, status, report_name, report_id, error_message "
+                "FROM upload_jobs WHERE id = %s AND user_id = %s",
+                (job_id, user_id),
+            )
+            return cur.fetchone()
+
+
 def db_update_upload_job(job_id: int, status: str, **values):
     allowed = {"import_id", "pbi_report_id", "error_message", "pbi_workspace_id", "report_id"}
     updates = {k: v for k, v in values.items() if k in allowed}

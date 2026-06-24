@@ -523,7 +523,7 @@
       const status = document.getElementById('upload-status');
       btn.disabled = true;
       status.className = 'upload-status';
-      status.textContent = `'${file.name}' 게시 중... (보통 30초~2분)`;
+      status.textContent = `'${file.name}' 전송 중...`;
 
       try {
         const fd = new FormData();
@@ -534,14 +534,38 @@
           headers: { 'X-CSRF-Token': csrfToken },
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.detail || res.statusText);
+        if (!res.ok) {
+          const detail = data.detail;
+          throw new Error((typeof detail === 'object' ? detail?.message : detail) || res.statusText);
+        }
 
-        status.className = 'upload-status ok';
-        status.textContent = `'${data.report_name}' 게시 완료! 목록을 새로고침합니다...`;
-        // 업로드 후 리로드는 새 보고서 목록을 받아야 하므로 탭 상태 초기화
-        sessionStorage.removeItem('open-tabs');
-        sessionStorage.removeItem('active-tab');
-        setTimeout(() => location.reload(), 1500);
+        // 즉시 job_id 반환 → 폴링으로 완료 대기
+        const jobId = data.job_id;
+        const reportName = data.report_name;
+        status.textContent = `'${reportName}' PBI 게시 중... (보통 30초~2분)`;
+
+        const DONE = new Set(['completed', 'failed', 'conflict', 'unknown']);
+        while (true) {
+          await new Promise(r => setTimeout(r, 3000));
+          const sr = await fetch(`/api/upload/status/${jobId}`, { headers: { 'X-CSRF-Token': csrfToken } });
+          const sdata = await sr.json().catch(() => ({}));
+          if (!sr.ok) throw new Error(sdata.detail?.message || sdata.detail || '상태 조회 실패');
+
+          if (sdata.status === 'completed') {
+            status.className = 'upload-status ok';
+            status.textContent = `'${reportName}' 게시 완료! 목록을 새로고침합니다...`;
+            sessionStorage.removeItem('open-tabs');
+            sessionStorage.removeItem('active-tab');
+            setTimeout(() => location.reload(), 1500);
+            return;
+          }
+          if (DONE.has(sdata.status)) {
+            throw new Error(sdata.error || `게시 실패 (${sdata.status})`);
+          }
+          // 진행 중 상태 표시
+          const labels = { accepted: 'PBI 접수됨', publishing: 'PBI 변환 중', pbi_succeeded: 'DB 등록 중' };
+          status.textContent = `'${reportName}' ${labels[sdata.status] || sdata.status}... (보통 30초~2분)`;
+        }
       } catch (err) {
         status.className = 'upload-status err';
         status.textContent = `업로드 실패: ${err.message}`;
