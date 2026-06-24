@@ -18,8 +18,8 @@ from config import (
     IMPORT_POLL_MAX, IMPORT_POLL_INTERVAL,
 )
 from database import (
-    db_get_reports, db_can_view_report, db_find_report, db_reserve_upload,
-    db_update_upload_job, db_register_report, db_record_view, db_health_check,
+    db_get_reports, db_get_all_active_reports, db_can_view_report, db_find_report,
+    db_reserve_upload, db_update_upload_job, db_register_report, db_record_view, db_health_check,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError
@@ -37,9 +37,13 @@ async def index(request: Request):
     user = await current_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
+    if user.get("is_admin"):
+        report_list = await asyncio.to_thread(db_get_all_active_reports)
+    else:
+        report_list = await asyncio.to_thread(db_get_reports, user["username"])
     return templates.TemplateResponse(request, "report.html", {
         "user":    user,
-        "reports": await asyncio.to_thread(db_get_reports, user["username"]),
+        "reports": report_list,
         "csrf_token": csrf_token(request),
     })
 
@@ -70,7 +74,7 @@ async def api_embed(request: Request, report_id: int):
     if not user:
         logger.warning("EMBED DENY | user=미로그인       | ip=%s | report_id=%s", ip, report_id)
         raise AppError.NOT_AUTHENTICATED.http()
-    if not await asyncio.to_thread(db_can_view_report, user["username"], report_id):
+    if not user.get("is_admin") and not await asyncio.to_thread(db_can_view_report, user["username"], report_id):
         logger.warning("EMBED DENY | user=%-12s | ip=%s | report_id=%s (권한없음)", user["username"], ip, report_id)
         raise AppError.FORBIDDEN_REPORT.http()
     logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
@@ -249,12 +253,13 @@ async def _process_upload(request: Request, file: UploadFile, report_name: str):
             db_register_report, name, pbi_report_id, user["id"],
             dataset_ids[0] if dataset_ids else None,
             WORKSPACE_ID, pbi_display_name,
+            user["username"],  # Fabric 폴더명 = username → 사이드바 폴더 트리에 반영
         )
     except psycopg2.Error as exc:
         await asyncio.to_thread(db_update_upload_job, job_id, "db_failed", error_message=str(exc))
         logger.exception("UPLOAD DB FAIL | user=%s | report=%s | pbi_report_id=%s", user["username"], name, pbi_report_id)
         raise AppError.UPLOAD_DB_FAILED.http() from exc
 
-    await asyncio.to_thread(db_update_upload_job, job_id, "completed", report_id=gateway_report_id)
+    await asyncio.to_thread(db_update_upload_job, job_id, "completed", report_id=gateway_report_id, error_message=None)
     logger.info("UPLOAD OK  | user=%-12s | ip=%s | report=%s", user["username"], ip, name)
     return {"report_name": name, "pbi_display_name": pbi_display_name, "new": True}

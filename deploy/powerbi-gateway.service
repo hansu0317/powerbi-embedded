@@ -1,8 +1,8 @@
 [Unit]
 Description=Power BI Embedded Gateway
-After=network-online.target postgresql.service
+After=network-online.target postgresql-15.service
 Wants=network-online.target
-Requires=postgresql.service
+Requires=postgresql-15.service
 
 [Service]
 Type=simple
