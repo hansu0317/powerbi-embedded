@@ -1,0 +1,180 @@
+/* report.html 전용 — common.css 이후 로드 */
+
+.user-info { display: flex; align-items: center; gap: 12px; font-size: 0.85rem; }
+
+.logout-btn {
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.35);
+  color: white;
+  padding: 5px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.logout-btn:hover { background: rgba(255,255,255,0.3); }
+
+/* ── 사이드바 — 폴더 그룹 ─────────────────────────────── */
+.sidebar-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px 6px;
+  font-size: 0.70rem;
+  font-weight: 600;
+  color: #888;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s;
+}
+.sidebar-group-header:hover { color: #bbb; }
+
+.sidebar-group-arrow {
+  font-size: 0.6rem;
+  transition: transform 0.2s;
+  display: inline-block;
+}
+.sidebar-group.collapsed .sidebar-group-arrow { transform: rotate(-90deg); }
+.sidebar-group.collapsed .sidebar-group-body { display: none; }
+.sidebar-group-body .sidebar-item { padding-left: 28px; }
+
+/* ── 사이드바 — 업로드 ────────────────────────────────── */
+.sidebar-upload {
+  margin-top: auto;
+  padding: 14px 16px 18px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.upload-btn {
+  width: 100%;
+  background: rgba(0,120,212,0.25);
+  border: 1px dashed rgba(96,180,255,0.5);
+  color: #60b4ff;
+  padding: 9px 0;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: background 0.15s;
+}
+.upload-btn:hover    { background: rgba(0,120,212,0.4); }
+.upload-btn:disabled { opacity: 0.5; cursor: wait; }
+
+.upload-status {
+  margin-top: 8px;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: #999;
+  word-break: break-all;
+}
+.upload-status.ok  { color: #6fcf97; }
+.upload-status.err { color: #ff8a8a; }
+
+/* ── 콘텐츠 영역 ──────────────────────────────────────── */
+.content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── 탭 바 ────────────────────────────────────────────── */
+.tabs-bar {
+  display: flex;
+  align-items: stretch;
+  background: white;
+  border-top: 1px solid #e0e0e0;
+  overflow-x: auto;
+  flex-shrink: 0;
+  height: 40px;
+}
+.tabs-bar::-webkit-scrollbar { height: 3px; }
+.tabs-bar::-webkit-scrollbar-thumb { background: #ccc; }
+
+.no-tabs-hint {
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  color: #bbb;
+  font-size: 0.82rem;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 14px;
+  height: 100%;
+  font-size: 0.84rem;
+  color: #666;
+  cursor: pointer;
+  border-right: 1px solid #ebebeb;
+  white-space: nowrap;
+  transition: background 0.12s;
+  min-width: 110px;
+}
+.tab:hover { background: #f7f7f7; }
+.tab.active {
+  color: #0078d4;
+  background: #f0f7ff;
+  border-top: 2px solid #0078d4;
+  font-weight: 500;
+}
+.tab-label { flex: 1; }
+
+.tab .close-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.05rem;
+  padding: 0 4px;
+  line-height: 1;
+  opacity: 0.5;
+  border-radius: 3px;
+}
+.tab .close-btn:hover { opacity: 1; background: rgba(0,0,0,0.08); }
+
+/* ── 탭 패널 ──────────────────────────────────────────── */
+.tab-panels { flex: 1; position: relative; overflow: hidden; }
+
+.tab-panel {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+.tab-panel.active { display: flex; flex-direction: column; }
+
+.panel-loading {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  color: #0078d4;
+  z-index: 10;
+}
+
+.panel-error {
+  margin: 40px;
+  background: #fff3f3;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  padding: 20px;
+  color: #b91c1c;
+  font-size: 0.88rem;
+}
+
+.report-embed { flex: 1; width: 100%; }
+
+/* ── 빈 상태 ──────────────────────────────────────────── */
+.empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+.empty-icon { font-size: 3.5rem; }
+.empty-state h2 { font-size: 1rem; color: #777; font-weight: 500; }
+.empty-state p  { font-size: 0.82rem; color: #bbb; }

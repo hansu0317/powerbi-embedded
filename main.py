@@ -18,6 +18,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from contextlib import asynccontextmanager
 
@@ -77,6 +78,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
