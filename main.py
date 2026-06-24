@@ -22,6 +22,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from contextlib import asynccontextmanager
 
 from config import SECRET_KEY, COOKIE_SECURE, MAX_PBIX_SIZE
+from database import db_cleanup_login_attempts
 from errors import AppError
 from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
 from routes import auth, report, admin
@@ -34,6 +35,25 @@ logging.basicConfig(
 logger = logging.getLogger("powerbi-gateway")
 
 
+async def _login_cleanup_loop():
+    """login_attempts 30일 초과 기록을 하루 1회 정리한다.
+
+    기존에는 db_record_login() 안에서 매 로그인마다 실행했다.
+    로그인 응답 경로에서 분리해 서버 시작 시 1회 + 이후 24시간마다 실행한다.
+    """
+    try:
+        await asyncio.to_thread(db_cleanup_login_attempts)
+        logger.info("LOGIN CLEANUP: 30일 초과 기록 삭제 완료")
+    except Exception:
+        logger.exception("LOGIN CLEANUP FAIL (startup)")
+    while True:
+        await asyncio.sleep(86400)  # 24시간
+        try:
+            await asyncio.to_thread(db_cleanup_login_attempts)
+        except Exception:
+            logger.exception("LOGIN CLEANUP FAIL")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """서버 시작/종료 초기화.
@@ -42,15 +62,18 @@ async def lifespan(_app: FastAPI):
       1. recover_db_jobs         — pbi_succeeded·db_failed 업로드를 DB에 등록
       2. recover_pending_imports — accepted 상태 import를 재조회해 이어서 처리
       3. pbi_sync_loop           — 백그라운드 PBI 삭제 동기화
+      4. _login_cleanup_loop     — login_attempts 30일 초과 기록 일 1회 정리
     """
     try:
         await asyncio.to_thread(recover_db_jobs)
         await recover_pending_imports()
     except Exception:
         logger.exception("STARTUP RECOVERY FAIL")
-    sync_task = asyncio.create_task(pbi_sync_loop())
+    sync_task    = asyncio.create_task(pbi_sync_loop())
+    cleanup_task = asyncio.create_task(_login_cleanup_loop())
     yield
     sync_task.cancel()
+    cleanup_task.cancel()
 
 
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)

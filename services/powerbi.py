@@ -1,12 +1,63 @@
 """Power BI Embed Token 발급 + 표준 PBI REST API 헬퍼."""
 import asyncio
+import threading
+import time
+from datetime import datetime
 
 import httpx
 
-from config import WORKSPACE_ID
+from config import WORKSPACE_ID, EMBED_TOKEN_LIFETIME
 from database import db_get_report, db_mark_report_deleted
 from errors import AppError
 from services.azure import get_access_token
+
+# ── Embed Token 인메모리 캐시 ─────────────────────────────────────────────────
+# 보고서를 열 때마다 PBI API를 3번(GET report → GET dataset → POST GenerateToken)
+# 호출하는 것을 줄이기 위한 캐시.
+#
+# 캐시 키: (report_id, pbi_username, roles)
+#   - report_id:   DB의 내부 ID. pbi_report_id와 1:1 대응.
+#   - pbi_username: GenerateToken identity에 들어가는 값 — 사용자마다 다른 토큰 필요.
+#   - roles:       RLS 역할 문자열 — 역할이 다르면 다른 토큰 필요.
+#
+# 캐시 값: embed_token, embed_url, expires_at(Unix timestamp)
+#   - report_name, settings(enable_filter 등)는 관리자가 바꿀 수 있으므로 항상 DB에서 읽음.
+#   - embed_token·embed_url만 캐시 대상. 이 두 값은 PBI 측에서만 변경됨.
+#
+# 만료 처리: PBI API 응답의 expiration 필드를 파싱해 캐시 만료 시각으로 사용.
+#   만료 5분 전에 캐시 미스 처리하여 토큰 만료 직전 요청이 실패하는 것을 방지.
+_embed_cache: dict[tuple, dict] = {}
+_embed_lock  = threading.Lock()
+_EMBED_MARGIN_SEC = 300  # 만료 N초 전에 캐시 무효화
+
+
+def _get_cached_token(report_id: int, pbi_username: str, roles: str) -> dict | None:
+    with _embed_lock:
+        entry = _embed_cache.get((report_id, pbi_username, roles))
+        if entry and time.time() < entry["expires_at"] - _EMBED_MARGIN_SEC:
+            return entry
+    return None
+
+
+def _set_cached_token(
+    report_id: int, pbi_username: str, roles: str,
+    embed_token: str, embed_url: str, expires_at: float,
+):
+    with _embed_lock:
+        _embed_cache[(report_id, pbi_username, roles)] = {
+            "embed_token": embed_token,
+            "embed_url":   embed_url,
+            "expires_at":  expires_at,
+        }
+
+
+def _parse_token_expiry(expiration_str: str) -> float:
+    """PBI GenerateToken 응답의 expiration 문자열을 Unix timestamp로 변환."""
+    try:
+        dt = datetime.fromisoformat(expiration_str.replace("Z", "+00:00"))
+        return dt.timestamp()
+    except (ValueError, AttributeError):
+        return time.time() + EMBED_TOKEN_LIFETIME * 60
 
 
 async def get_embed_token(report_id: int, pbi_username: str, roles: str) -> dict:
@@ -14,6 +65,23 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: str) -> dict
     report_row = await asyncio.to_thread(db_get_report, report_id)
     if not report_row or not report_row["pbi_report_id"]:
         raise AppError.REPORT_NOT_FOUND.http()
+
+    # 캐시 히트: DB에서 최신 설정만 읽고 PBI API 3번 호출을 건너뜀
+    cached = _get_cached_token(report_id, pbi_username, roles)
+    if cached:
+        return {
+            "embed_token": cached["embed_token"],
+            "embed_url":   cached["embed_url"],
+            "report_id":   report_row["pbi_report_id"],
+            "report_name": report_row["name"],
+            "settings": {
+                "default_page":    report_row["default_page"],
+                "enable_filter":   report_row["enable_filter"],
+                "enable_page_nav": report_row["enable_page_nav"],
+                "use_data_bot":    report_row["use_data_bot"],
+                "tab_type":        report_row["tab_type"],
+            },
+        }
 
     pbi_report_id = report_row["pbi_report_id"]
     workspace_id  = report_row["pbi_workspace_id"] or WORKSPACE_ID
@@ -60,6 +128,9 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: str) -> dict
         if resp.status_code != 200:
             raise AppError.EMBED_TOKEN_FAILED.http(detail=resp.text)
         token_data = resp.json()
+
+    expires_at = _parse_token_expiry(token_data.get("expiration", ""))
+    _set_cached_token(report_id, pbi_username, roles, token_data["token"], report_info["embedUrl"], expires_at)
 
     return {
         "embed_token": token_data["token"],

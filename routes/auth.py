@@ -7,7 +7,7 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from database import db_login_allowed, db_authenticate, db_record_login
+from database import db_check_and_get_user, db_verify_password, db_record_login
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError
 
@@ -29,14 +29,20 @@ async def login_page(request: Request):
 async def login(request: Request, username: str = Form(), password: str = Form(), csrf: str = Form()):
     verify_csrf(request, csrf)
     ip = get_client_ip(request)
-    if not await asyncio.to_thread(db_login_allowed, username, ip):
+
+    # 차단 확인 + 사용자 SELECT를 한 DB 커넥션에서 처리 (기존: 두 번 별도 호출)
+    status, row = await asyncio.to_thread(db_check_and_get_user, username, ip)
+    if status == "blocked":
         logger.warning("LOGIN BLOCK | user=%-12s | ip=%s", username, ip)
         return templates.TemplateResponse(request, "login.html", {
             "error": AppError.LOGIN_RATE_LIMIT.message,
             "csrf_token": csrf_token(request),
         }, status_code=AppError.LOGIN_RATE_LIMIT.status)
-    user = await asyncio.to_thread(db_authenticate, username, password)
+
+    # bcrypt는 CPU 집약적이므로 DB 커넥션 반환 후 별도 스레드에서 실행
+    user = await asyncio.to_thread(db_verify_password, row, password)
     await asyncio.to_thread(db_record_login, username, ip, isinstance(user, dict))
+
     if user == "inactive":
         logger.warning("LOGIN INACTIVE | user=%-12s | ip=%s", username, ip)
         return templates.TemplateResponse(request, "login.html", {
