@@ -30,6 +30,18 @@ _embed_cache: dict[tuple, dict] = {}
 _embed_lock  = threading.Lock()
 _EMBED_MARGIN_SEC = 300  # 만료 N초 전에 캐시 무효화
 
+# Stampede 방지: 동일 키의 캐시 만료 시 여러 요청이 동시에 PBI API를 호출하지 않도록
+# 키별 asyncio.Lock을 유지한다. 첫 번째 요청만 PBI API를 호출하고 나머지는 대기 후 캐시를 재사용.
+_fetch_locks: dict[tuple, asyncio.Lock] = {}
+_fetch_locks_mutex = threading.Lock()
+
+
+def _get_fetch_lock(key: tuple) -> asyncio.Lock:
+    with _fetch_locks_mutex:
+        if key not in _fetch_locks:
+            _fetch_locks[key] = asyncio.Lock()
+        return _fetch_locks[key]
+
 
 def _get_cached_token(report_id: int, pbi_username: str, roles: str) -> dict | None:
     with _embed_lock:
@@ -66,7 +78,7 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: str) -> dict
     if not report_row or not report_row["pbi_report_id"]:
         raise AppError.REPORT_NOT_FOUND.http()
 
-    # 캐시 히트: DB에서 최신 설정만 읽고 PBI API 3번 호출을 건너뜀
+    # 1차 캐시 체크 (락 없이) — 대부분의 요청은 여기서 즉시 반환
     cached = _get_cached_token(report_id, pbi_username, roles)
     if cached:
         return {
@@ -83,68 +95,88 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: str) -> dict
             },
         }
 
-    pbi_report_id = report_row["pbi_report_id"]
-    workspace_id  = report_row["pbi_workspace_id"] or WORKSPACE_ID
-    report_api    = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
+    # 2차: 키별 Lock 안에서 캐시 재확인 + PBI API 호출 (stampede 방지)
+    # 동일 키 만료 시 첫 번째 요청만 PBI API를 호출하고, 대기하던 요청들은 락 해제 후 캐시를 재사용한다.
+    key = (report_id, pbi_username, roles)
+    async with _get_fetch_lock(key):
+        cached = _get_cached_token(report_id, pbi_username, roles)
+        if cached:
+            return {
+                "embed_token": cached["embed_token"],
+                "embed_url":   cached["embed_url"],
+                "report_id":   report_row["pbi_report_id"],
+                "report_name": report_row["name"],
+                "settings": {
+                    "default_page":    report_row["default_page"],
+                    "enable_filter":   report_row["enable_filter"],
+                    "enable_page_nav": report_row["enable_page_nav"],
+                    "use_data_bot":    report_row["use_data_bot"],
+                    "tab_type":        report_row["tab_type"],
+                },
+            }
 
-    access_token = await asyncio.to_thread(get_access_token)
-    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        pbi_report_id = report_row["pbi_report_id"]
+        workspace_id  = report_row["pbi_workspace_id"] or WORKSPACE_ID
+        report_api    = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(f"{report_api}/reports/{pbi_report_id}", headers=headers)
-        if resp.status_code == 404:
-            await asyncio.to_thread(db_mark_report_deleted, report_row["id"], pbi_report_id, "embed 404")
-            raise AppError.REPORT_DELETED.http()
-        if resp.status_code != 200:
-            raise AppError.REPORT_FETCH_FAILED.http(detail=resp.text)
-        report_info = resp.json()
+        access_token = await asyncio.to_thread(get_access_token)
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
 
-        dataset_id   = report_info.get("datasetId", "")
-        dataset_info = None
-        if dataset_id:
-            resp = await client.get(f"{report_api}/datasets/{dataset_id}", headers=headers)
-            if resp.status_code == 200:
-                dataset_info = resp.json()
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(f"{report_api}/reports/{pbi_report_id}", headers=headers)
+            if resp.status_code == 404:
+                await asyncio.to_thread(db_mark_report_deleted, report_row["id"], pbi_report_id, "embed 404")
+                raise AppError.REPORT_DELETED.http()
+            if resp.status_code != 200:
+                raise AppError.REPORT_FETCH_FAILED.http(detail=resp.text)
+            report_info = resp.json()
 
-        body = {"accessLevel": "view"}
-        identity_required = (
-            report_row["rls_enabled"]
-            or dataset_info is None
-            or dataset_info.get("isEffectiveIdentityRequired")
-        )
-        if identity_required:
-            identity = {"username": pbi_username, "datasets": [dataset_id]}
-            roles_required = (
+            dataset_id   = report_info.get("datasetId", "")
+            dataset_info = None
+            if dataset_id:
+                resp = await client.get(f"{report_api}/datasets/{dataset_id}", headers=headers)
+                if resp.status_code == 200:
+                    dataset_info = resp.json()
+
+            body = {"accessLevel": "view"}
+            identity_required = (
                 report_row["rls_enabled"]
                 or dataset_info is None
-                or dataset_info.get("isEffectiveIdentityRolesRequired")
+                or dataset_info.get("isEffectiveIdentityRequired")
             )
-            if roles_required:
-                configured_roles = report_row["rls_role_names"]
-                identity["roles"] = configured_roles or [r.strip() for r in roles.split(",") if r.strip()]
-            body["identities"] = [identity]
+            if identity_required:
+                identity = {"username": pbi_username, "datasets": [dataset_id]}
+                roles_required = (
+                    report_row["rls_enabled"]
+                    or dataset_info is None
+                    or dataset_info.get("isEffectiveIdentityRolesRequired")
+                )
+                if roles_required:
+                    configured_roles = report_row["rls_role_names"]
+                    identity["roles"] = configured_roles or [r.strip() for r in roles.split(",") if r.strip()]
+                body["identities"] = [identity]
 
-        resp = await client.post(f"{report_api}/reports/{pbi_report_id}/GenerateToken", headers=headers, json=body)
-        if resp.status_code != 200:
-            raise AppError.EMBED_TOKEN_FAILED.http(detail=resp.text)
-        token_data = resp.json()
+            resp = await client.post(f"{report_api}/reports/{pbi_report_id}/GenerateToken", headers=headers, json=body)
+            if resp.status_code != 200:
+                raise AppError.EMBED_TOKEN_FAILED.http(detail=resp.text)
+            token_data = resp.json()
 
-    expires_at = _parse_token_expiry(token_data.get("expiration", ""))
-    _set_cached_token(report_id, pbi_username, roles, token_data["token"], report_info["embedUrl"], expires_at)
+        expires_at = _parse_token_expiry(token_data.get("expiration", ""))
+        _set_cached_token(report_id, pbi_username, roles, token_data["token"], report_info["embedUrl"], expires_at)
 
-    return {
-        "embed_token": token_data["token"],
-        "embed_url":   report_info["embedUrl"],
-        "report_id":   pbi_report_id,
-        "report_name": report_row["name"],
-        "settings": {
-            "default_page":    report_row["default_page"],
-            "enable_filter":   report_row["enable_filter"],
-            "enable_page_nav": report_row["enable_page_nav"],
-            "use_data_bot":    report_row["use_data_bot"],
-            "tab_type":        report_row["tab_type"],
-        },
-    }
+        return {
+            "embed_token": token_data["token"],
+            "embed_url":   report_info["embedUrl"],
+            "report_id":   pbi_report_id,
+            "report_name": report_row["name"],
+            "settings": {
+                "default_page":    report_row["default_page"],
+                "enable_filter":   report_row["enable_filter"],
+                "enable_page_nav": report_row["enable_page_nav"],
+                "use_data_bot":    report_row["use_data_bot"],
+                "tab_type":        report_row["tab_type"],
+            },
+        }
 
 
 # ── 표준 PBI API — 이름 변경 / 삭제 ─────────────────────────────────────────
