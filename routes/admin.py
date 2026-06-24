@@ -14,12 +14,13 @@ from database import (
     db_admin_get_stats, db_admin_get_users, db_admin_add_user,
     db_admin_toggle_user_active, db_admin_get_reports,
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
-    db_admin_set_category,
+    db_admin_set_category, db_import_managed_report,
     db_get_report, db_get_report_access, db_set_report_access,
+    db_get_synced_reports, db_hard_delete_report,
 )
 from deps import current_user, csrf_token, verify_csrf, require_admin
 from errors import AppError
-from services.fabric import sync_pbi_reports
+from services.fabric import sync_pbi_reports, fetch_pbi_folders_and_reports
 from services.powerbi import pbi_delete_report
 
 router = APIRouter()
@@ -119,6 +120,52 @@ async def api_admin_delete_report(request: Request, report_id: int):
     if pbi_warning:
         result["pbi_warning"] = pbi_warning
     return result
+
+
+@router.post("/api/admin/import-pbi")
+async def api_admin_import_pbi(request: Request):
+    """Fabric 폴더 구조를 읽어 새 공용 보고서를 DB에 등록한다.
+
+    이미 등록된 보고서는 건너뛴다(pbi_report_id 중복 체크).
+    권한은 부여하지 않으므로 등록 후 보고서 관리에서 별도 설정이 필요하다.
+    """
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    require_admin(user)
+
+    reports = await fetch_pbi_folders_and_reports()
+    fabric_ids = {r["pbi_report_id"] for r in reports}
+
+    registered = skipped = deleted = 0
+
+    # 신규 등록 + 기존 보고서 category 업데이트
+    for r in reports:
+        is_new = await asyncio.to_thread(
+            db_import_managed_report,
+            r["pbi_report_id"], r["name"], r["dataset_id"],
+            WORKSPACE_ID, r["folder_id"], r["folder_name"],
+            user["id"],
+        )
+        if is_new:
+            registered += 1
+            logger.info("ADMIN IMPORT PBI | admin=%s | report=%s | category=%s",
+                        user["username"], r["name"], r["folder_name"])
+        else:
+            skipped += 1
+
+    # Fabric에 없는 보고서는 DB에서 완전 삭제
+    db_reports = await asyncio.to_thread(db_get_synced_reports)
+    for row in db_reports:
+        if row["pbi_report_id"] not in fabric_ids:
+            did_delete = await asyncio.to_thread(db_hard_delete_report, row["id"])
+            if did_delete:
+                deleted += 1
+                logger.info("ADMIN IMPORT PBI DELETE | admin=%s | report=%s",
+                            user["username"], row["name"])
+
+    logger.info("ADMIN IMPORT PBI DONE | admin=%s | registered=%d | skipped=%d | deleted=%d",
+                user["username"], registered, skipped, deleted)
+    return {"registered": registered, "skipped": skipped, "deleted": deleted, "total": len(reports)}
 
 
 @router.post("/api/admin/reports/{report_id}/category")

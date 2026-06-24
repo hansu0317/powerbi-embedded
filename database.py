@@ -59,18 +59,38 @@ def db_health_check():
 
 # ── 인증 ─────────────────────────────────────────────────────────────────────
 
-def db_authenticate(username: str, password: str):
-    """아이디+비밀번호 확인 후 사용자 정보 반환.
-    반환값: user dict(성공) / "inactive"(비활성 계정) / None(아이디·비밀번호 불일치)
+def db_check_and_get_user(username: str, ip: str):
+    """로그인 차단 확인 + 사용자 행 조회를 하나의 DB 커넥션에서 처리.
+
+    반환: ("blocked", None) | ("ok", row | None)
+
+    기존에는 db_login_allowed → db_authenticate 로 두 번 커넥션을 열었다.
+    차단 체크와 사용자 SELECT를 같은 커넥션 안에서 순서대로 실행해 1회로 줄인다.
+    bcrypt 비교는 CPU 집약적이므로 DB 커넥션을 닫은 뒤 호출자가 수행한다.
     """
     with db_conn() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                f"""SELECT COUNT(*) AS count FROM login_attempts
+                    WHERE username = %s AND ip_address = %s AND succeeded = FALSE
+                      AND attempted_at >= NOW() - INTERVAL '{LOGIN_BLOCK_MINUTES} minutes'""",
+                (username, ip),
+            )
+            if cur.fetchone()["count"] >= LOGIN_BLOCK_MAX_FAIL:
+                return "blocked", None
             cur.execute(
                 "SELECT id, username, display_name, pbi_username, roles, password, is_admin, is_active "
                 "FROM users WHERE username = %s",
                 (username,),
             )
-            row = cur.fetchone()
+            return "ok", cur.fetchone()
+
+
+def db_verify_password(row, password: str):
+    """bcrypt 비교 후 사용자 정보 반환. DB 접근 없는 순수 CPU 연산.
+
+    반환: user dict(성공) / "inactive"(비활성 계정) / None(아이디·비밀번호 불일치)
+    """
     if not row:
         return None
     if not bcrypt.checkpw(password.encode(), row["password"].encode()):
@@ -80,22 +100,10 @@ def db_authenticate(username: str, password: str):
     return row
 
 
-def db_login_allowed(username: str, ip: str) -> bool:
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""SELECT COUNT(*) AS count FROM login_attempts
-                    WHERE username = %s AND ip_address = %s AND succeeded = FALSE
-                      AND attempted_at >= NOW() - INTERVAL '{LOGIN_BLOCK_MINUTES} minutes'""",
-                (username, ip),
-            )
-            return cur.fetchone()["count"] < LOGIN_BLOCK_MAX_FAIL
-
-
 def db_record_login(username: str, ip: str, succeeded: bool):
+    """로그인 시도를 기록한다. 성공 시 실패 이력 초기화 + last_login_at 갱신."""
     with db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL '30 days'")
             if succeeded:
                 cur.execute("DELETE FROM login_attempts WHERE username = %s AND ip_address = %s", (username, ip))
                 cur.execute("UPDATE users SET last_login_at = NOW() WHERE username = %s", (username,))
@@ -103,6 +111,18 @@ def db_record_login(username: str, ip: str, succeeded: bool):
                 "INSERT INTO login_attempts (username, ip_address, succeeded) VALUES (%s, %s, %s)",
                 (username, ip, succeeded),
             )
+        conn.commit()
+
+
+def db_cleanup_login_attempts():
+    """30일 초과 로그인 시도 기록을 삭제한다.
+
+    기존에는 db_record_login() 안에서 매 로그인마다 DELETE를 실행했다.
+    로그인 응답 경로에서 제거하고 서버 시작 시 + 일 1회 백그라운드에서 실행한다.
+    """
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL '30 days'")
         conn.commit()
 
 
@@ -139,6 +159,34 @@ def db_get_reports(username: str) -> list:
                 (username,),
             )
             return cur.fetchall()
+
+
+def db_get_all_active_reports() -> list:
+    """관리자용: 권한 무관하게 active 보고서 전체 반환."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT r.id, r.name, r.report_type, r.owner_id, r.category,
+                          owner.username AS owner_username,
+                          s.preview_image_url, s.tab_type
+                   FROM reports r
+                   JOIN report_meta m ON m.report_id = r.id
+                   LEFT JOIN report_settings s ON s.report_id = r.id
+                   LEFT JOIN users owner ON owner.id = r.owner_id
+                   WHERE r.status = 'active'
+                   ORDER BY r.category NULLS LAST, r.name"""
+            )
+            return cur.fetchall()
+
+
+def db_hard_delete_report(report_id: int) -> bool:
+    """보고서를 DB에서 완전히 삭제한다 (CASCADE로 하위 테이블 자동 정리)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM reports WHERE id = %s", (report_id,))
+            deleted = cur.rowcount > 0
+        conn.commit()
+    return deleted
 
 
 def db_can_view_report(username: str, report_id: int) -> bool:
@@ -254,8 +302,12 @@ def db_register_report(
     pbi_dataset_id: str | None = None,
     pbi_workspace_id: str | None = None,
     pbi_display_name: str | None = None,
+    category: str | None = None,
 ):
-    """업로드된 보고서를 등록하고 소유자와 관리자에게 열람 권한을 부여한다."""
+    """업로드된 보고서를 등록하고 소유자와 관리자에게 열람 권한을 부여한다.
+
+    category는 Fabric 폴더명(= 업로더 username)으로 전달하면 사이드바 폴더 트리에 반영된다.
+    """
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("LOCK TABLE reports IN SHARE ROW EXCLUSIVE MODE")
@@ -274,14 +326,15 @@ def db_register_report(
             if existing:
                 report_id = existing["id"]
                 cur.execute(
-                    "UPDATE reports SET status = 'active', deleted_at = NULL, updated_at = NOW(), updated_by = %s WHERE id = %s",
-                    (owner_id, report_id),
+                    "UPDATE reports SET status = 'active', deleted_at = NULL, updated_at = NOW(), "
+                    "updated_by = %s, category = COALESCE(category, %s) WHERE id = %s",
+                    (owner_id, category, report_id),
                 )
             else:
                 cur.execute(
-                    "INSERT INTO reports (name, report_type, owner_id, status, created_by, updated_by) "
-                    "VALUES (%s, 'personal', %s, 'active', %s, %s) RETURNING id",
-                    (name, owner_id, owner_id, owner_id),
+                    "INSERT INTO reports (name, report_type, owner_id, status, category, created_by, updated_by) "
+                    "VALUES (%s, 'personal', %s, 'active', %s, %s, %s) RETURNING id",
+                    (name, owner_id, category, owner_id, owner_id),
                 )
                 report_id = cur.fetchone()["id"]
             cur.execute(
@@ -403,18 +456,19 @@ def db_get_recoverable_jobs():
 # ── 관리자 ────────────────────────────────────────────────────────────────────
 
 def db_admin_get_stats() -> dict:
+    """관리자 대시보드 통계. 4개의 개별 쿼리를 스칼라 서브쿼리 1개로 통합해 왕복 1회로 줄인다."""
     with db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS cnt FROM users WHERE is_active = TRUE")
-            active_users = cur.fetchone()["cnt"]
-            cur.execute("SELECT COUNT(*) AS cnt FROM reports WHERE status = 'active'")
-            active_reports = cur.fetchone()["cnt"]
-            cur.execute("SELECT COUNT(*) AS cnt FROM upload_jobs WHERE created_at >= CURRENT_DATE")
-            today_uploads = cur.fetchone()["cnt"]
-            cur.execute("SELECT COUNT(*) AS cnt FROM upload_jobs WHERE status = 'completed' AND created_at >= CURRENT_DATE")
-            today_success = cur.fetchone()["cnt"]
-    return {"active_users": active_users, "active_reports": active_reports,
-            "today_uploads": today_uploads, "today_success": today_success}
+            cur.execute(
+                """SELECT
+                    (SELECT COUNT(*) FROM users       WHERE is_active = TRUE)           AS active_users,
+                    (SELECT COUNT(*) FROM reports     WHERE status    = 'active')        AS active_reports,
+                    (SELECT COUNT(*) FROM upload_jobs WHERE created_at >= CURRENT_DATE)  AS today_uploads,
+                    (SELECT COUNT(*) FROM upload_jobs WHERE status = 'completed'
+                                                       AND created_at >= CURRENT_DATE)  AS today_success"""
+            )
+            row = cur.fetchone()
+    return dict(row)
 
 
 def db_admin_get_users() -> list:
@@ -470,10 +524,68 @@ def db_admin_get_reports() -> list:
                    LEFT JOIN users u ON u.id = r.owner_id
                    LEFT JOIN report_meta m ON m.report_id = r.id
                    LEFT JOIN user_reports ur ON ur.report_id = r.id AND ur.can_view = TRUE
+                   WHERE r.status <> 'deleted'
                    GROUP BY r.id, u.username, m.pbi_report_id, m.pbi_display_name
                    ORDER BY r.id"""
             )
             return cur.fetchall()
+
+
+def db_import_managed_report(
+    pbi_report_id: str,
+    name: str,
+    pbi_dataset_id: str | None,
+    pbi_workspace_id: str,
+    folder_id: str | None,
+    category: str | None,
+    actor_id: int,
+) -> bool:
+    """PBI에서 가져온 공용 보고서를 DB에 등록한다.
+
+    이미 등록된 보고서(pbi_report_id 기준)는 건너뛰고 False를 반환한다.
+    신규 등록 성공 시 True를 반환한다.
+    권한은 부여하지 않는다 — 관리자가 보고서 관리 화면에서 별도로 설정한다.
+    """
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT r.id FROM report_meta rm JOIN reports r ON r.id = rm.report_id "
+                "WHERE rm.pbi_report_id = %s",
+                (pbi_report_id,),
+            )
+            existing = cur.fetchone()
+            if existing:
+                # 이미 등록된 보고서라도 category가 없으면 Fabric 폴더명으로 채운다
+                if category:
+                    cur.execute(
+                        "UPDATE reports SET category = %s, updated_at = NOW() "
+                        "WHERE id = %s AND category IS NULL",
+                        (category, existing["id"]),
+                    )
+                    conn.commit()
+                return False
+            cur.execute(
+                """INSERT INTO reports (name, report_type, owner_id, status, category, created_by, updated_by)
+                   VALUES (%s, 'managed', NULL, 'active', %s, %s, %s)
+                   RETURNING id""",
+                (name, category, actor_id, actor_id),
+            )
+            report_id = cur.fetchone()["id"]
+            cur.execute(
+                """INSERT INTO report_meta (report_id, pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (report_id, pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id),
+            )
+            cur.execute("INSERT INTO report_settings (report_id) VALUES (%s)", (report_id,))
+            cur.execute("INSERT INTO report_rls (report_id) VALUES (%s)", (report_id,))
+            cur.execute(
+                """INSERT INTO report_audit_log (report_id, actor_user_id, action, details)
+                   VALUES (%s, %s, 'managed_report_imported',
+                           jsonb_build_object('pbi_report_id', %s, 'name', %s, 'category', %s))""",
+                (report_id, actor_id, pbi_report_id, name, category),
+            )
+        conn.commit()
+    return True
 
 
 def db_admin_set_category(report_id: int, category: str | None, admin_user_id: int):
