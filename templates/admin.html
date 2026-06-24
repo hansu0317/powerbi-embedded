@@ -406,22 +406,7 @@
                 <td title="{{ r.name }}">{{ r.name }}</td>
                 <td>{{ '공용' if r.report_type == 'managed' else '개인' }}</td>
                 <td title="{{ r.owner_username or '-' }}">{{ r.owner_username or '-' }}</td>
-                <td>
-                  {% if r.report_type == 'managed' %}
-                  <span class="category-label" id="cat-label-{{ r.id }}"
-                        onclick="startEditCategory({{ r.id }}, this)"
-                        style="cursor:pointer;color:#0078d4;text-decoration:underline dotted"
-                        title="클릭해서 수정">{{ r.category or '(없음)' }}</span>
-                  <span id="cat-edit-{{ r.id }}" style="display:none">
-                    <input id="cat-input-{{ r.id }}" type="text" value="{{ r.category or '' }}"
-                           style="width:80px;padding:2px 6px;font-size:0.8rem;border:1px solid #0078d4;border-radius:4px"
-                           onkeydown="if(event.key==='Enter')saveCategory({{ r.id }});if(event.key==='Escape')cancelEditCategory({{ r.id }})">
-                    <button class="btn btn-primary btn-sm" style="padding:2px 8px;margin-left:2px" onclick="saveCategory({{ r.id }})">저장</button>
-                    <button class="btn btn-sm" style="padding:2px 8px;background:#eee;color:#666" onclick="cancelEditCategory({{ r.id }})">취소</button>
-                  </span>
-                  {% else %}
-                  <span style="color:#aaa">-</span>
-                  {% endif %}
+                <td>{{ r.category or '-' }}</td>
                 </td>
                 <td>{{ r.viewer_count }}</td>
                 <td>
@@ -471,7 +456,9 @@
                   {% else %}<span class="pill fail">{{ j.status }}</span>
                   {% endif %}
                 </td>
-                <td style="font-size:0.76rem;color:#b91c1c;" title="{{ j.error_message or '' }}">{{ j.error_message or '-' }}</td>
+                <td style="font-size:0.76rem;color:#b91c1c;" title="{{ j.error_message or '' }}">
+                  {%- if j.status != 'completed' and j.error_message -%}{{ j.error_message }}{%- else -%}-{%- endif -%}
+                </td>
                 <td>{{ j.created_at.strftime('%m-%d %H:%M:%S') if j.created_at else '-' }}</td>
                 <td>{{ j.updated_at.strftime('%m-%d %H:%M:%S') if j.updated_at else '-' }}</td>
               </tr>
@@ -537,35 +524,6 @@
       setTimeout(() => { t.classList.remove('show'); }, 3000);
     }
 
-    // ── 카테고리 인라인 수정 ──────────────────────────────────────────────────
-    function startEditCategory(reportId, labelEl) {
-      labelEl.style.display = 'none';
-      document.getElementById('cat-edit-' + reportId).style.display = 'inline';
-      document.getElementById('cat-input-' + reportId).focus();
-    }
-
-    function cancelEditCategory(reportId) {
-      document.getElementById('cat-edit-' + reportId).style.display = 'none';
-      document.getElementById('cat-label-' + reportId).style.display = '';
-    }
-
-    async function saveCategory(reportId) {
-      const val = document.getElementById('cat-input-' + reportId).value.trim();
-      const res = await fetch('/api/admin/reports/' + reportId + '/category', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-        body: JSON.stringify({ category: val }),
-      });
-      if (res.ok) {
-        const j = await res.json();
-        const label = document.getElementById('cat-label-' + reportId);
-        label.textContent = j.category || '(없음)';
-        cancelEditCategory(reportId);
-        showToast('카테고리가 변경됐습니다.', 'ok');
-      } else {
-        showToast('카테고리 변경 실패', 'err');
-      }
-    }
 
     // ── PBI에서 공용 보고서 가져오기 ─────────────────────────────────────────
     async function importFromPbi() {
