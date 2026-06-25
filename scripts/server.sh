@@ -6,17 +6,6 @@ PID_FILE="$PROJECT_ROOT/.server.pid"
 LOG_DIR="$PROJECT_ROOT/logs"
 LOG_FILE="$LOG_DIR/server.log"
 
-SSL_CERT="/etc/ssl/powerbi-gateway/cert.pem"
-SSL_KEY="/etc/ssl/powerbi-gateway/key.pem"
-
-# 인증서가 있으면 HTTPS, 없으면 HTTP
-if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
-    SSL_ARGS="--ssl-keyfile $SSL_KEY --ssl-certfile $SSL_CERT"
-    SCHEME="https"
-else
-    SSL_ARGS=""
-    SCHEME="http"
-fi
 
 # 기존 로그를 시각이 포함된 파일명으로 보관하고 30일이 지난 로그를 정리한다.
 rotate_log() {
@@ -43,9 +32,7 @@ start() {
     fi
     rotate_log
     cd "$PROJECT_ROOT"
-    [ -n "$SSL_ARGS" ] && echo "SSL 모드: $SSL_CERT"
-    # shellcheck disable=SC2086
-    setsid -f $PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8247 $SSL_ARGS \
+    setsid -f $PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8247 \
         </dev/null > "$LOG_FILE" 2>&1
     sleep 2
     PID=$(pgrep -n -f "$PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8247")
@@ -57,7 +44,7 @@ start() {
     # 시작 시 복구 작업 때문에 포트 바인딩이 늦을 수 있어 최대 15초까지 재시도한다.
     HEALTHY=""
     for _ in $(seq 1 15); do
-        if curl -fsS --max-time 3 --insecure "${SCHEME}://127.0.0.1:8247/health" >/dev/null 2>&1; then
+        if curl -fsS --max-time 3 http://127.0.0.1:8247/health >/dev/null 2>&1; then
             HEALTHY=1
             break
         fi
@@ -69,7 +56,7 @@ start() {
         rm -f "$PID_FILE"
         return 1
     fi
-    echo "서버 시작됨 (PID: $PID) — ${SCHEME}://$(hostname -I | awk '{print $1}'):8247"
+    echo "서버 시작됨 (PID: $PID)"
     echo "로그: $LOG_FILE"
 }
 
