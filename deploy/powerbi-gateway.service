@@ -11,7 +11,10 @@ WorkingDirectory=/home/test01/projects/powerbi-embedded
 EnvironmentFile=/home/test01/projects/powerbi-embedded/.env
 ExecStartPre=/usr/bin/mkdir -p /home/test01/projects/powerbi-embedded/logs
 ExecStartPre=/home/test01/.pyenv/versions/3.11.9/bin/python3 /home/test01/projects/powerbi-embedded/scripts/migrate_report_meta.py
-ExecStart=/home/test01/.pyenv/versions/3.11.9/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8247
+ExecStart=/home/test01/.pyenv/versions/3.11.9/bin/python3 -m uvicorn main:app \
+    --host 0.0.0.0 --port 8247 \
+    --ssl-keyfile /etc/ssl/powerbi-gateway/key.pem \
+    --ssl-certfile /etc/ssl/powerbi-gateway/cert.pem
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
