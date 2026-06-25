@@ -41,20 +41,6 @@ h2 { font-size: 1.1rem; font-weight: 600; color: #333; margin-bottom: 20px; }
 .stat-card .value { font-size: 2rem; font-weight: 700; color: #0078d4; }
 .stat-card .sub   { font-size: 0.72rem; color: #aaa; margin-top: 4px; }
 
-/* ── 시스템 정보 ──────────────────────────────────────── */
-.info-box {
-  background: white;
-  border-radius: 10px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-  margin-bottom: 24px;
-  font-size: 0.85rem;
-}
-.info-row { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid #f2f2f2; }
-.info-row:last-child { border: none; }
-.info-key { width: 160px; color: #888; flex-shrink: 0; }
-.info-val { color: #333; font-weight: 500; word-break: break-all; }
-
 /* ── 테이블 ───────────────────────────────────────────── */
 .table-wrap {
   background: white;

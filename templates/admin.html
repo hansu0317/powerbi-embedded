@@ -24,8 +24,6 @@
       <div class="sidebar-item" onclick="showSection('users', this)"><span>👥</span>사용자</div>
       <div class="sidebar-item" onclick="showSection('reports', this)"><span>📊</span>보고서</div>
       <div class="sidebar-item" onclick="showSection('jobs', this)"><span>📋</span>업로드 이력</div>
-      <div class="sidebar-item" onclick="showSection('system', this)"><span>🛠</span>시스템</div>
-      <div class="sidebar-item" onclick="showSection('stats', this); loadViewStats()"><span>📈</span>열람 통계</div>
     </nav>
 
     <div class="content">
@@ -260,35 +258,6 @@
             </tbody>
           </table>
         </div>
-      </div>
-
-      <!-- 시스템 -->
-      <div class="section" id="section-system">
-        <h2>시스템 정보</h2>
-        <div class="info-box">
-          <div class="info-row">
-            <span class="info-key">운영 모드</span>
-            <span class="info-val">Power BI Pro (공유 용량)</span>
-          </div>
-          <div class="info-row">
-            <span class="info-key">활성 사용자</span>
-            <span class="info-val">{{ stats.active_users }}명</span>
-          </div>
-          <div class="info-row">
-            <span class="info-key">활성 보고서</span>
-            <span class="info-val">{{ stats.active_reports }}건</span>
-          </div>
-          <div class="info-row">
-            <span class="info-key">오늘 업로드</span>
-            <span class="info-val">{{ stats.today_uploads }}건 (성공 {{ stats.today_success }}건)</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 열람 통계 -->
-      <div class="section" id="section-stats">
-        <h2>보고서 열람 통계</h2>
-        <div id="stats-content" style="color:#aaa;padding:24px">불러오는 중...</div>
       </div>
 
     </div>

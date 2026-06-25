@@ -16,7 +16,7 @@ from database import (
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
     db_import_managed_report,
     db_get_report, db_get_report_access, db_set_report_access,
-    db_get_synced_reports, db_hard_delete_report, db_get_view_stats,
+    db_get_synced_reports, db_hard_delete_report,
 )
 from deps import current_user, csrf_token, verify_csrf, require_admin
 from errors import AppError
@@ -189,14 +189,6 @@ async def api_admin_refresh_dataset(request: Request, report_id: int):
     except Exception as exc:
         logger.warning("DATASET REFRESH FAIL | admin=%s | dataset=%s | error=%s", user["username"], dataset_id, exc)
         raise AppError.REPORT_FETCH_FAILED.http(detail=str(exc))
-
-
-@router.get("/api/admin/stats/views")
-async def api_admin_view_stats(request: Request):
-    """보고서 열람 통계 반환."""
-    user = await current_user(request)
-    require_admin(user)
-    return await asyncio.to_thread(db_get_view_stats)
 
 
 @router.get("/api/admin/reports/{report_id}/access")

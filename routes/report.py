@@ -20,7 +20,7 @@ from config import (
 from database import (
     db_get_reports, db_get_all_active_reports, db_can_view_report, db_find_report,
     db_reserve_upload, db_update_upload_job, db_get_upload_job, db_register_report,
-    db_record_view, db_health_check,
+    db_health_check,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError
@@ -79,14 +79,7 @@ async def api_embed(request: Request, report_id: int):
         logger.warning("EMBED DENY | user=%-12s | ip=%s | report_id=%s (권한없음)", user["username"], ip, report_id)
         raise AppError.FORBIDDEN_REPORT.http()
     logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
-    result = await get_embed_token(report_id, user["pbi_username"], user["roles"])
-    async def _record_view():
-        try:
-            await asyncio.to_thread(db_record_view, report_id, user["id"])
-        except Exception:
-            logger.exception("RECORD VIEW FAIL | report_id=%s | user=%s", report_id, user["username"])
-    asyncio.create_task(_record_view())
-    return result
+    return await get_embed_token(report_id, user["pbi_username"], user["roles"])
 
 
 @router.post("/api/upload")
@@ -193,7 +186,7 @@ async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: i
     async with httpx.AsyncClient(timeout=300) as client:
         try:
             resp = await client.post(
-                f"{pbi_api}/imports", params=import_params, headers=headers,
+                f"{PBI_API}/imports", params=import_params, headers=headers,
                 files={"file": (f"{import_name}.pbix", io.BytesIO(pbix_bytes), "application/octet-stream")},
             )
         except httpx.RequestError as exc:
@@ -215,7 +208,7 @@ async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: i
         # 2) 변환 완료 대기
         for _ in range(IMPORT_POLL_MAX):
             await asyncio.sleep(IMPORT_POLL_INTERVAL)
-            resp = await client.get(f"{pbi_api}/imports/{import_id}", headers=headers)
+            resp = await client.get(f"{PBI_API}/imports/{import_id}", headers=headers)
             if resp.status_code != 200:
                 await asyncio.to_thread(db_update_upload_job, job_id, "unknown", error_message=f"poll HTTP {resp.status_code}")
                 raise AppError.IMPORT_POLL_FAILED.http(detail=resp.text)

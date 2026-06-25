@@ -30,7 +30,7 @@ DB_CONFIG = {
 def reset():
     with psycopg2.connect(**DB_CONFIG) as conn:
         with conn.cursor() as cur:
-            cur.execute("TRUNCATE report_audit_log, report_views, upload_jobs RESTART IDENTITY CASCADE")
+            cur.execute("TRUNCATE report_audit_log, upload_jobs RESTART IDENTITY CASCADE")
             cur.execute("TRUNCATE user_reports RESTART IDENTITY CASCADE")
             cur.execute("TRUNCATE report_rls, report_settings, report_meta RESTART IDENTITY CASCADE")
             cur.execute("TRUNCATE reports RESTART IDENTITY CASCADE")

@@ -238,16 +238,6 @@ def db_find_report(owner_id: int, name: str):
             return cur.fetchone()
 
 
-def db_record_view(report_id: int, user_id: int):
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO report_views (report_id, user_id) VALUES (%s, %s)",
-                (report_id, user_id),
-            )
-        conn.commit()
-
-
 # ── 업로드 잡 ─────────────────────────────────────────────────────────────────
 
 def db_reserve_upload(user_id: int, report_name: str) -> int:
@@ -543,46 +533,6 @@ def db_admin_get_reports() -> list:
                 (WORKSPACE_ID,)
             )
             return cur.fetchall()
-
-
-def db_get_view_stats() -> dict:
-    """보고서 열람 통계: 보고서별 조회 수, 일별 추이(7일), 사용자별 조회 수."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT r.name, r.category, COUNT(*) AS view_count
-                   FROM report_views rv
-                   JOIN reports r ON r.id = rv.report_id
-                   GROUP BY r.id, r.name, r.category
-                   ORDER BY view_count DESC
-                   LIMIT 20"""
-            )
-            by_report = cur.fetchall()
-
-            cur.execute(
-                """SELECT DATE(viewed_at) AS day, COUNT(*) AS view_count
-                   FROM report_views
-                   WHERE viewed_at >= CURRENT_DATE - INTERVAL '6 days'
-                   GROUP BY day
-                   ORDER BY day"""
-            )
-            by_day = cur.fetchall()
-
-            cur.execute(
-                """SELECT u.username, COUNT(*) AS view_count
-                   FROM report_views rv
-                   JOIN users u ON u.id = rv.user_id
-                   GROUP BY u.id, u.username
-                   ORDER BY view_count DESC
-                   LIMIT 10"""
-            )
-            by_user = cur.fetchall()
-
-    return {
-        "by_report": [dict(r) for r in by_report],
-        "by_day":    [{"day": str(r["day"]), "view_count": r["view_count"]} for r in by_day],
-        "by_user":   [dict(r) for r in by_user],
-    }
 
 
 def db_import_managed_report(

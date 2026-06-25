@@ -132,15 +132,6 @@ def migrate():
                     attempted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )"""
             )
-            # 보고서 열람 이력 — 인기 보고서 파악, 사용자 활동 추적, 감사에 활용
-            cur.execute(
-                """CREATE TABLE IF NOT EXISTS report_views (
-                    id BIGSERIAL PRIMARY KEY,
-                    report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
-                    user_id   INTEGER NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
-                    viewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )"""
-            )
             # 런타임 설정 — 코드 재배포 없이 관리자가 관리자 포털 또는 SQL로 변경 가능
             cur.execute(
                 """CREATE TABLE IF NOT EXISTS app_config (
@@ -214,6 +205,8 @@ def migrate():
             cur.execute("ALTER TABLE report_rls DROP COLUMN IF EXISTS config")
             cur.execute("ALTER TABLE report_audit_log DROP COLUMN IF EXISTS actor_identity")
             cur.execute("ALTER TABLE users DROP COLUMN IF EXISTS fabric_workspace_id")
+            # 열람 통계 기능 제거 — report_views 테이블 폐기 (조회수가 새로고침/관리자 자체조회로 부풀려져 신뢰도 낮음)
+            cur.execute("DROP TABLE IF EXISTS report_views")
 
             # ── 4. 제약과 인덱스 ─────────────────────────────────────────────
             cur.execute("ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_name_key")
@@ -286,14 +279,6 @@ def migrate():
                 "CREATE INDEX IF NOT EXISTS report_audit_log_details_gin "
                 "ON report_audit_log USING gin (details)"
             )
-            # 인기 보고서 / 사용자 열람 이력 조회
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS report_views_report_idx ON report_views (report_id, viewed_at)"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS report_views_user_idx ON report_views (user_id, viewed_at)"
-            )
-
             # ── 5. app_config 기본값 씨드 (없는 키만 INSERT) ─────────────────
             # use_fabric 키 제거 (Pro 전용으로 고정)
             cur.execute("DELETE FROM app_config WHERE key = 'use_fabric'")
