@@ -11,20 +11,23 @@
 set -euo pipefail
 
 # ── 설정 (환경에 맞게 수정) ───────────────────────────────────────────────────
-SERVER_IP="$(hostname -I | awk '{print $1}')"   # 서버 IP (자동 감지, 수동 지정 가능)
-SERVER_HOSTNAME="$(hostname -f 2>/dev/null || hostname)"  # 서버 호스트명
+SERVER_IP="$(hostname -I | awk '{print $1}')"        # 서버 IP (자동 감지)
+SERVER_HOSTNAME="$(hostname -f 2>/dev/null || hostname)"
+DOMAIN="qualiportal.com"                             # 접속에 사용할 도메인 (빈 문자열이면 제외)
 CERT_DIR="/etc/ssl/powerbi-gateway"
-DAYS=3650                                        # 인증서 유효 기간 (10년)
-ORG="Company"                                    # 회사명
+DAYS=3650                                            # 인증서 유효 기간 (10년)
+ORG="Company"                                        # 회사명
 
-# ── 수동 지정이 필요한 경우 아래 주석 해제 후 값 입력 ─────────────────────────
+# ── 수동 지정이 필요한 경우 값 변경 ───────────────────────────────────────────
 # SERVER_IP="192.168.1.100"
-# SERVER_HOSTNAME="pbi.company.local"
+# SERVER_HOSTNAME="pbi-server"
+# DOMAIN=""   # 도메인 없이 IP만 쓰려면 빈 문자열
 # ─────────────────────────────────────────────────────────────────────────────
 
 echo "=== PowerBI Gateway SSL 인증서 생성 ==="
 echo "  서버 IP   : $SERVER_IP"
 echo "  서버 호스트: $SERVER_HOSTNAME"
+echo "  도메인    : ${DOMAIN:-(없음)}"
 echo "  저장 위치 : $CERT_DIR"
 echo "  유효 기간 : ${DAYS}일"
 echo ""
@@ -62,6 +65,7 @@ IP.1  = ${SERVER_IP}
 IP.2  = 127.0.0.1
 DNS.1 = ${SERVER_HOSTNAME}
 DNS.2 = localhost
+$([ -n "${DOMAIN}" ] && echo "DNS.3 = ${DOMAIN}")
 EOF
 
 # 인증서 + 개인키 생성
