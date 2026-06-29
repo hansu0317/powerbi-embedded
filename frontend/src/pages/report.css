@@ -139,7 +139,7 @@
 .home-hero {
   position: relative;
   overflow: hidden;
-  padding: 40px 36px 56px;
+  padding: 30px 36px 44px;
   text-align: center;
   flex-shrink: 0;
   background:
@@ -159,9 +159,9 @@
 }
 .home-headline {
   position: relative;
-  font-size: 2.1rem;
+  font-size: 1.85rem;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1.18;
   color: var(--ink);
   letter-spacing: -0.02em;
 }
@@ -169,8 +169,8 @@
 .home-headline .accent { color: var(--sage-hover); }
 .home-greet {
   position: relative;
-  margin-top: 12px;
-  font-size: 0.92rem;
+  margin-top: 10px;
+  font-size: 0.9rem;
   color: var(--ink-soft);
 }
 .home-search {
@@ -183,7 +183,7 @@
   border-radius: 999px;
   padding: 7px 7px 7px 22px;
   max-width: 620px;
-  margin: 22px auto 0;
+  margin: 18px auto 0;
   box-shadow: 0 10px 30px rgba(85, 139, 47, 0.12);
 }
 .home-search:focus-within { border-color: var(--sage); box-shadow: 0 10px 30px rgba(124,179,66,0.22); }
@@ -253,8 +253,8 @@
   gap: 20px;
   width: 100%;
   max-width: 1100px;
-  margin: -34px auto 0;
-  padding: 0 36px 32px;
+  margin: -30px auto 0;
+  padding: 0 36px 24px;
   position: relative;
 }
 .home-card {
@@ -262,7 +262,7 @@
   border: 1px solid var(--line);
   border-radius: 16px;
   box-shadow: 0 6px 22px rgba(85, 139, 47, 0.1);
-  padding: 20px 20px 10px;
+  padding: 16px 18px 8px;
   display: flex;
   flex-direction: column;
 }
@@ -452,6 +452,20 @@
 
 /* ── 페이지(전체 보고서 / 업로드) 공통 ─────────────────── */
 .rp-page { flex: 1; overflow-y: auto; padding: 30px 36px; min-width: 0; }
+
+/* 한 화면에 맞춤(스크롤 없음): 헤더·검색 고정, 표 영역이 남는 높이를 채우고 페이저는 하단 */
+.rp-page-fit {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-top: 26px;
+  padding-bottom: 16px;
+}
+.rp-page-fit .rp-page-head,
+.rp-page-fit .rp-search { flex-shrink: 0; }
+.rp-page-fit .rp-fit-table { flex: 1; min-height: 0; overflow: hidden; }
+.rp-page-fit .rp-pager { margin-top: 14px; flex-shrink: 0; }
 .rp-page-title { font-size: 1.35rem; font-weight: 800; color: var(--ink); margin-bottom: 22px; }
 .rp-page-head {
   display: flex;

@@ -28,6 +28,7 @@ import {
   adminToggleUser,
   SyncStatus,
 } from "../api";
+import { Pager, usePaged } from "../Pager";
 
 type SectionKey = "overview" | "users" | "reports" | "jobs";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
@@ -314,6 +315,7 @@ function UsersSection({
   onAdd: () => void;
   onToggle: (id: number) => void;
 }) {
+  const { pageItems, page, totalPages, total, setPage } = usePaged(users, 8);
   return (
     <section>
       <div className="ad-section-head">
@@ -349,7 +351,7 @@ function UsersSection({
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
+            {pageItems.map((u) => (
               <tr key={u.id}>
                 <td>{u.id}</td>
                 <td title={u.username}>
@@ -385,6 +387,7 @@ function UsersSection({
           </tbody>
         </table>
       </div>
+      <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
     </section>
   );
 }
@@ -490,6 +493,7 @@ function ReportsSection({
 }) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState("");
+  const { pageItems, page, totalPages, total, setPage } = usePaged(reports, 8);
 
   const doImport = async () => {
     setImporting(true);
@@ -580,7 +584,7 @@ function ReportsSection({
             </tr>
           </thead>
           <tbody>
-            {reports.map((r) => (
+            {pageItems.map((r) => (
               <tr key={r.id}>
                 <td>{r.id}</td>
                 <td title={r.name}>{r.name}</td>
@@ -620,11 +624,13 @@ function ReportsSection({
           </tbody>
         </table>
       </div>
+      <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
     </section>
   );
 }
 
 function JobsSection({ jobs }: { jobs: AdminJob[] }) {
+  const { pageItems, page, totalPages, total, setPage } = usePaged(jobs, 8);
   return (
     <section>
       <h2>업로드 이력 (최근 30건)</h2>
@@ -651,7 +657,7 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
             </tr>
           </thead>
           <tbody>
-            {jobs.map((j) => (
+            {pageItems.map((j) => (
               <tr key={j.id}>
                 <td>{j.id}</td>
                 <td>{j.username}</td>
@@ -675,6 +681,7 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
           </tbody>
         </table>
       </div>
+      <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
     </section>
   );
 }

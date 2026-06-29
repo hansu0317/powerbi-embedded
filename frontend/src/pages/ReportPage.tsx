@@ -17,6 +17,7 @@ import type { ReportData, ReportItem } from "../bootstrap";
 import { fetchEmbed, fetchUploadStatus } from "../api";
 import { useFavorites } from "../useFavorites";
 import { useRecents } from "../useRecents";
+import { Pager, useFitRows } from "../Pager";
 
 // PowerBI 서비스 싱글턴 (탭 전체가 공유)
 const powerbi = new pbi.service.Service(
@@ -242,11 +243,11 @@ function Home({
   const [q, setQ] = useState("");
   const [openSuggest, setOpenSuggest] = useState(false);
   const byId = useMemo(() => new Map(reports.map((r) => [r.id, r])), [reports]);
-  const favReports = reports.filter((r) => isFav(r.id)).slice(0, 5);
+  const favReports = reports.filter((r) => isFav(r.id)).slice(0, 4);
   const recentReports = recentIds
     .map((id) => byId.get(id))
     .filter((r): r is ReportItem => Boolean(r))
-    .slice(0, 5);
+    .slice(0, 4);
 
   const suggestions = useMemo(() => {
     const k = q.trim().toLowerCase();
@@ -338,7 +339,7 @@ function Home({
             title="전체 보고서"
             Icon={LayoutList}
             empty="열람 가능한 보고서가 없습니다"
-            items={reports.slice(0, 5)}
+            items={reports.slice(0, 4)}
             onOpen={onOpen}
             footer={
               <button className="home-card-more" onClick={onGoAll}>
@@ -727,17 +728,16 @@ function AllReportsView({
 
   const [preview, setPreview] = useState<ReportItem | null>(null);
 
-  const PAGE_SIZE = 10;
+  const tableRef = useRef<HTMLDivElement>(null);
+  const pageSize = useFitRows(tableRef, 42, 44); // 화면 높이에 맞춰 행 수 자동
   const [page, setPage] = useState(1);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  // 검색어가 바뀌거나 결과 수가 줄면 1페이지로
-  useEffect(() => setPage(1), [query]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  useEffect(() => setPage(1), [query, pageSize]);
   const cur = Math.min(page, totalPages);
-  const pageItems = filtered.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE);
-  const pageNums = Array.from({ length: totalPages }, (_, i) => i + 1);
+  const pageItems = filtered.slice((cur - 1) * pageSize, cur * pageSize);
 
   return (
-    <div className="rp-page">
+    <div className="rp-page rp-page-fit">
       <div className="rp-page-head">
         <h1 className="rp-page-title">전체 보고서</h1>
         <button className="btn btn-primary" onClick={onGoUpload}>
@@ -753,7 +753,7 @@ function AllReportsView({
         />
       </div>
 
-      <div className="card-table rp-all-table">
+      <div className="card-table rp-all-table rp-fit-table" ref={tableRef}>
         <table>
           <colgroup>
             <col style={{ width: "46%" }} />
@@ -799,36 +799,12 @@ function AllReportsView({
         </table>
       </div>
 
-      <div className="rp-pager">
-        <span className="rp-pager-total">Total {filtered.length} records</span>
-        {totalPages > 1 && (
-          <div className="rp-pager-nav">
-            <button
-              className="rp-pager-btn"
-              disabled={cur === 1}
-              onClick={() => setPage(cur - 1)}
-            >
-              ‹
-            </button>
-            {pageNums.map((n) => (
-              <button
-                key={n}
-                className={`rp-pager-btn${n === cur ? " active" : ""}`}
-                onClick={() => setPage(n)}
-              >
-                {n}
-              </button>
-            ))}
-            <button
-              className="rp-pager-btn"
-              disabled={cur === totalPages}
-              onClick={() => setPage(cur + 1)}
-            >
-              ›
-            </button>
-          </div>
-        )}
-      </div>
+      <Pager
+        page={cur}
+        totalPages={totalPages}
+        total={filtered.length}
+        onPage={setPage}
+      />
 
       {preview && (
         <ReportInfoModal
