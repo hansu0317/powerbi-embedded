@@ -26,6 +26,8 @@
           }{{ "," if not loop.last else "" }}
           {%- endfor %}
         ],
+        favorites: {{ favorites | tojson }},
+        recents: {{ recents | tojson }},
         csrf_token: {{ csrf_token | tojson }}
       }
     };

@@ -1,29 +1,24 @@
 import { useCallback, useState } from "react";
+import { setFavorite } from "./api";
 
-// 즐겨찾기 보고서 ID 목록을 localStorage 에 저장한다 (세션을 넘어 유지, 백엔드 무관).
-const KEY = "fav-reports";
+// 즐겨찾기는 DB에 저장한다(기기 간 유지). 초기값은 서버 부트스트랩에서 받고,
+// 토글 시 낙관적으로 화면을 갱신한 뒤 API를 호출한다(실패하면 되돌림).
+export function useFavorites(initial: number[], csrf: string) {
+  const [favs, setFavs] = useState<number[]>(initial);
 
-function load(): number[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(KEY) || "[]");
-    return Array.isArray(v) ? v.filter((x) => typeof x === "number") : [];
-  } catch {
-    return [];
-  }
-}
-
-export function useFavorites() {
-  const [favs, setFavs] = useState<number[]>(load);
-
-  const toggle = useCallback((id: number) => {
-    setFavs((prev) => {
-      const next = prev.includes(id)
-        ? prev.filter((x) => x !== id)
-        : [...prev, id];
-      localStorage.setItem(KEY, JSON.stringify(next));
-      return next;
-    });
-  }, []);
+  const toggle = useCallback(
+    (id: number) => {
+      const on = !favs.includes(id);
+      setFavs((prev) =>
+        on ? [...prev, id] : prev.filter((x) => x !== id),
+      );
+      setFavorite(id, on, csrf).catch(() => {
+        // 실패 시 롤백
+        setFavs((prev) => (on ? prev.filter((x) => x !== id) : [...prev, id]));
+      });
+    },
+    [favs, csrf],
+  );
 
   const isFav = useCallback((id: number) => favs.includes(id), [favs]);
 

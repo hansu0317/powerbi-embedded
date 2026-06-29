@@ -74,8 +74,8 @@ const MODE_KEY = "rp-mode";
 export default function ReportPage({ data }: { data: ReportData }) {
   const { user, reports, csrf_token } = data;
 
-  const { isFav, toggle: toggleFav } = useFavorites();
-  const { recents, push: pushRecent } = useRecents();
+  const { isFav, toggle: toggleFav } = useFavorites(data.favorites, csrf_token);
+  const { recents, push: pushRecent } = useRecents(data.recents, csrf_token);
   const [mode, setMode] = useState<Mode>(
     () => (sessionStorage.getItem(MODE_KEY) as Mode) || "home",
   );

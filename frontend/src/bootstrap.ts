@@ -23,6 +23,8 @@ export interface LoginData {
 export interface ReportData {
   user: SessionUser;
   reports: ReportItem[];
+  favorites: number[];
+  recents: number[];
   csrf_token: string;
 }
 

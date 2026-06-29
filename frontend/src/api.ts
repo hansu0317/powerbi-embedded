@@ -63,6 +63,23 @@ export async function fetchUploadStatus(jobId: number, csrf: string): Promise<Up
   return data;
 }
 
+// ── 즐겨찾기 / 최근 본 보고서 (DB 영속) ──────────────────────────────────────
+
+export async function setFavorite(reportId: number, favorite: boolean, csrf: string) {
+  await fetch(`/api/favorites/${reportId}`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+    body: JSON.stringify({ favorite }),
+  });
+}
+
+export async function recordRecent(reportId: number, csrf: string) {
+  await fetch(`/api/recents/${reportId}`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf },
+  });
+}
+
 // ── 관리자 API ────────────────────────────────────────────────────────────────
 
 export async function adminImportPbi(csrf: string) {

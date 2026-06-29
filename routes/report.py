@@ -21,6 +21,7 @@ from database import (
     db_get_reports, db_get_all_active_reports, db_can_view_report, db_find_report,
     db_reserve_upload, db_update_upload_job, db_get_upload_job, db_register_report,
     db_health_check,
+    db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError
@@ -42,11 +43,39 @@ async def index(request: Request):
         report_list = await asyncio.to_thread(db_get_all_active_reports)
     else:
         report_list = await asyncio.to_thread(db_get_reports, user["username"])
+    favorites = await asyncio.to_thread(db_get_user_favorites, user["id"])
+    recents   = await asyncio.to_thread(db_get_user_recents, user["id"])
     return templates.TemplateResponse(request, "report.html", {
-        "user":    user,
-        "reports": report_list,
+        "user":      user,
+        "reports":   report_list,
+        "favorites": favorites,
+        "recents":   recents,
         "csrf_token": csrf_token(request),
     })
+
+
+@router.post("/api/favorites/{report_id}")
+async def api_set_favorite(request: Request, report_id: int):
+    """즐겨찾기 추가/해제. body: {"favorite": true|false}"""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    body = await request.json()
+    on = bool(body.get("favorite", False))
+    await asyncio.to_thread(db_set_favorite, user["id"], report_id, on)
+    return {"report_id": report_id, "favorite": on}
+
+
+@router.post("/api/recents/{report_id}")
+async def api_add_recent(request: Request, report_id: int):
+    """최근 본 보고서 기록."""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    await asyncio.to_thread(db_add_recent, user["id"], report_id)
+    return {"report_id": report_id, "status": "ok"}
 
 
 @router.get("/health")

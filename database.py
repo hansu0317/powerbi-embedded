@@ -179,6 +179,66 @@ def db_get_all_active_reports() -> list:
             return cur.fetchall()
 
 
+def db_get_user_favorites(user_id: int) -> list:
+    """사용자의 즐겨찾기 보고서 ID 목록 (active 보고서만, 최신 등록순)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT f.report_id
+                   FROM user_favorites f
+                   JOIN reports r ON r.id = f.report_id
+                   WHERE f.user_id = %s AND r.status = 'active'
+                   ORDER BY f.created_at DESC""",
+                (user_id,),
+            )
+            return [row["report_id"] for row in cur.fetchall()]
+
+
+def db_set_favorite(user_id: int, report_id: int, on: bool) -> None:
+    """즐겨찾기 추가/해제 (멱등)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            if on:
+                cur.execute(
+                    "INSERT INTO user_favorites (user_id, report_id) VALUES (%s, %s) "
+                    "ON CONFLICT (user_id, report_id) DO NOTHING",
+                    (user_id, report_id),
+                )
+            else:
+                cur.execute(
+                    "DELETE FROM user_favorites WHERE user_id = %s AND report_id = %s",
+                    (user_id, report_id),
+                )
+        conn.commit()
+
+
+def db_get_user_recents(user_id: int, limit: int = 8) -> list:
+    """사용자의 최근 본 보고서 ID 목록 (active 보고서만, 최신순)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT t.report_id
+                   FROM user_recent_reports t
+                   JOIN reports r ON r.id = t.report_id
+                   WHERE t.user_id = %s AND r.status = 'active'
+                   ORDER BY t.viewed_at DESC LIMIT %s""",
+                (user_id, limit),
+            )
+            return [row["report_id"] for row in cur.fetchall()]
+
+
+def db_add_recent(user_id: int, report_id: int) -> None:
+    """최근 본 보고서 기록 (이미 있으면 viewed_at 갱신)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO user_recent_reports (user_id, report_id) VALUES (%s, %s) "
+                "ON CONFLICT (user_id, report_id) DO UPDATE SET viewed_at = NOW()",
+                (user_id, report_id),
+            )
+        conn.commit()
+
+
 def db_hard_delete_report(report_id: int) -> bool:
     """보고서를 DB에서 완전히 삭제한다 (CASCADE로 하위 테이블 자동 정리)."""
     with db_conn() as conn:

@@ -141,6 +141,24 @@ def migrate():
                     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )"""
             )
+            # 사용자별 즐겨찾기 (기기 간 유지를 위해 DB에 저장)
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS user_favorites (
+                    user_id    INTEGER NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
+                    report_id  INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (user_id, report_id)
+                )"""
+            )
+            # 사용자별 최근 본 보고서 (viewed_at 기준 최신순, 조회 시 LIMIT)
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS user_recent_reports (
+                    user_id    INTEGER NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
+                    report_id  INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+                    viewed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (user_id, report_id)
+                )"""
+            )
 
             # ── 2. 기존 서버 보강 (컬럼이 없으면 추가) ───────────────────────
             # 기존 개인 보고서 중 category가 NULL인 것에 소유자 username을 소급 적용한다.
@@ -261,6 +279,10 @@ def migrate():
             )
             # 서버 시작 복구: status로 진행 중 작업을 찾는 쿼리
             cur.execute("CREATE INDEX IF NOT EXISTS upload_jobs_status_idx ON upload_jobs (status)")
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS user_recent_viewed_idx "
+                "ON user_recent_reports (user_id, viewed_at DESC)"
+            )
             # upload_job → report 역방향 조회 (어떤 작업이 이 보고서를 만들었나)
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS upload_jobs_report_idx "

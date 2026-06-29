@@ -1,28 +1,20 @@
 import { useCallback, useState } from "react";
+import { recordRecent } from "./api";
 
-// 최근 연 보고서 ID 목록 (최신 우선, 최대 8개) — localStorage 유지, 백엔드 무관.
-const KEY = "recent-reports";
+// 최근 본 보고서는 DB에 저장한다(기기 간 유지). 초기값은 서버 부트스트랩에서 받고,
+// 보고서를 열 때 최신순으로 갱신하며 API로 기록한다.
 const MAX = 8;
 
-function load(): number[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(KEY) || "[]");
-    return Array.isArray(v) ? v.filter((x) => typeof x === "number") : [];
-  } catch {
-    return [];
-  }
-}
+export function useRecents(initial: number[], csrf: string) {
+  const [recents, setRecents] = useState<number[]>(initial);
 
-export function useRecents() {
-  const [recents, setRecents] = useState<number[]>(load);
-
-  const push = useCallback((id: number) => {
-    setRecents((prev) => {
-      const next = [id, ...prev.filter((x) => x !== id)].slice(0, MAX);
-      localStorage.setItem(KEY, JSON.stringify(next));
-      return next;
-    });
-  }, []);
+  const push = useCallback(
+    (id: number) => {
+      setRecents((prev) => [id, ...prev.filter((x) => x !== id)].slice(0, MAX));
+      recordRecent(id, csrf).catch(() => {});
+    },
+    [csrf],
+  );
 
   return { recents, push };
 }
