@@ -3,7 +3,9 @@ import * as pbi from "powerbi-client";
 import {
   BarChart3,
   ChevronDown,
+  Clock,
   Folder,
+  Home as HomeIcon,
   Info,
   LayoutList,
   Search,
@@ -14,6 +16,7 @@ import {
 import type { ReportData, ReportItem } from "../bootstrap";
 import { fetchEmbed, fetchUploadStatus } from "../api";
 import { useFavorites } from "../useFavorites";
+import { useRecents } from "../useRecents";
 
 /* 즐겨찾기 별 토글 버튼 */
 function FavStar({
@@ -65,11 +68,19 @@ function loadTabs(): OpenTab[] {
   }
 }
 
+type Mode = "home" | "reports";
+const MODE_KEY = "rp-mode";
+
 export default function ReportPage({ data }: { data: ReportData }) {
   const { user, reports, csrf_token } = data;
 
   const { isFav, toggle: toggleFav } = useFavorites();
+  const { recents, push: pushRecent } = useRecents();
+  const [mode, setMode] = useState<Mode>(
+    () => (sessionStorage.getItem(MODE_KEY) as Mode) || "home",
+  );
   const [view, setView] = useState<View>("my");
+  const [allQuery, setAllQuery] = useState("");
   const [tabs, setTabs] = useState<OpenTab[]>(() => loadTabs());
   const [active, setActive] = useState<number | null>(
     () => Number(sessionStorage.getItem(ACTIVE_KEY)) || null,
@@ -80,15 +91,25 @@ export default function ReportPage({ data }: { data: ReportData }) {
     sessionStorage.setItem(ACTIVE_KEY, String(active ?? ""));
   }, [tabs, active]);
 
-  const openReport = useCallback((report: ReportItem) => {
-    setTabs((prev) =>
-      prev.some((t) => t.id === report.id)
-        ? prev
-        : [...prev, { id: report.id, name: report.name }],
-    );
-    setActive(report.id);
-    setView("my");
+  const goMode = useCallback((m: Mode) => {
+    setMode(m);
+    sessionStorage.setItem(MODE_KEY, m);
   }, []);
+
+  const openReport = useCallback(
+    (report: ReportItem) => {
+      setTabs((prev) =>
+        prev.some((t) => t.id === report.id)
+          ? prev
+          : [...prev, { id: report.id, name: report.name }],
+      );
+      setActive(report.id);
+      setView("my");
+      pushRecent(report.id);
+      goMode("reports");
+    },
+    [pushRecent, goMode],
+  );
 
   const closeTab = useCallback((id: number) => {
     setTabs((prev) => {
@@ -100,16 +121,42 @@ export default function ReportPage({ data }: { data: ReportData }) {
     });
   }, []);
 
+  const runSearch = useCallback(
+    (q: string) => {
+      setAllQuery(q);
+      setView("all");
+      goMode("reports");
+    },
+    [goMode],
+  );
+
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a href="/" className="topbar-brand" title="홈으로">
+        <button
+          className="topbar-brand"
+          title="홈으로"
+          onClick={() => goMode("home")}
+        >
           <span className="brand">
             <span className="b-quali">quali</span>
             <span className="b-soft">soft</span>
           </span>
-        </a>
-        <span className="topbar-section">데이터 시각화</span>
+        </button>
+        <nav className="topbar-nav">
+          <button
+            className={`topbar-link${mode === "home" ? " active" : ""}`}
+            onClick={() => goMode("home")}
+          >
+            <HomeIcon size={16} className="icn" /> 홈
+          </button>
+          <button
+            className={`topbar-link${mode === "reports" ? " active" : ""}`}
+            onClick={() => goMode("reports")}
+          >
+            <BarChart3 size={16} className="icn" /> 리포트
+          </button>
+        </nav>
         <div className="topbar-spacer" />
         <div className="topbar-right">
           <span className="topbar-user">{user.display_name}</span>
@@ -128,41 +175,227 @@ export default function ReportPage({ data }: { data: ReportData }) {
         </div>
       </header>
 
-      <div className="app-body">
-        <Sidebar
+      {mode === "home" ? (
+        <Home
           reports={reports}
-          view={view}
-          activeId={active}
+          displayName={user.display_name}
+          recentIds={recents}
           isFav={isFav}
-          onSelectView={setView}
+          onToggleFav={toggleFav}
           onOpen={openReport}
+          onSearch={runSearch}
+          onGoUpload={() => {
+            setView("upload");
+            goMode("reports");
+          }}
+          onGoAll={() => {
+            setAllQuery("");
+            setView("all");
+            goMode("reports");
+          }}
         />
-        <main className="app-main">
-          {view === "my" && (
-            <MyReportsView
-              reports={reports}
-              displayName={user.display_name}
-              tabs={tabs}
-              active={active}
-              isFav={isFav}
-              onToggleFav={toggleFav}
-              onActivate={setActive}
-              onClose={closeTab}
-              onOpen={openReport}
-              onGoUpload={() => setView("upload")}
-            />
-          )}
-          {view === "all" && (
-            <AllReportsView
-              reports={reports}
-              isFav={isFav}
-              onToggleFav={toggleFav}
-              onOpen={openReport}
-            />
-          )}
-          {view === "upload" && <UploadView csrf={csrf_token} />}
-        </main>
+      ) : (
+        <div className="app-body">
+          <Sidebar
+            reports={reports}
+            view={view}
+            activeId={active}
+            isFav={isFav}
+            onSelectView={setView}
+            onOpen={openReport}
+          />
+          <main className="app-main">
+            {view === "my" && (
+              <MyReportsView
+                reports={reports}
+                displayName={user.display_name}
+                tabs={tabs}
+                active={active}
+                isFav={isFav}
+                onToggleFav={toggleFav}
+                onActivate={setActive}
+                onClose={closeTab}
+                onOpen={openReport}
+                onGoUpload={() => setView("upload")}
+              />
+            )}
+            {view === "all" && (
+              <AllReportsView
+                reports={reports}
+                query={allQuery}
+                onQuery={setAllQuery}
+                isFav={isFav}
+                onToggleFav={toggleFav}
+                onOpen={openReport}
+              />
+            )}
+            {view === "upload" && <UploadView csrf={csrf_token} />}
+          </main>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── 홈 (메인 랜딩 — 05_main 스타일) ───────────────────── */
+function Home({
+  reports,
+  displayName,
+  recentIds,
+  isFav,
+  onToggleFav,
+  onOpen,
+  onSearch,
+  onGoUpload,
+  onGoAll,
+}: {
+  reports: ReportItem[];
+  displayName: string;
+  recentIds: number[];
+  isFav: (id: number) => boolean;
+  onToggleFav: (id: number) => void;
+  onOpen: (r: ReportItem) => void;
+  onSearch: (q: string) => void;
+  onGoUpload: () => void;
+  onGoAll: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const byId = useMemo(() => new Map(reports.map((r) => [r.id, r])), [reports]);
+  const favReports = reports.filter((r) => isFav(r.id)).slice(0, 6);
+  const recentReports = recentIds
+    .map((id) => byId.get(id))
+    .filter((r): r is ReportItem => Boolean(r))
+    .slice(0, 6);
+
+  return (
+    <main className="home">
+      <section className="home-hero">
+        <div className="home-hero-deco" aria-hidden />
+        <h1 className="home-headline">
+          Business Innovation <span className="thin">by</span>
+          <br />
+          Data Driven <span className="accent">Analytics</span>
+        </h1>
+        <p className="home-greet">
+          {displayName}님, qualisoft BI 포털에 오신 것을 환영합니다
+        </p>
+        <form
+          className="home-search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSearch(q.trim());
+          }}
+        >
+          <Search size={19} className="icn home-search-icon" />
+          <input
+            placeholder="보고서를 검색하세요"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <button type="submit" className="btn btn-primary">
+            검색
+          </button>
+        </form>
+      </section>
+
+      <section className="home-cards">
+        <HomeCard
+          title="즐겨찾기"
+          Icon={Star}
+          accent="#f5b301"
+          empty="별표한 보고서가 여기 모입니다"
+          items={favReports}
+          onOpen={onOpen}
+          onToggleFav={onToggleFav}
+          isFav={isFav}
+        />
+        <HomeCard
+          title="최근 본 보고서"
+          Icon={Clock}
+          empty="최근 연 보고서가 없습니다"
+          items={recentReports}
+          onOpen={onOpen}
+          onToggleFav={onToggleFav}
+          isFav={isFav}
+        />
+        <HomeCard
+          title="전체 보고서"
+          Icon={LayoutList}
+          empty="열람 가능한 보고서가 없습니다"
+          items={reports.slice(0, 6)}
+          onOpen={onOpen}
+          onToggleFav={onToggleFav}
+          isFav={isFav}
+          footer={
+            <button className="home-card-more" onClick={onGoAll}>
+              전체 보기 ({reports.length}) →
+            </button>
+          }
+        />
+      </section>
+
+      <div className="home-quick">
+        <button className="btn btn-ghost" onClick={onGoAll}>
+          <LayoutList size={16} className="icn" /> 전체 보고서
+        </button>
+        <button className="btn btn-ghost" onClick={onGoUpload}>
+          <Upload size={16} className="icn" /> 새 보고서 등록
+        </button>
       </div>
+    </main>
+  );
+}
+
+function HomeCard({
+  title,
+  Icon,
+  accent,
+  empty,
+  items,
+  isFav,
+  onOpen,
+  onToggleFav,
+  footer,
+}: {
+  title: string;
+  Icon: typeof Star;
+  accent?: string;
+  empty: string;
+  items: ReportItem[];
+  isFav: (id: number) => boolean;
+  onOpen: (r: ReportItem) => void;
+  onToggleFav: (id: number) => void;
+  footer?: React.ReactNode;
+}) {
+  return (
+    <div className="home-card">
+      <div className="home-card-head">
+        <span className="home-card-title">{title}</span>
+        <span className="home-card-badge" style={accent ? { color: accent } : undefined}>
+          <Icon size={18} className="icn" />
+        </span>
+      </div>
+      <div className="home-card-list">
+        {items.length === 0 ? (
+          <div className="home-card-empty">{empty}</div>
+        ) : (
+          items.map((r, i) => (
+            <div key={r.id} className="home-row" onClick={() => onOpen(r)}>
+              <span className="home-row-no">{i + 1}</span>
+              <BarChart3 size={15} className="icn home-row-icon" />
+              <span className="home-row-name" title={r.name}>
+                {r.name}
+              </span>
+              <FavStar
+                size={15}
+                on={isFav(r.id)}
+                onToggle={() => onToggleFav(r.id)}
+              />
+            </div>
+          ))
+        )}
+      </div>
+      {footer && <div className="home-card-foot">{footer}</div>}
     </div>
   );
 }
@@ -212,7 +445,7 @@ function Sidebar({
 
   return (
     <nav className="app-sidebar">
-      <div className="app-sidebar-title">데이터 시각화</div>
+      <div className="app-sidebar-title">보고서</div>
       <div className="app-sidebar-scroll">
         <div
           className={`app-nav-item${view === "my" ? " active" : ""}`}
@@ -537,25 +770,28 @@ function ReportPanel({ id, active }: { id: number; active: boolean }) {
 /* ── 전체 보고서 (검색 + 표) ───────────────────────────── */
 function AllReportsView({
   reports,
+  query,
+  onQuery,
   isFav,
   onToggleFav,
   onOpen,
 }: {
   reports: ReportItem[];
+  query: string;
+  onQuery: (q: string) => void;
   isFav: (id: number) => boolean;
   onToggleFav: (id: number) => void;
   onOpen: (r: ReportItem) => void;
 }) {
-  const [q, setQ] = useState("");
   const filtered = useMemo(() => {
-    const k = q.trim().toLowerCase();
+    const k = query.trim().toLowerCase();
     if (!k) return reports;
     return reports.filter(
       (r) =>
         r.name.toLowerCase().includes(k) ||
         (r.category || "").toLowerCase().includes(k),
     );
-  }, [q, reports]);
+  }, [query, reports]);
 
   return (
     <div className="rp-page">
@@ -564,8 +800,8 @@ function AllReportsView({
         <Search size={17} className="icn rp-search-icon" />
         <input
           placeholder="검색어를 입력하세요"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
         />
       </div>
 

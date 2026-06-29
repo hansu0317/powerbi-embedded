@@ -265,15 +265,15 @@ function UsersSection({
       <div className="card-table">
         <table>
           <colgroup>
-            <col style={{ width: "7%" }} />
+            <col style={{ width: "6%" }} />
             <col style={{ width: "12%" }} />
-            <col style={{ width: "12%" }} />
+            <col style={{ width: "11%" }} />
             <col style={{ width: "16%" }} />
             <col style={{ width: "7%" }} />
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "15%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "16%" }} />
+            <col style={{ width: "6%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "11%" }} />
+            <col style={{ width: "17%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -571,13 +571,13 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
       <div className="card-table">
         <table>
           <colgroup>
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "11%" }} />
-            <col style={{ width: "20%" }} />
+            <col style={{ width: "6%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "16%" }} />
             <col style={{ width: "9%" }} />
-            <col style={{ width: "25%" }} />
-            <col style={{ width: "14%" }} />
-            <col style={{ width: "14%" }} />
+            <col style={{ width: "21%" }} />
+            <col style={{ width: "19%" }} />
+            <col style={{ width: "19%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -599,11 +599,17 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
                 <td>
                   <JobStatus status={j.status} />
                 </td>
-                <td className="ad-err-cell" title={j.error_message || ""}>
-                  {j.status !== "completed" && j.error_message ? j.error_message : "-"}
+                <td className="ad-err-cell">
+                  {j.status !== "completed" && j.error_message ? (
+                    <span className="ad-err-text" title={j.error_message}>
+                      {j.error_message}
+                    </span>
+                  ) : (
+                    "-"
+                  )}
                 </td>
-                <td title={j.created_at || ""}>{j.created_at || "-"}</td>
-                <td title={j.updated_at || ""}>{j.updated_at || "-"}</td>
+                <td className="ad-nowrap">{j.created_at || "-"}</td>
+                <td className="ad-nowrap">{j.updated_at || "-"}</td>
               </tr>
             ))}
           </tbody>

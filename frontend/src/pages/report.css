@@ -126,6 +126,170 @@
 }
 .rp-tab-close:hover { opacity: 1; background: rgba(94, 140, 46, 0.14); }
 
+/* ── 홈 (메인 랜딩) ───────────────────────────────────── */
+.home { flex: 1; overflow-y: auto; background: var(--sage-bg); }
+
+.home-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 56px 36px 70px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(197, 225, 165, 0.5), transparent 40%),
+    radial-gradient(circle at 85% 30%, rgba(174, 213, 129, 0.35), transparent 45%),
+    linear-gradient(160deg, #fbfdf7 0%, #eef5e2 100%);
+  border-bottom: 1px solid var(--line);
+}
+.home-hero-deco {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(124, 179, 66, 0.16) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.5), transparent 70%);
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.5), transparent 70%);
+  pointer-events: none;
+}
+.home-headline {
+  position: relative;
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.22;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+.home-headline .thin { font-weight: 300; color: var(--ink-soft); }
+.home-headline .accent { color: var(--sage-hover); }
+.home-greet {
+  position: relative;
+  margin-top: 16px;
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+.home-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 8px 8px 22px;
+  max-width: 620px;
+  margin: 28px auto 0;
+  box-shadow: 0 10px 30px rgba(85, 139, 47, 0.12);
+}
+.home-search:focus-within { border-color: var(--sage); box-shadow: 0 10px 30px rgba(124,179,66,0.22); }
+.home-search-icon { color: var(--sage-deep); }
+.home-search input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--ink);
+  background: transparent;
+}
+.home-search .btn { border-radius: 999px; padding: 10px 24px; }
+
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  max-width: 1100px;
+  margin: -36px auto 0;
+  padding: 0 36px;
+  position: relative;
+}
+.home-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 6px 22px rgba(85, 139, 47, 0.1);
+  padding: 22px 22px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.home-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.home-card-title { font-size: 1rem; font-weight: 800; color: var(--ink); }
+.home-card-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--sage-soft);
+  color: var(--sage-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.home-card-list { flex: 1; }
+.home-card-empty { padding: 20px 4px; color: var(--muted); font-size: 0.85rem; text-align: center; }
+
+.home-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.home-row:hover { background: var(--sage-bg); }
+.home-row-no {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--sage-soft);
+  color: var(--sage-deep);
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.home-row-icon { color: var(--sage-deep); flex-shrink: 0; }
+.home-row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-card-foot { border-top: 1px solid var(--line); margin-top: 8px; }
+.home-card-more {
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--sage-deep);
+  padding: 12px 4px 6px;
+  text-align: right;
+}
+.home-card-more:hover { color: var(--sage-hover); }
+
+.home-quick {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 36px 0 48px;
+}
+
+@media (max-width: 720px) {
+  .home-headline { font-size: 1.8rem; }
+  .home-cards { margin-top: 12px; }
+}
+
 /* ── 즐겨찾기 별 ──────────────────────────────────────── */
 .fav-star {
   display: inline-flex;

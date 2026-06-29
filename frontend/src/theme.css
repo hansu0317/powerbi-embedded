@@ -122,6 +122,7 @@ body {
   flex-shrink: 0;
 }
 .topbar-brand .brand { font-size: 1.5rem; }
+.topbar-brand { background: none; border: none; cursor: pointer; padding: 0; }
 .topbar-brand:hover { opacity: 0.82; }
 
 .topbar-section {
@@ -132,6 +133,26 @@ body {
   border-radius: 7px;
   background: var(--sage-soft);
 }
+
+/* 톱바 내비게이션 (홈 / 리포트) */
+.topbar-nav { display: flex; align-items: center; gap: 4px; }
+.topbar-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  padding: 8px 14px;
+  border-radius: 8px;
+  transition: background 0.12s, color 0.12s;
+}
+.topbar-link:hover { background: var(--sage-bg); color: var(--ink); }
+.topbar-link.active { background: var(--sage-soft); color: var(--sage-deep); }
 
 .topbar-spacer { flex: 1; }
 
