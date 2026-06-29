@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  AlertTriangle,
   BarChart3,
   ClipboardList,
   Download,
   LayoutDashboard,
   Plus,
+  RefreshCw,
   Users as UsersIcon,
+  X,
 } from "lucide-react";
 import type {
   AdminData,
@@ -21,7 +24,9 @@ import {
   adminImportPbi,
   adminRefreshDataset,
   adminSetAccess,
+  adminSyncStatus,
   adminToggleUser,
+  SyncStatus,
 } from "../api";
 
 type SectionKey = "overview" | "users" | "reports" | "jobs";
@@ -53,11 +58,34 @@ export default function AdminPage({ data }: { data: AdminData }) {
   const [toast, setToast] = useState<Toast>(null);
   const [accessReport, setAccessReport] = useState<AdminReport | null>(null);
   const [showAddUser, setShowAddUser] = useState(false);
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+  const [syncDismissed, setSyncDismissed] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const showToast = useCallback((msg: string, tone: "ok" | "err" | "" = "") => {
     setToast({ msg, tone });
     setTimeout(() => setToast(null), 3000);
   }, []);
+
+  // Power BI(폴더 이동·이름변경·신규·삭제)와 DB 불일치 자동 감지 (비차단)
+  useEffect(() => {
+    adminSyncStatus().then(setSync).catch(() => {});
+  }, []);
+
+  const runImport = async () => {
+    setImporting(true);
+    try {
+      const j = await adminImportPbi(csrf_token);
+      showToast(
+        `동기화 완료 — 신규 ${j.registered} · 갱신 ${j.skipped} · 삭제 ${j.deleted}`,
+        "ok",
+      );
+      setTimeout(() => location.reload(), 1400);
+    } catch (e) {
+      showToast("동기화 실패: " + (e as Error).message, "err");
+      setImporting(false);
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -99,6 +127,38 @@ export default function AdminPage({ data }: { data: AdminData }) {
         </nav>
 
         <main className="app-main">
+          {sync?.drift && !syncDismissed && (
+            <div className="ad-sync-banner">
+              <AlertTriangle size={18} className="icn ad-sync-icon" />
+              <div className="ad-sync-text">
+                <b>Power BI와 동기화가 필요합니다.</b>{" "}
+                {(sync.new?.length ?? 0) > 0 && `신규 ${sync.new!.length}건`}
+                {(sync.moved?.length ?? 0) > 0 &&
+                  ` · 폴더 변경 ${sync.moved!.length}건`}
+                {(sync.removed?.length ?? 0) > 0 &&
+                  ` · 삭제 ${sync.removed!.length}건`}
+                <span className="ad-sync-hint">
+                  {" "}
+                  — ‘가져오기’로 폴더·등록 상태를 맞춥니다.
+                </span>
+              </div>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={importing}
+                onClick={runImport}
+              >
+                <RefreshCw size={14} className="icn" />{" "}
+                {importing ? "동기화 중..." : "지금 가져오기"}
+              </button>
+              <button
+                className="ad-sync-close"
+                title="닫기"
+                onClick={() => setSyncDismissed(true)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
           <div className="ad-content">
             {section === "overview" && (
               <OverviewSection stats={stats} jobs={data.jobs} />

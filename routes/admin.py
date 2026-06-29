@@ -16,7 +16,7 @@ from database import (
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
     db_import_managed_report,
     db_get_report, db_get_report_access, db_set_report_access,
-    db_get_synced_reports, db_hard_delete_report,
+    db_get_synced_reports, db_hard_delete_report, db_get_pbi_report_map,
 )
 from deps import current_user, csrf_token, verify_csrf, require_admin
 from errors import AppError
@@ -167,6 +167,45 @@ async def api_admin_import_pbi(request: Request):
     logger.info("ADMIN IMPORT PBI DONE | admin=%s | registered=%d | skipped=%d | deleted=%d",
                 user["username"], registered, skipped, deleted)
     return {"registered": registered, "skipped": skipped, "deleted": deleted, "total": len(reports)}
+
+
+@router.get("/api/admin/sync-status")
+async def api_admin_sync_status(request: Request):
+    """Fabric 현재 상태와 DB를 대조해 '가져오기 필요' 여부를 반환한다.
+
+    신규(폴더 추가/직접 게시), 폴더 이동·이름변경(category 불일치),
+    Fabric에서 사라진 보고서(삭제 대상)를 감지한다. import-pbi 실행 시 모두 정리된다.
+    """
+    user = await current_user(request)
+    require_admin(user)
+    try:
+        fabric = await fetch_pbi_folders_and_reports()
+        db_map = await asyncio.to_thread(db_get_pbi_report_map)
+    except Exception as exc:
+        logger.warning("SYNC STATUS FAIL | admin=%s | error=%s", user["username"], exc)
+        return {"available": False, "drift": False}
+
+    fabric_ids = {f["pbi_report_id"] for f in fabric}
+    new, moved = [], []
+    for f in fabric:
+        rid = f["pbi_report_id"]
+        if rid not in db_map:
+            new.append(f["name"])
+        elif (f["folder_name"] or None) != (db_map[rid]["category"] or None):
+            moved.append({
+                "name": f["name"],
+                "from": db_map[rid]["category"],
+                "to":   f["folder_name"],
+            })
+    removed = [v["name"] for rid, v in db_map.items() if rid not in fabric_ids]
+
+    return {
+        "available": True,
+        "drift": bool(new or moved or removed),
+        "new": new,
+        "moved": moved,
+        "removed": removed,
+    }
 
 
 @router.post("/api/admin/reports/{report_id}/refresh")

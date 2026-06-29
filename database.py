@@ -239,6 +239,21 @@ def db_add_recent(user_id: int, report_id: int) -> None:
         conn.commit()
 
 
+def db_get_pbi_report_map() -> dict:
+    """활성 보고서의 pbi_report_id → {category, name} 매핑 (Fabric 드리프트 비교용)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT m.pbi_report_id, r.category, r.name
+                   FROM report_meta m JOIN reports r ON r.id = m.report_id
+                   WHERE r.status = 'active' AND m.pbi_report_id IS NOT NULL"""
+            )
+            return {
+                row["pbi_report_id"]: {"category": row["category"], "name": row["name"]}
+                for row in cur.fetchall()
+            }
+
+
 def db_hard_delete_report(report_id: int) -> bool:
     """보고서를 DB에서 완전히 삭제한다 (CASCADE로 하위 테이블 자동 정리)."""
     with db_conn() as conn:

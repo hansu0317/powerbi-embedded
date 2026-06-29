@@ -82,6 +82,20 @@ export async function recordRecent(reportId: number, csrf: string) {
 
 // ── 관리자 API ────────────────────────────────────────────────────────────────
 
+export interface SyncStatus {
+  available: boolean;
+  drift: boolean;
+  new?: string[];
+  moved?: { name: string; from: string | null; to: string | null }[];
+  removed?: string[];
+}
+
+export async function adminSyncStatus(): Promise<SyncStatus> {
+  const res = await fetch("/api/admin/sync-status");
+  if (!res.ok) return { available: false, drift: false };
+  return res.json();
+}
+
 export async function adminImportPbi(csrf: string) {
   const res = await fetch("/api/admin/import-pbi", {
     method: "POST",
