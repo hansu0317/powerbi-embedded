@@ -777,6 +777,43 @@ function AllReportsView({
     );
   }, [query, reports]);
 
+  // 카테고리(Fabric 폴더)별로 묶어 트리로 표시
+  const { folders, uncategorized } = useMemo(() => {
+    const g = new Map<string, ReportItem[]>();
+    const u: ReportItem[] = [];
+    for (const r of filtered) {
+      if (r.category) {
+        if (!g.has(r.category)) g.set(r.category, []);
+        g.get(r.category)!.push(r);
+      } else u.push(r);
+    }
+    return {
+      folders: [...g.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+      uncategorized: u,
+    };
+  }, [filtered]);
+
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const searching = query.trim().length > 0;
+  const toggle = (cat: string) =>
+    setCollapsed((p) => ({ ...p, [cat]: !p[cat] }));
+
+  const node = (r: ReportItem) => (
+    <div
+      key={r.id}
+      className="rp-all-node"
+      onClick={() => onOpen(r)}
+      title="클릭하여 열기"
+    >
+      <BarChart3 size={15} className="icn rp-all-node-icon" />
+      <span className="rp-all-node-name">{r.name}</span>
+      <span className="rp-all-node-owner">
+        {r.owner_username || (r.report_type === "managed" ? "공용" : "")}
+      </span>
+      <FavStar size={15} on={isFav(r.id)} onToggle={() => onToggleFav(r.id)} />
+    </div>
+  );
+
   return (
     <div className="rp-page">
       <h1 className="rp-page-title">전체 보고서</h1>
@@ -789,55 +826,34 @@ function AllReportsView({
         />
       </div>
 
-      <div className="card-table rp-all-table">
-        <table>
-          <colgroup>
-            <col style={{ width: "44%" }} />
-            <col style={{ width: "22%" }} />
-            <col style={{ width: "22%" }} />
-            <col style={{ width: "12%" }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>보고서 명</th>
-              <th>카테고리</th>
-              <th>소유자명</th>
-              <th style={{ textAlign: "center" }}>즐겨찾기</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((r) => (
-              <tr
-                key={r.id}
-                className="rp-all-row"
-                onClick={() => onOpen(r)}
-                title="클릭하여 열기"
-              >
-                <td className="rp-all-name">
-                  <BarChart3 size={15} className="icn" /> {r.name}
-                </td>
-                <td>{r.category || "-"}</td>
-                <td>
-                  {r.owner_username ||
-                    (r.report_type === "managed" ? "공용" : "-")}
-                </td>
-                <td style={{ textAlign: "center" }}>
-                  <FavStar
-                    on={isFav(r.id)}
-                    onToggle={() => onToggleFav(r.id)}
-                  />
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={4} className="rp-all-empty">
-                  표시할 보고서가 없습니다
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="rp-all-tree">
+        {folders.map(([cat, items]) => {
+          const isOpen = searching || !collapsed[cat];
+          return (
+            <div key={cat} className={`rp-all-folder${isOpen ? "" : " collapsed"}`}>
+              <div className="rp-all-folder-header" onClick={() => toggle(cat)}>
+                <ChevronDown size={15} className="icn rp-all-folder-arrow" />
+                <Folder size={16} className="icn rp-all-folder-icon" />
+                <span className="rp-all-folder-name">{cat}</span>
+                <span className="rp-all-folder-count">{items.length}</span>
+              </div>
+              {isOpen && <div className="rp-all-folder-body">{items.map(node)}</div>}
+            </div>
+          );
+        })}
+        {uncategorized.length > 0 && (
+          <div className="rp-all-folder">
+            <div className="rp-all-folder-header static">
+              <Folder size={16} className="icn rp-all-folder-icon" />
+              <span className="rp-all-folder-name">미분류</span>
+              <span className="rp-all-folder-count">{uncategorized.length}</span>
+            </div>
+            <div className="rp-all-folder-body">{uncategorized.map(node)}</div>
+          </div>
+        )}
+        {filtered.length === 0 && (
+          <div className="rp-all-empty">표시할 보고서가 없습니다</div>
+        )}
       </div>
       <div className="rp-total">Total {filtered.length} records</div>
     </div>

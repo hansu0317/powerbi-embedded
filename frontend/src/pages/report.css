@@ -440,8 +440,70 @@
   white-space: nowrap;
 }
 .rp-all-name .icn { vertical-align: -2px; margin-right: 4px; }
-.rp-all-empty { text-align: center !important; color: var(--muted); padding: 32px !important; }
+.rp-all-empty { text-align: center; color: var(--muted); padding: 40px; }
 .rp-total { text-align: center; margin-top: 16px; font-size: 0.82rem; color: var(--ink-soft); }
+
+/* ── 전체 보고서 트리(메인 영역) ──────────────────────── */
+.rp-all-tree {
+  max-width: 860px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.rp-all-folder { border-bottom: 1px solid var(--line); }
+.rp-all-folder:last-child { border-bottom: none; }
+.rp-all-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 18px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--ink);
+  background: var(--sage-bg);
+  transition: background 0.12s;
+}
+.rp-all-folder-header:hover { background: var(--sage-soft); }
+.rp-all-folder-header.static { cursor: default; }
+.rp-all-folder-header.static:hover { background: var(--sage-bg); }
+.rp-all-folder-arrow { color: var(--muted); transition: transform 0.2s; }
+.rp-all-folder.collapsed .rp-all-folder-arrow { transform: rotate(-90deg); }
+.rp-all-folder-icon { color: var(--sage-deep); }
+.rp-all-folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-all-folder-count {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--sage-deep);
+  background: #fff;
+  border: 1px solid var(--sage-light);
+  border-radius: 999px;
+  padding: 1px 9px;
+}
+.rp-all-node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px 11px 42px;
+  cursor: pointer;
+  border-top: 1px solid #f2f5ec;
+  transition: background 0.12s;
+}
+.rp-all-node-icon { color: var(--sage-deep); flex-shrink: 0; }
+.rp-all-node:hover { background: #fafdf5; }
+.rp-all-node-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-all-node-owner { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
 
 /* ── 업로드 폼 카드 ───────────────────────────────────── */
 .rp-form-card {
