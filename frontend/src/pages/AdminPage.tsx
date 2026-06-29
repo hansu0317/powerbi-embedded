@@ -211,7 +211,7 @@ function OverviewSection({
           <tbody>
             {jobs.slice(0, 10).map((j) => (
               <tr key={j.id}>
-                <td>#{j.id}</td>
+                <td>{j.id}</td>
                 <td>{j.username}</td>
                 <td title={j.report_name}>{j.report_name}</td>
                 <td>
@@ -571,11 +571,11 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
       <div className="card-table">
         <table>
           <colgroup>
-            <col style={{ width: "6%" }} />
+            <col style={{ width: "7%" }} />
             <col style={{ width: "10%" }} />
             <col style={{ width: "16%" }} />
             <col style={{ width: "9%" }} />
-            <col style={{ width: "21%" }} />
+            <col style={{ width: "20%" }} />
             <col style={{ width: "19%" }} />
             <col style={{ width: "19%" }} />
           </colgroup>
@@ -593,7 +593,7 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
           <tbody>
             {jobs.map((j) => (
               <tr key={j.id}>
-                <td>#{j.id}</td>
+                <td>{j.id}</td>
                 <td>{j.username}</td>
                 <td title={j.report_name}>{j.report_name}</td>
                 <td>
