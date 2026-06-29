@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as pbi from "powerbi-client";
+import {
+  BarChart3,
+  ChevronDown,
+  Folder,
+  Info,
+  LayoutList,
+  Search,
+  Upload,
+  X,
+} from "lucide-react";
 import type { ReportData, ReportItem } from "../bootstrap";
 import { fetchEmbed, fetchUploadStatus } from "../api";
 
@@ -101,10 +111,13 @@ export default function ReportPage({ data }: { data: ReportData }) {
         <main className="app-main">
           {view === "my" && (
             <MyReportsView
+              reports={reports}
+              displayName={user.display_name}
               tabs={tabs}
               active={active}
               onActivate={setActive}
               onClose={closeTab}
+              onOpen={openReport}
               onGoUpload={() => setView("upload")}
             />
           )}
@@ -166,7 +179,7 @@ function Sidebar({
           className={`app-nav-item${view === "my" ? " active" : ""}`}
           onClick={() => onSelectView("my")}
         >
-          <span>📁</span> 내 보고서
+          <Folder size={17} className="icn" /> 내 보고서
         </div>
 
         {view === "my" && (
@@ -177,7 +190,7 @@ function Sidebar({
                 className={`rp-group${collapsed[cat] ? " collapsed" : ""}`}
               >
                 <div className="rp-group-header" onClick={() => toggle(cat)}>
-                  <span className="rp-group-arrow">▾</span> {cat}
+                  <ChevronDown size={13} className="icn rp-group-arrow" /> {cat}
                 </div>
                 <div className="rp-group-body">
                   {items.map((r) => (
@@ -210,13 +223,13 @@ function Sidebar({
           className={`app-nav-item${view === "all" ? " active" : ""}`}
           onClick={() => onSelectView("all")}
         >
-          <span>📋</span> 전체 보고서
+          <LayoutList size={17} className="icn" /> 전체 보고서
         </div>
         <div
           className={`app-nav-item${view === "upload" ? " active" : ""}`}
           onClick={() => onSelectView("upload")}
         >
-          <span>⬆</span> 보고서 등록
+          <Upload size={17} className="icn" /> 보고서 등록
         </div>
       </div>
     </nav>
@@ -240,40 +253,50 @@ function TreeItem({
       onClick={() => onOpen(report)}
       title={report.name}
     >
-      <span>📊</span>
+      <BarChart3 size={15} className="icn" />
       <span className="rp-tree-label">{report.name}</span>
     </div>
   );
 }
 
-/* ── 내 보고서 (탭 + 임베드) ───────────────────────────── */
+/* ── 내 보고서 (랜딩 / 탭 + 임베드, 탭은 하단) ─────────── */
 function MyReportsView({
+  reports,
+  displayName,
   tabs,
   active,
   onActivate,
   onClose,
+  onOpen,
   onGoUpload,
 }: {
+  reports: ReportItem[];
+  displayName: string;
   tabs: OpenTab[];
   active: number | null;
   onActivate: (id: number) => void;
   onClose: (id: number) => void;
+  onOpen: (r: ReportItem) => void;
   onGoUpload: () => void;
 }) {
   if (tabs.length === 0) {
     return (
-      <div className="rp-empty">
-        <div className="rp-empty-icon">📊</div>
-        <h2>왼쪽 ‘내 보고서’에서 보고서를 선택하세요</h2>
-        <p>여러 보고서를 탭으로 동시에 열 수 있습니다</p>
-        <button className="btn btn-ghost" onClick={onGoUpload}>
-          ⬆ 새 보고서 등록하기
-        </button>
-      </div>
+      <ReportLanding
+        reports={reports}
+        displayName={displayName}
+        onOpen={onOpen}
+        onGoUpload={onGoUpload}
+      />
     );
   }
   return (
     <div className="rp-workarea">
+      <div className="rp-panels">
+        {tabs.map((t) => (
+          <ReportPanel key={t.id} id={t.id} active={t.id === active} />
+        ))}
+      </div>
+      {/* 탭 바 — 하단 */}
       <div className="rp-tabsbar">
         {tabs.map((t) => (
           <div
@@ -281,7 +304,7 @@ function MyReportsView({
             className={`rp-tab${t.id === active ? " active" : ""}`}
             onClick={() => onActivate(t.id)}
           >
-            <span>📊</span>
+            <BarChart3 size={14} className="icn" />
             <span className="rp-tab-label">{t.name}</span>
             <button
               className="rp-tab-close"
@@ -291,16 +314,66 @@ function MyReportsView({
                 onClose(t.id);
               }}
             >
-              ×
+              <X size={14} />
             </button>
           </div>
         ))}
       </div>
-      <div className="rp-panels">
-        {tabs.map((t) => (
-          <ReportPanel key={t.id} id={t.id} active={t.id === active} />
-        ))}
+    </div>
+  );
+}
+
+function ReportLanding({
+  reports,
+  displayName,
+  onOpen,
+  onGoUpload,
+}: {
+  reports: ReportItem[];
+  displayName: string;
+  onOpen: (r: ReportItem) => void;
+  onGoUpload: () => void;
+}) {
+  return (
+    <div className="rp-landing">
+      <div className="rp-landing-head">
+        <div>
+          <h1 className="rp-landing-hi">{displayName}님, 안녕하세요 👋</h1>
+          <p className="rp-landing-sub">열람할 보고서를 선택해 시작하세요</p>
+        </div>
+        <button className="btn btn-ghost" onClick={onGoUpload}>
+          <Upload size={16} className="icn" /> 새 보고서 등록
+        </button>
       </div>
+
+      {reports.length === 0 ? (
+        <div className="rp-landing-empty">
+          <BarChart3 size={52} className="icn" />
+          <p>아직 열람 가능한 보고서가 없습니다</p>
+        </div>
+      ) : (
+        <div className="rp-card-grid">
+          {reports.map((r) => (
+            <button key={r.id} className="rp-card" onClick={() => onOpen(r)}>
+              <div className="rp-card-icon">
+                <BarChart3 size={22} className="icn" />
+              </div>
+              <div className="rp-card-body">
+                <div className="rp-card-name" title={r.name}>
+                  {r.name}
+                </div>
+                <div className="rp-card-meta">
+                  {r.category ? (
+                    <span className="rp-card-tag">{r.category}</span>
+                  ) : (
+                    <span className="rp-card-tag muted">미분류</span>
+                  )}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -327,6 +400,10 @@ function ReportPanel({ id, active }: { id: number; active: boolean }) {
           settings: {
             navContentPaneEnabled: Boolean(s.enable_page_nav),
             filterPaneEnabled: Boolean(s.enable_filter),
+            layoutType: pbi.models.LayoutType.Custom,
+            customLayout: {
+              displayOption: pbi.models.DisplayOption.FitToWidth,
+            },
             panes: {
               pageNavigation: { visible: Boolean(s.enable_page_nav) },
               filters: { visible: Boolean(s.enable_filter), expanded: false },
@@ -388,7 +465,7 @@ function AllReportsView({
     <div className="rp-page">
       <h1 className="rp-page-title">전체 보고서</h1>
       <div className="rp-search">
-        <span className="rp-search-icon">🔍</span>
+        <Search size={17} className="icn rp-search-icon" />
         <input
           placeholder="검색어를 입력하세요"
           value={q}
@@ -421,7 +498,7 @@ function AllReportsView({
                 title="클릭하여 열기"
               >
                 <td className="rp-all-name">
-                  <span>📊</span> {r.name}
+                  <BarChart3 size={15} className="icn" /> {r.name}
                 </td>
                 <td>{r.category || "-"}</td>
                 <td style={{ textAlign: "center", color: "var(--sage-deep)" }}>
@@ -545,8 +622,8 @@ function UploadView({ csrf }: { csrf: string }) {
         </div>
 
         <div className="rp-upload-note">
-          ⓘ 업로드한 보고서는 본인 폴더로 자동 분류됩니다. RLS가 필요하면 관리자에게
-          요청하세요.
+          <Info size={15} className="icn" /> 업로드한 보고서는 본인 폴더로 자동
+          분류됩니다. RLS가 필요하면 관리자에게 요청하세요.
         </div>
 
         {status.msg && (

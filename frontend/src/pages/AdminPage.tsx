@@ -1,4 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  BarChart3,
+  ClipboardList,
+  Download,
+  LayoutDashboard,
+  Plus,
+  Users as UsersIcon,
+} from "lucide-react";
 import type {
   AdminData,
   AdminReport,
@@ -19,11 +27,15 @@ import {
 type SectionKey = "overview" | "users" | "reports" | "jobs";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
 
-const SECTIONS: { key: SectionKey; icon: string; label: string }[] = [
-  { key: "overview", icon: "🏠", label: "현황" },
-  { key: "users", icon: "👥", label: "사용자" },
-  { key: "reports", icon: "📊", label: "보고서" },
-  { key: "jobs", icon: "📋", label: "업로드 이력" },
+const SECTIONS: {
+  key: SectionKey;
+  Icon: typeof LayoutDashboard;
+  label: string;
+}[] = [
+  { key: "overview", Icon: LayoutDashboard, label: "현황" },
+  { key: "users", Icon: UsersIcon, label: "사용자" },
+  { key: "reports", Icon: BarChart3, label: "보고서" },
+  { key: "jobs", Icon: ClipboardList, label: "업로드 이력" },
 ];
 
 function JobStatus({ status }: { status: string }) {
@@ -79,7 +91,7 @@ export default function AdminPage({ data }: { data: AdminData }) {
                 className={`app-nav-item${section === s.key ? " active" : ""}`}
                 onClick={() => setSection(s.key)}
               >
-                <span>{s.icon}</span>
+                <s.Icon size={17} className="icn" />
                 {s.label}
               </div>
             ))}
@@ -247,19 +259,19 @@ function UsersSection({
       <div className="ad-section-head">
         <h2 style={{ marginBottom: 0 }}>사용자 관리</h2>
         <button className="btn btn-primary" onClick={onAdd}>
-          + 새 사용자 추가
+          <Plus size={15} className="icn" /> 새 사용자 추가
         </button>
       </div>
       <div className="card-table">
         <table>
           <colgroup>
-            <col style={{ width: "5%" }} />
+            <col style={{ width: "7%" }} />
             <col style={{ width: "12%" }} />
             <col style={{ width: "12%" }} />
             <col style={{ width: "16%" }} />
             <col style={{ width: "7%" }} />
             <col style={{ width: "7%" }} />
-            <col style={{ width: "17%" }} />
+            <col style={{ width: "15%" }} />
             <col style={{ width: "8%" }} />
             <col style={{ width: "16%" }} />
           </colgroup>
@@ -478,15 +490,16 @@ function ReportsSection({
         <div className="ad-section-actions">
           <span className="ad-import-result">{importResult}</span>
           <button className="btn btn-primary" disabled={importing} onClick={doImport}>
-            {importing ? "가져오는 중..." : "⬇ PBI에서 가져오기"}
+            <Download size={15} className="icn" />{" "}
+            {importing ? "가져오는 중..." : "PBI에서 가져오기"}
           </button>
         </div>
       </div>
       <div className="card-table">
         <table>
           <colgroup>
-            <col style={{ width: "5%" }} />
-            <col style={{ width: "20%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "18%" }} />
             <col style={{ width: "8%" }} />
             <col style={{ width: "12%" }} />
             <col style={{ width: "13%" }} />
@@ -558,8 +571,8 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
       <div className="card-table">
         <table>
           <colgroup>
-            <col style={{ width: "6%" }} />
-            <col style={{ width: "12%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "11%" }} />
             <col style={{ width: "20%" }} />
             <col style={{ width: "9%" }} />
             <col style={{ width: "25%" }} />
