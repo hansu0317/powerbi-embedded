@@ -54,7 +54,6 @@ export default function AdminPage({ data }: { data: AdminData }) {
           <span className="brand">
             <span className="b-quali">quali</span>
             <span className="b-soft">soft</span>
-            <span className="b-dot">.</span>
           </span>
         </a>
         <span className="topbar-section">관리자 포털</span>
@@ -254,15 +253,15 @@ function UsersSection({
       <div className="card-table">
         <table>
           <colgroup>
-            <col style={{ width: "6%" }} />
+            <col style={{ width: "5%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "12%" }} />
             <col style={{ width: "16%" }} />
-            <col style={{ width: "13%" }} />
-            <col style={{ width: "14%" }} />
-            <col style={{ width: "9%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "17%" }} />
             <col style={{ width: "8%" }} />
             <col style={{ width: "16%" }} />
-            <col style={{ width: "9%" }} />
-            <col style={{ width: "9%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -293,7 +292,7 @@ function UsersSection({
                 <td title={u.pbi_username}>{u.pbi_username}</td>
                 <td>{u.roles}</td>
                 <td>{u.report_count}</td>
-                <td>{u.last_login_at || "-"}</td>
+                <td title={u.last_login_at || ""}>{u.last_login_at || "-"}</td>
                 <td>
                   <span className={`pill ${u.is_active ? "active" : "inactive"}`}>
                     {u.is_active ? "활성" : "비활성"}
@@ -486,14 +485,14 @@ function ReportsSection({
       <div className="card-table">
         <table>
           <colgroup>
-            <col style={{ width: "6%" }} />
-            <col style={{ width: "22%" }} />
+            <col style={{ width: "5%" }} />
+            <col style={{ width: "20%" }} />
             <col style={{ width: "8%" }} />
-            <col style={{ width: "13%" }} />
             <col style={{ width: "12%" }} />
-            <col style={{ width: "8%" }} />
+            <col style={{ width: "13%" }} />
+            <col style={{ width: "7%" }} />
             <col style={{ width: "9%" }} />
-            <col style={{ width: "22%" }} />
+            <col style={{ width: "26%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -559,13 +558,13 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
       <div className="card-table">
         <table>
           <colgroup>
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "13%" }} />
+            <col style={{ width: "6%" }} />
+            <col style={{ width: "12%" }} />
             <col style={{ width: "20%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "26%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "12%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "14%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -590,8 +589,8 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
                 <td className="ad-err-cell" title={j.error_message || ""}>
                   {j.status !== "completed" && j.error_message ? j.error_message : "-"}
                 </td>
-                <td>{j.created_at || "-"}</td>
-                <td>{j.updated_at || "-"}</td>
+                <td title={j.created_at || ""}>{j.created_at || "-"}</td>
+                <td title={j.updated_at || ""}>{j.updated_at || "-"}</td>
               </tr>
             ))}
           </tbody>

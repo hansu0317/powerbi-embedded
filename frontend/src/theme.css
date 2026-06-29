@@ -241,6 +241,9 @@ body {
   font-size: 0.78rem;
   letter-spacing: 0.02em;
   border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .card-table td {
   padding: 12px 16px;

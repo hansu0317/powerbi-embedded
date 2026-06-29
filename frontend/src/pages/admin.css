@@ -34,8 +34,15 @@
 .ad-stat-sub { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
 
 /* ── 표 셀 보조 ───────────────────────────────────────── */
-.ad-actions-cell { display: flex; gap: 4px; flex-wrap: wrap; }
-.ad-err-cell { font-size: 0.76rem; color: #b3403c; }
+.ad-actions-cell {
+  display: flex;
+  gap: 5px;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow: visible;
+}
+.ad-actions-cell .btn-sm { padding: 4px 10px; flex-shrink: 0; }
+.ad-err-cell { font-size: 0.76rem; color: #b3403c; cursor: help; }
 
 /* ── 폼 필드 (모달 내부) ──────────────────────────────── */
 .ad-form-grid {

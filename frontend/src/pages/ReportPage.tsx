@@ -69,7 +69,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
           <span className="brand">
             <span className="b-quali">quali</span>
             <span className="b-soft">soft</span>
-            <span className="b-dot">.</span>
           </span>
         </a>
         <span className="topbar-section">데이터 시각화</span>
