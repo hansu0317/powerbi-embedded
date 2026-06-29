@@ -184,10 +184,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
           onToggleFav={toggleFav}
           onOpen={openReport}
           onSearch={runSearch}
-          onGoUpload={() => {
-            setView("upload");
-            goMode("reports");
-          }}
           onGoAll={() => {
             setAllQuery("");
             setView("all");
@@ -246,7 +242,6 @@ function Home({
   onToggleFav,
   onOpen,
   onSearch,
-  onGoUpload,
   onGoAll,
 }: {
   reports: ReportItem[];
@@ -256,16 +251,15 @@ function Home({
   onToggleFav: (id: number) => void;
   onOpen: (r: ReportItem) => void;
   onSearch: (q: string) => void;
-  onGoUpload: () => void;
   onGoAll: () => void;
 }) {
   const [q, setQ] = useState("");
   const byId = useMemo(() => new Map(reports.map((r) => [r.id, r])), [reports]);
-  const favReports = reports.filter((r) => isFav(r.id)).slice(0, 6);
+  const favReports = reports.filter((r) => isFav(r.id)).slice(0, 5);
   const recentReports = recentIds
     .map((id) => byId.get(id))
     .filter((r): r is ReportItem => Boolean(r))
-    .slice(0, 6);
+    .slice(0, 5);
 
   return (
     <main className="home">
@@ -322,7 +316,7 @@ function Home({
           title="전체 보고서"
           Icon={LayoutList}
           empty="열람 가능한 보고서가 없습니다"
-          items={reports.slice(0, 6)}
+          items={reports.slice(0, 5)}
           onOpen={onOpen}
           onToggleFav={onToggleFav}
           isFav={isFav}
@@ -333,15 +327,6 @@ function Home({
           }
         />
       </section>
-
-      <div className="home-quick">
-        <button className="btn btn-ghost" onClick={onGoAll}>
-          <LayoutList size={16} className="icn" /> 전체 보고서
-        </button>
-        <button className="btn btn-ghost" onClick={onGoUpload}>
-          <Upload size={16} className="icn" /> 새 보고서 등록
-        </button>
-      </div>
     </main>
   );
 }

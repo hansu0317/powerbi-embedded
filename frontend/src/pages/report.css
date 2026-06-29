@@ -126,14 +126,22 @@
 }
 .rp-tab-close:hover { opacity: 1; background: rgba(94, 140, 46, 0.14); }
 
-/* ── 홈 (메인 랜딩) ───────────────────────────────────── */
-.home { flex: 1; overflow-y: auto; background: var(--sage-bg); }
+/* ── 홈 (메인 랜딩) — 한 화면에 맞춤 ──────────────────── */
+.home {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--sage-bg);
+  display: flex;
+  flex-direction: column;
+}
 
 .home-hero {
   position: relative;
   overflow: hidden;
-  padding: 56px 36px 70px;
+  padding: 40px 36px 56px;
   text-align: center;
+  flex-shrink: 0;
   background:
     radial-gradient(circle at 15% 20%, rgba(197, 225, 165, 0.5), transparent 40%),
     radial-gradient(circle at 85% 30%, rgba(174, 213, 129, 0.35), transparent 45%),
@@ -151,9 +159,9 @@
 }
 .home-headline {
   position: relative;
-  font-size: 2.5rem;
+  font-size: 2.1rem;
   font-weight: 800;
-  line-height: 1.22;
+  line-height: 1.2;
   color: var(--ink);
   letter-spacing: -0.02em;
 }
@@ -161,8 +169,8 @@
 .home-headline .accent { color: var(--sage-hover); }
 .home-greet {
   position: relative;
-  margin-top: 16px;
-  font-size: 0.95rem;
+  margin-top: 12px;
+  font-size: 0.92rem;
   color: var(--ink-soft);
 }
 .home-search {
@@ -173,9 +181,9 @@
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 8px 8px 8px 22px;
+  padding: 7px 7px 7px 22px;
   max-width: 620px;
-  margin: 28px auto 0;
+  margin: 22px auto 0;
   box-shadow: 0 10px 30px rgba(85, 139, 47, 0.12);
 }
 .home-search:focus-within { border-color: var(--sage); box-shadow: 0 10px 30px rgba(124,179,66,0.22); }
@@ -195,9 +203,10 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 20px;
+  width: 100%;
   max-width: 1100px;
-  margin: -36px auto 0;
-  padding: 0 36px;
+  margin: -34px auto 0;
+  padding: 0 36px 32px;
   position: relative;
 }
 .home-card {
@@ -205,7 +214,7 @@
   border: 1px solid var(--line);
   border-radius: 16px;
   box-shadow: 0 6px 22px rgba(85, 139, 47, 0.1);
-  padding: 22px 22px 12px;
+  padding: 20px 20px 10px;
   display: flex;
   flex-direction: column;
 }
@@ -213,7 +222,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .home-card-title { font-size: 1rem; font-weight: 800; color: var(--ink); }
 .home-card-badge {
@@ -233,7 +242,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 6px;
+  padding: 7px 6px;
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.12s;
@@ -278,15 +287,8 @@
 }
 .home-card-more:hover { color: var(--sage-hover); }
 
-.home-quick {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  padding: 36px 0 48px;
-}
-
 @media (max-width: 720px) {
-  .home-headline { font-size: 1.8rem; }
+  .home-headline { font-size: 1.7rem; }
   .home-cards { margin-top: 12px; }
 }
 
