@@ -11,6 +11,8 @@ export interface ReportItem {
   id: number;
   name: string;
   category: string | null;
+  owner_username: string | null;
+  report_type: string;
 }
 
 export interface LoginData {

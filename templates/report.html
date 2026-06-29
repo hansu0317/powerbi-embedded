@@ -18,7 +18,9 @@
           {
             "id": {{ r['id'] | tojson }},
             "name": {{ r['name'] | tojson }},
-            "category": {{ r['category'] | tojson }}
+            "category": {{ r['category'] | tojson }},
+            "owner_username": {{ r['owner_username'] | tojson }},
+            "report_type": {{ r['report_type'] | tojson }}
           }{{ "," if not loop.last else "" }}
           {%- endfor %}
         ],

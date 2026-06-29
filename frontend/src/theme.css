@@ -87,3 +87,169 @@ body {
 .pill.inactive, .pill.fail  { background: #fdecec; color: #b3403c; }
 .pill.admin                 { background: #fff5dd; color: #927200; }
 .pill.pending               { background: #eef4ff; color: #3a5a9a; }
+
+/* ── 공통 앱 크롬 (라이트 톱바 + 라이트 사이드바) ────────── */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.topbar {
+  height: 58px;
+  flex-shrink: 0;
+  padding: 0 26px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 3px rgba(85, 139, 47, 0.05);
+}
+.topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.topbar-brand .brand { font-size: 1.5rem; }
+.topbar-brand:hover { opacity: 0.82; }
+
+.topbar-section {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--sage-deep);
+  padding: 4px 14px;
+  border-radius: 7px;
+  background: var(--sage-soft);
+}
+
+.topbar-spacer { flex: 1; }
+
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.topbar-user::before {
+  content: "";
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--sage-light) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23558B2F'%3E%3Cpath d='M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4 0-9 2-9 6v2h18v-2c0-4-5-6-9-6Z'/%3E%3C/svg%3E") center/16px no-repeat;
+  flex-shrink: 0;
+}
+
+.topbar-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-soft);
+  padding: 7px 15px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.topbar-btn:hover { background: var(--sage-bg); border-color: var(--sage-light); }
+.topbar-btn.primary {
+  background: var(--sage);
+  border-color: var(--sage);
+  color: #20300f;
+}
+.topbar-btn.primary:hover { background: var(--sage-hover); color: #fff; border-color: var(--sage-hover); }
+
+.app-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+.app-sidebar {
+  width: 224px;
+  min-width: 224px;
+  background: #fff;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app-sidebar-title {
+  padding: 22px 22px 14px;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+.app-sidebar-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding-bottom: 12px; }
+.app-sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.app-sidebar-scroll::-webkit-scrollbar-thumb { background: var(--sage-light); border-radius: 3px; }
+
+.app-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  user-select: none;
+  transition: background 0.12s, color 0.12s;
+}
+.app-nav-item:hover { background: var(--sage-bg); color: var(--ink); }
+.app-nav-item.active {
+  background: var(--sage-soft);
+  color: var(--sage-deep);
+  border-left-color: var(--sage);
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: var(--sage-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 공통 카드 테이블 (가로 스크롤 없음) ─────────────────── */
+.card-table {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.card-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  table-layout: fixed;
+}
+.card-table thead { background: var(--sage-bg); }
+.card-table th {
+  padding: 12px 16px;
+  text-align: left;
+  color: var(--ink-soft);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--line);
+}
+.card-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f4ea;
+  color: var(--ink);
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-table tbody tr:last-child td { border-bottom: none; }
+.card-table tbody tr:hover td { background: #fafdf5; }

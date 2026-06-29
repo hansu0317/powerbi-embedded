@@ -40,6 +40,7 @@ export default function AdminPage({ data }: { data: AdminData }) {
   const [reports, setReports] = useState<AdminReport[]>(data.reports);
   const [toast, setToast] = useState<Toast>(null);
   const [accessReport, setAccessReport] = useState<AdminReport | null>(null);
+  const [showAddUser, setShowAddUser] = useState(false);
 
   const showToast = useCallback((msg: string, tone: "ok" | "err" | "" = "") => {
     setToast({ msg, tone });
@@ -47,87 +48,101 @@ export default function AdminPage({ data }: { data: AdminData }) {
   }, []);
 
   return (
-    <div className="ad-shell">
-      <header className="ad-header">
-        <span className="brand on-dark ad-brand">
-          <span className="b-quali">quali</span>
-          <span className="b-soft">soft</span>
-          <span className="b-dot">.</span>
-          <span className="ad-brand-tag">관리자 포털</span>
-        </span>
-        <div className="ad-header-right">
-          <span className="ad-username">{user.display_name}</span>
-          <a href="/" className="ad-hdr-btn light">
+    <div className="app-shell">
+      <header className="topbar">
+        <a href="/" className="topbar-brand" title="홈으로">
+          <span className="brand">
+            <span className="b-quali">quali</span>
+            <span className="b-soft">soft</span>
+            <span className="b-dot">.</span>
+          </span>
+        </a>
+        <span className="topbar-section">관리자 포털</span>
+        <div className="topbar-spacer" />
+        <div className="topbar-right">
+          <span className="topbar-user">{user.display_name}</span>
+          <a href="/" className="topbar-btn">
             보고서 뷰어
           </a>
-          <a href="/logout" className="ad-hdr-btn">
+          <a href="/logout" className="topbar-btn primary">
             로그아웃
           </a>
         </div>
       </header>
 
-      <div className="ad-layout">
-        <nav className="ad-sidebar">
-          <div className="ad-sidebar-title">관리 메뉴</div>
-          {SECTIONS.map((s) => (
-            <div
-              key={s.key}
-              className={`ad-item${section === s.key ? " active" : ""}`}
-              onClick={() => setSection(s.key)}
-            >
-              <span>{s.icon}</span>
-              {s.label}
-            </div>
-          ))}
+      <div className="app-body">
+        <nav className="app-sidebar">
+          <div className="app-sidebar-title">관리 메뉴</div>
+          <div className="app-sidebar-scroll">
+            {SECTIONS.map((s) => (
+              <div
+                key={s.key}
+                className={`app-nav-item${section === s.key ? " active" : ""}`}
+                onClick={() => setSection(s.key)}
+              >
+                <span>{s.icon}</span>
+                {s.label}
+              </div>
+            ))}
+          </div>
         </nav>
 
-        <main className="ad-content">
-          {section === "overview" && (
-            <OverviewSection stats={stats} jobs={data.jobs} />
-          )}
-          {section === "users" && (
-            <UsersSection
-              users={users}
-              csrf={csrf_token}
-              onToggle={async (id) => {
-                try {
-                  const { is_active } = await adminToggleUser(id, csrf_token);
-                  setUsers((prev) =>
-                    prev.map((u) => (u.id === id ? { ...u, is_active } : u)),
-                  );
-                  showToast(
-                    is_active ? "계정이 활성화됐습니다." : "계정이 비활성화됐습니다.",
-                    "ok",
-                  );
-                } catch (e) {
-                  showToast("오류: " + (e as Error).message, "err");
+        <main className="app-main">
+          <div className="ad-content">
+            {section === "overview" && (
+              <OverviewSection stats={stats} jobs={data.jobs} />
+            )}
+            {section === "users" && (
+              <UsersSection
+                users={users}
+                onAdd={() => setShowAddUser(true)}
+                onToggle={async (id) => {
+                  try {
+                    const { is_active } = await adminToggleUser(id, csrf_token);
+                    setUsers((prev) =>
+                      prev.map((u) => (u.id === id ? { ...u, is_active } : u)),
+                    );
+                    showToast(
+                      is_active ? "계정이 활성화됐습니다." : "계정이 비활성화됐습니다.",
+                      "ok",
+                    );
+                  } catch (e) {
+                    showToast("오류: " + (e as Error).message, "err");
+                  }
+                }}
+              />
+            )}
+            {section === "reports" && (
+              <ReportsSection
+                reports={reports}
+                csrf={csrf_token}
+                showToast={showToast}
+                onDeleted={(id) =>
+                  setReports((prev) =>
+                    prev.map((r) =>
+                      r.id === id ? { ...r, status: "deleted" } : r,
+                    ),
+                  )
                 }
-              }}
-              onAdded={() => {
-                showToast("사용자가 추가되었습니다. 목록을 새로고침합니다...", "ok");
-                setTimeout(() => location.reload(), 1200);
-              }}
-              onError={(m) => showToast("오류: " + m, "err")}
-            />
-          )}
-          {section === "reports" && (
-            <ReportsSection
-              reports={reports}
-              csrf={csrf_token}
-              showToast={showToast}
-              onDeleted={(id) =>
-                setReports((prev) =>
-                  prev.map((r) =>
-                    r.id === id ? { ...r, status: "deleted" } : r,
-                  ),
-                )
-              }
-              onManageAccess={setAccessReport}
-            />
-          )}
-          {section === "jobs" && <JobsSection jobs={data.jobs} />}
+                onManageAccess={setAccessReport}
+              />
+            )}
+            {section === "jobs" && <JobsSection jobs={data.jobs} />}
+          </div>
         </main>
       </div>
+
+      {showAddUser && (
+        <AddUserModal
+          csrf={csrf_token}
+          onClose={() => setShowAddUser(false)}
+          onAdded={() => {
+            showToast("사용자가 추가되었습니다. 목록을 새로고침합니다...", "ok");
+            setTimeout(() => location.reload(), 1100);
+          }}
+          onError={(m) => showToast("오류: " + m, "err")}
+        />
+      )}
 
       {accessReport && (
         <AccessModal
@@ -138,9 +153,7 @@ export default function AdminPage({ data }: { data: AdminData }) {
         />
       )}
 
-      {toast && (
-        <div className={`ad-toast show ${toast.tone}`}>{toast.msg}</div>
-      )}
+      {toast && <div className={`ad-toast show ${toast.tone}`}>{toast.msg}</div>}
     </div>
   );
 }
@@ -166,8 +179,15 @@ function OverviewSection({
       </div>
 
       <h2>최근 업로드</h2>
-      <div className="ad-table-wrap">
+      <div className="card-table">
         <table>
+          <colgroup>
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "20%" }} />
+            <col style={{ width: "32%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "20%" }} />
+          </colgroup>
           <thead>
             <tr>
               <th>ID</th>
@@ -182,7 +202,7 @@ function OverviewSection({
               <tr key={j.id}>
                 <td>#{j.id}</td>
                 <td>{j.username}</td>
-                <td>{j.report_name}</td>
+                <td title={j.report_name}>{j.report_name}</td>
                 <td>
                   <JobStatus status={j.status} />
                 </td>
@@ -216,68 +236,34 @@ function StatCard({
 
 function UsersSection({
   users,
-  csrf,
+  onAdd,
   onToggle,
-  onAdded,
-  onError,
 }: {
   users: AdminUser[];
-  csrf: string;
+  onAdd: () => void;
   onToggle: (id: number) => void;
-  onAdded: () => void;
-  onError: (msg: string) => void;
 }) {
-  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    try {
-      await adminAddUser(new FormData(form));
-      form.reset();
-      (form.elements.namedItem("roles") as HTMLInputElement).value = "도메인";
-      onAdded();
-    } catch (err) {
-      onError((err as Error).message);
-    }
-  };
-
   return (
     <section>
-      <h2>사용자 관리</h2>
-      <div className="ad-form-box">
-        <h3>새 사용자 추가</h3>
-        <form onSubmit={submit}>
-          <input type="hidden" name="csrf" value={csrf} />
-          <div className="ad-form-grid">
-            <Field label="아이디 *">
-              <input name="username" required placeholder="login_id" />
-            </Field>
-            <Field label="비밀번호 * (8자 이상)">
-              <input name="password" type="password" required placeholder="••••••••" />
-            </Field>
-            <Field label="표시 이름 *">
-              <input name="display_name" required placeholder="홍길동" />
-            </Field>
-            <Field label="PBI 사용자명 (RLS 식별자)">
-              <input name="pbi_username" placeholder="아이디와 동일하면 공란" />
-            </Field>
-            <Field label="역할 (RLS)">
-              <input name="roles" defaultValue="도메인" />
-            </Field>
-            <Field label="관리자 권한">
-              <select name="is_admin" defaultValue="false">
-                <option value="false">일반 사용자</option>
-                <option value="true">관리자</option>
-              </select>
-            </Field>
-          </div>
-          <button type="submit" className="btn btn-primary">
-            사용자 추가
-          </button>
-        </form>
+      <div className="ad-section-head">
+        <h2 style={{ marginBottom: 0 }}>사용자 관리</h2>
+        <button className="btn btn-primary" onClick={onAdd}>
+          + 새 사용자 추가
+        </button>
       </div>
-
-      <div className="ad-table-wrap">
-        <table style={{ minWidth: 720 }}>
+      <div className="card-table">
+        <table>
+          <colgroup>
+            <col style={{ width: "6%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "13%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "9%" }} />
+          </colgroup>
           <thead>
             <tr>
               <th>ID</th>
@@ -295,7 +281,7 @@ function UsersSection({
             {users.map((u) => (
               <tr key={u.id}>
                 <td>{u.id}</td>
-                <td>
+                <td title={u.username}>
                   {u.username}
                   {u.is_admin && (
                     <span className="pill admin" style={{ marginLeft: 4 }}>
@@ -303,8 +289,8 @@ function UsersSection({
                     </span>
                   )}
                 </td>
-                <td>{u.display_name}</td>
-                <td>{u.pbi_username}</td>
+                <td title={u.display_name}>{u.display_name}</td>
+                <td title={u.pbi_username}>{u.pbi_username}</td>
                 <td>{u.roles}</td>
                 <td>{u.report_count}</td>
                 <td>{u.last_login_at || "-"}</td>
@@ -337,6 +323,83 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="ad-field">
       <label>{label}</label>
       {children}
+    </div>
+  );
+}
+
+function AddUserModal({
+  csrf,
+  onClose,
+  onAdded,
+  onError,
+}: {
+  csrf: string;
+  onClose: () => void;
+  onAdded: () => void;
+  onError: (msg: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await adminAddUser(new FormData(e.currentTarget));
+      onAdded();
+    } catch (err) {
+      onError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="ad-modal-overlay" onClick={onClose}>
+      <div
+        className="ad-modal ad-modal-wide"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="ad-modal-header">
+          <h3>새 사용자 추가</h3>
+          <button className="ad-modal-close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="ad-modal-body">
+            <input type="hidden" name="csrf" value={csrf} />
+            <div className="ad-form-grid">
+              <Field label="아이디 *">
+                <input name="username" required placeholder="login_id" autoFocus />
+              </Field>
+              <Field label="비밀번호 * (8자 이상)">
+                <input name="password" type="password" required placeholder="••••••••" />
+              </Field>
+              <Field label="표시 이름 *">
+                <input name="display_name" required placeholder="홍길동" />
+              </Field>
+              <Field label="PBI 사용자명 (RLS 식별자)">
+                <input name="pbi_username" placeholder="아이디와 동일하면 공란" />
+              </Field>
+              <Field label="역할 (RLS)">
+                <input name="roles" defaultValue="도메인" />
+              </Field>
+              <Field label="관리자 권한">
+                <select name="is_admin" defaultValue="false">
+                  <option value="false">일반 사용자</option>
+                  <option value="true">관리자</option>
+                </select>
+              </Field>
+            </div>
+          </div>
+          <div className="ad-modal-footer">
+            <button type="button" className="btn btn-ghost" onClick={onClose}>
+              취소
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={busy}>
+              {busy ? "추가 중..." : "사용자 추가"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -420,8 +483,18 @@ function ReportsSection({
           </button>
         </div>
       </div>
-      <div className="ad-table-wrap">
-        <table style={{ minWidth: 820 }}>
+      <div className="card-table">
+        <table>
+          <colgroup>
+            <col style={{ width: "6%" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "13%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "22%" }} />
+          </colgroup>
           <thead>
             <tr>
               <th>ID</th>
@@ -429,9 +502,8 @@ function ReportsSection({
               <th>유형</th>
               <th>소유자</th>
               <th>카테고리</th>
-              <th>열람 수</th>
+              <th>열람</th>
               <th>상태</th>
-              <th>등록일</th>
               <th>액션</th>
             </tr>
           </thead>
@@ -453,7 +525,6 @@ function ReportsSection({
                     <span className="pill pending">{r.status}</span>
                   )}
                 </td>
-                <td>{r.created_at || "-"}</td>
                 <td className="ad-actions-cell">
                   <button
                     className="btn btn-ghost btn-sm"
@@ -485,8 +556,17 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
   return (
     <section>
       <h2>업로드 이력 (최근 30건)</h2>
-      <div className="ad-table-wrap">
-        <table style={{ minWidth: 720 }}>
+      <div className="card-table">
+        <table>
+          <colgroup>
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "13%" }} />
+            <col style={{ width: "20%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "26%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "12%" }} />
+          </colgroup>
           <thead>
             <tr>
               <th>ID</th>
@@ -503,7 +583,7 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
               <tr key={j.id}>
                 <td>#{j.id}</td>
                 <td>{j.username}</td>
-                <td>{j.report_name}</td>
+                <td title={j.report_name}>{j.report_name}</td>
                 <td>
                   <JobStatus status={j.status} />
                 </td>
