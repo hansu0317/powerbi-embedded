@@ -18,31 +18,6 @@ import { fetchEmbed, fetchUploadStatus } from "../api";
 import { useFavorites } from "../useFavorites";
 import { useRecents } from "../useRecents";
 
-/* 즐겨찾기 별 토글 버튼 */
-function FavStar({
-  on,
-  onToggle,
-  size = 17,
-}: {
-  on: boolean;
-  onToggle: () => void;
-  size?: number;
-}) {
-  return (
-    <button
-      type="button"
-      className={`fav-star${on ? " on" : ""}`}
-      title={on ? "즐겨찾기 해제" : "즐겨찾기 추가"}
-      onClick={(e) => {
-        e.stopPropagation();
-        onToggle();
-      }}
-    >
-      <Star size={size} className="icn" fill={on ? "currentColor" : "none"} />
-    </button>
-  );
-}
-
 // PowerBI 서비스 싱글턴 (탭 전체가 공유)
 const powerbi = new pbi.service.Service(
   pbi.factories.hpmFactory,
@@ -77,19 +52,11 @@ export default function ReportPage({ data }: { data: ReportData }) {
   const { isFav, toggle: toggleFav } = useFavorites(data.favorites, csrf_token);
   const { recents, push: pushRecent } = useRecents(data.recents, csrf_token);
 
-  // 열람 보고서:
-  //  - 관리자: 본인이 업로드한 개인 보고서만 (전체 보고서 표가 따로 있으므로 여기는 '내 것'만)
-  //  - 일반 사용자: 열람 가능한 보고서 전체(권한 받은 + 업로드)
-  // 관리자는 권한과 무관하게 모든 보고서를 보므로, 열람 보고서까지 전부 띄우면 과함 → 본인 것만.
-  const myReports = useMemo(
-    () =>
-      user.is_admin
-        ? reports.filter(
-            (r) => r.report_type === "personal" && r.owner_username === user.username,
-          )
-        : reports,
-    [reports, user.username, user.is_admin],
-  );
+  // 열람 보고서 = 열람 가능한 보고서 전체(폴더 트리).
+  //  - 관리자: 모든 보고서(권한과 무관하게 다 봄)
+  //  - 일반 사용자: 관리자 포털에서 열람권한을 부여받은 보고서 + 본인 업로드
+  // 메인 영역은 카드로 쏟지 않고 '선택하세요' 안내만 (트리에서 고름).
+  const myReports = reports;
   const [mode, setMode] = useState<Mode>(
     () => (sessionStorage.getItem(MODE_KEY) as Mode) || "home",
   );
@@ -228,11 +195,8 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 reports={myReports}
                 tabs={tabs}
                 active={active}
-                isFav={isFav}
-                onToggleFav={toggleFav}
                 onActivate={setActive}
                 onClose={closeTab}
-                onOpen={openReport}
                 onGoUpload={() => setView("upload")}
               />
             )}
@@ -244,6 +208,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 isFav={isFav}
                 onToggleFav={toggleFav}
                 onOpen={openReport}
+                onGoUpload={() => setView("upload")}
               />
             )}
             {view === "upload" && <UploadView csrf={csrf_token} />}
@@ -589,33 +554,19 @@ function MyReportsView({
   reports,
   tabs,
   active,
-  isFav,
-  onToggleFav,
   onActivate,
   onClose,
-  onOpen,
   onGoUpload,
 }: {
   reports: ReportItem[];
   tabs: OpenTab[];
   active: number | null;
-  isFav: (id: number) => boolean;
-  onToggleFav: (id: number) => void;
   onActivate: (id: number) => void;
   onClose: (id: number) => void;
-  onOpen: (r: ReportItem) => void;
   onGoUpload: () => void;
 }) {
   if (tabs.length === 0) {
-    return (
-      <ReportLanding
-        reports={reports}
-        isFav={isFav}
-        onToggleFav={onToggleFav}
-        onOpen={onOpen}
-        onGoUpload={onGoUpload}
-      />
-    );
+    return <ReportLanding reports={reports} onGoUpload={onGoUpload} />;
   }
   return (
     <div className="rp-workarea">
@@ -653,49 +604,11 @@ function MyReportsView({
 
 function ReportLanding({
   reports,
-  isFav,
-  onToggleFav,
-  onOpen,
   onGoUpload,
 }: {
   reports: ReportItem[];
-  isFav: (id: number) => boolean;
-  onToggleFav: (id: number) => void;
-  onOpen: (r: ReportItem) => void;
   onGoUpload: () => void;
 }) {
-  const grid = (items: ReportItem[]) => (
-    <div className="rp-card-grid">
-      {items.map((r) => (
-        <div
-          key={r.id}
-          className="rp-card"
-          role="button"
-          tabIndex={0}
-          onClick={() => onOpen(r)}
-          onKeyDown={(e) => e.key === "Enter" && onOpen(r)}
-        >
-          <div className="rp-card-icon">
-            <BarChart3 size={22} className="icn" />
-          </div>
-          <div className="rp-card-body">
-            <div className="rp-card-name" title={r.name}>
-              {r.name}
-            </div>
-            <div className="rp-card-meta">
-              {r.category ? (
-                <span className="rp-card-tag">{r.category}</span>
-              ) : (
-                <span className="rp-card-tag muted">미분류</span>
-              )}
-            </div>
-          </div>
-          <FavStar on={isFav(r.id)} onToggle={() => onToggleFav(r.id)} />
-        </div>
-      ))}
-    </div>
-  );
-
   return (
     <div className="rp-landing">
       <div className="rp-landing-head">
@@ -708,14 +621,14 @@ function ReportLanding({
         </button>
       </div>
 
-      {reports.length === 0 ? (
-        <div className="rp-landing-empty">
-          <BarChart3 size={52} className="icn" />
+      <div className="rp-landing-empty">
+        <BarChart3 size={52} className="icn" />
+        {reports.length === 0 ? (
           <p>아직 열람 가능한 보고서가 없습니다</p>
-        </div>
-      ) : (
-        grid(reports)
-      )}
+        ) : (
+          <p>왼쪽 ‘열람 보고서’ 목록에서 보고서를 선택하세요</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -792,6 +705,7 @@ function AllReportsView({
   isFav,
   onToggleFav,
   onOpen,
+  onGoUpload,
 }: {
   reports: ReportItem[];
   query: string;
@@ -799,6 +713,7 @@ function AllReportsView({
   isFav: (id: number) => boolean;
   onToggleFav: (id: number) => void;
   onOpen: (r: ReportItem) => void;
+  onGoUpload: () => void;
 }) {
   const filtered = useMemo(() => {
     const k = query.trim().toLowerCase();
@@ -823,7 +738,12 @@ function AllReportsView({
 
   return (
     <div className="rp-page">
-      <h1 className="rp-page-title">전체 보고서</h1>
+      <div className="rp-page-head">
+        <h1 className="rp-page-title">전체 보고서</h1>
+        <button className="btn btn-primary" onClick={onGoUpload}>
+          <Upload size={15} className="icn" /> 보고서 등록
+        </button>
+      </div>
       <div className="rp-search">
         <Search size={17} className="icn rp-search-icon" />
         <input
