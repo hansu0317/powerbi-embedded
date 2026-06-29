@@ -483,8 +483,6 @@
 .rp-all-name {
   font-weight: 600;
   color: var(--sage-deep);
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .rp-all-name .icn { vertical-align: -2px; margin-right: 4px; }

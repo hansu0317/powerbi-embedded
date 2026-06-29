@@ -253,13 +253,13 @@ body {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  overflow: hidden;
+  overflow-x: auto; /* 내용이 넓을 때만 가로 스크롤 — 글자는 생략하지 않음 */
 }
 .card-table table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
-  table-layout: fixed;
+  table-layout: auto; /* 칸을 내용 길이에 맞춰 — 잘림 없음 */
 }
 .card-table thead { background: var(--sage-bg); }
 .card-table th {
@@ -271,16 +271,12 @@ body {
   letter-spacing: 0.02em;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .card-table td {
   padding: 14px 13px;
   border-bottom: 1px solid #f0f3ec;
   color: var(--ink);
   vertical-align: middle;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.4;
 }
