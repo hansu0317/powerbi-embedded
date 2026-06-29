@@ -194,9 +194,9 @@ export default function ReportPage({ data }: { data: ReportData }) {
         <Home
           reports={reports}
           displayName={user.display_name}
+          isAdmin={Boolean(user.is_admin)}
           recentIds={recents}
           isFav={isFav}
-          onToggleFav={toggleFav}
           onOpen={openReport}
           onSearch={runSearch}
           onGoAll={() => {
@@ -212,6 +212,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
             myReports={myReports}
             view={view}
             activeId={active}
+            isAdmin={Boolean(user.is_admin)}
             isFav={isFav}
             onSelectView={setView}
             onOpen={openReport}
@@ -252,29 +253,42 @@ export default function ReportPage({ data }: { data: ReportData }) {
 function Home({
   reports,
   displayName,
+  isAdmin,
   recentIds,
   isFav,
-  onToggleFav,
   onOpen,
   onSearch,
   onGoAll,
 }: {
   reports: ReportItem[];
   displayName: string;
+  isAdmin: boolean;
   recentIds: number[];
   isFav: (id: number) => boolean;
-  onToggleFav: (id: number) => void;
   onOpen: (r: ReportItem) => void;
   onSearch: (q: string) => void;
   onGoAll: () => void;
 }) {
   const [q, setQ] = useState("");
+  const [openSuggest, setOpenSuggest] = useState(false);
   const byId = useMemo(() => new Map(reports.map((r) => [r.id, r])), [reports]);
   const favReports = reports.filter((r) => isFav(r.id)).slice(0, 5);
   const recentReports = recentIds
     .map((id) => byId.get(id))
     .filter((r): r is ReportItem => Boolean(r))
     .slice(0, 5);
+
+  const suggestions = useMemo(() => {
+    const k = q.trim().toLowerCase();
+    if (!k) return [];
+    return reports
+      .filter(
+        (r) =>
+          r.name.toLowerCase().includes(k) ||
+          (r.category || "").toLowerCase().includes(k),
+      )
+      .slice(0, 8);
+  }, [q, reports]);
 
   return (
     <main className="home">
@@ -293,17 +307,43 @@ function Home({
           onSubmit={(e) => {
             e.preventDefault();
             onSearch(q.trim());
+            setOpenSuggest(false);
           }}
         >
           <Search size={19} className="icn home-search-icon" />
           <input
             placeholder="보고서를 검색하세요"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setOpenSuggest(true);
+            }}
+            onFocus={() => setOpenSuggest(true)}
+            onBlur={() => setTimeout(() => setOpenSuggest(false), 120)}
           />
           <button type="submit" className="btn btn-primary">
             검색
           </button>
+          {openSuggest && suggestions.length > 0 && (
+            <ul className="home-suggest">
+              {suggestions.map((r) => (
+                <li
+                  key={r.id}
+                  className="home-suggest-item"
+                  onMouseDown={() => {
+                    onOpen(r);
+                    setOpenSuggest(false);
+                  }}
+                >
+                  <BarChart3 size={15} className="icn" />
+                  <span className="home-suggest-name">{r.name}</span>
+                  {r.category && (
+                    <span className="home-suggest-cat">{r.category}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </form>
       </section>
 
@@ -315,8 +355,6 @@ function Home({
           empty="별표한 보고서가 여기 모입니다"
           items={favReports}
           onOpen={onOpen}
-          onToggleFav={onToggleFav}
-          isFav={isFav}
         />
         <HomeCard
           title="최근 본 보고서"
@@ -324,23 +362,21 @@ function Home({
           empty="최근 연 보고서가 없습니다"
           items={recentReports}
           onOpen={onOpen}
-          onToggleFav={onToggleFav}
-          isFav={isFav}
         />
-        <HomeCard
-          title="전체 보고서"
-          Icon={LayoutList}
-          empty="열람 가능한 보고서가 없습니다"
-          items={reports.slice(0, 5)}
-          onOpen={onOpen}
-          onToggleFav={onToggleFav}
-          isFav={isFav}
-          footer={
-            <button className="home-card-more" onClick={onGoAll}>
-              전체 보기 ({reports.length}) →
-            </button>
-          }
-        />
+        {isAdmin && (
+          <HomeCard
+            title="전체 보고서"
+            Icon={LayoutList}
+            empty="열람 가능한 보고서가 없습니다"
+            items={reports.slice(0, 5)}
+            onOpen={onOpen}
+            footer={
+              <button className="home-card-more" onClick={onGoAll}>
+                전체 보기 ({reports.length}) →
+              </button>
+            }
+          />
+        )}
       </section>
     </main>
   );
@@ -352,9 +388,7 @@ function HomeCard({
   accent,
   empty,
   items,
-  isFav,
   onOpen,
-  onToggleFav,
   footer,
 }: {
   title: string;
@@ -362,9 +396,7 @@ function HomeCard({
   accent?: string;
   empty: string;
   items: ReportItem[];
-  isFav: (id: number) => boolean;
   onOpen: (r: ReportItem) => void;
-  onToggleFav: (id: number) => void;
   footer?: React.ReactNode;
 }) {
   return (
@@ -379,18 +411,10 @@ function HomeCard({
         {items.length === 0 ? (
           <div className="home-card-empty">{empty}</div>
         ) : (
-          items.map((r, i) => (
-            <div key={r.id} className="home-row" onClick={() => onOpen(r)}>
-              <span className="home-row-no">{i + 1}</span>
-              <BarChart3 size={15} className="icn home-row-icon" />
-              <span className="home-row-name" title={r.name}>
-                {r.name}
-              </span>
-              <FavStar
-                size={15}
-                on={isFav(r.id)}
-                onToggle={() => onToggleFav(r.id)}
-              />
+          items.map((r) => (
+            <div key={r.id} className="home-row" onClick={() => onOpen(r)} title={r.name}>
+              <BarChart3 size={16} className="icn home-row-icon" />
+              <span className="home-row-name">{r.name}</span>
             </div>
           ))
         )}
@@ -406,6 +430,7 @@ function Sidebar({
   myReports,
   view,
   activeId,
+  isAdmin,
   isFav,
   onSelectView,
   onOpen,
@@ -414,6 +439,7 @@ function Sidebar({
   myReports: ReportItem[];
   view: View;
   activeId: number | null;
+  isAdmin: boolean;
   isFav: (id: number) => boolean;
   onSelectView: (v: View) => void;
   onOpen: (r: ReportItem) => void;
@@ -511,12 +537,14 @@ function Sidebar({
           </div>
         )}
 
-        <div
-          className={`app-nav-item${view === "all" ? " active" : ""}`}
-          onClick={() => onSelectView("all")}
-        >
-          <LayoutList size={17} className="icn" /> 전체 보고서
-        </div>
+        {isAdmin && (
+          <div
+            className={`app-nav-item${view === "all" ? " active" : ""}`}
+            onClick={() => onSelectView("all")}
+          >
+            <LayoutList size={17} className="icn" /> 전체 보고서
+          </div>
+        )}
         <div
           className={`app-nav-item${view === "upload" ? " active" : ""}`}
           onClick={() => onSelectView("upload")}
@@ -777,42 +805,7 @@ function AllReportsView({
     );
   }, [query, reports]);
 
-  // 카테고리(Fabric 폴더)별로 묶어 트리로 표시
-  const { folders, uncategorized } = useMemo(() => {
-    const g = new Map<string, ReportItem[]>();
-    const u: ReportItem[] = [];
-    for (const r of filtered) {
-      if (r.category) {
-        if (!g.has(r.category)) g.set(r.category, []);
-        g.get(r.category)!.push(r);
-      } else u.push(r);
-    }
-    return {
-      folders: [...g.entries()].sort((a, b) => a[0].localeCompare(b[0])),
-      uncategorized: u,
-    };
-  }, [filtered]);
-
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const searching = query.trim().length > 0;
-  const toggle = (cat: string) =>
-    setCollapsed((p) => ({ ...p, [cat]: !p[cat] }));
-
-  const node = (r: ReportItem) => (
-    <div
-      key={r.id}
-      className="rp-all-node"
-      onClick={() => onOpen(r)}
-      title="클릭하여 열기"
-    >
-      <BarChart3 size={15} className="icn rp-all-node-icon" />
-      <span className="rp-all-node-name">{r.name}</span>
-      <span className="rp-all-node-owner">
-        {r.owner_username || (r.report_type === "managed" ? "공용" : "")}
-      </span>
-      <FavStar size={15} on={isFav(r.id)} onToggle={() => onToggleFav(r.id)} />
-    </div>
-  );
+  const [preview, setPreview] = useState<ReportItem | null>(null);
 
   return (
     <div className="rp-page">
@@ -826,36 +819,104 @@ function AllReportsView({
         />
       </div>
 
-      <div className="rp-all-tree">
-        {folders.map(([cat, items]) => {
-          const isOpen = searching || !collapsed[cat];
-          return (
-            <div key={cat} className={`rp-all-folder${isOpen ? "" : " collapsed"}`}>
-              <div className="rp-all-folder-header" onClick={() => toggle(cat)}>
-                <ChevronDown size={15} className="icn rp-all-folder-arrow" />
-                <Folder size={16} className="icn rp-all-folder-icon" />
-                <span className="rp-all-folder-name">{cat}</span>
-                <span className="rp-all-folder-count">{items.length}</span>
-              </div>
-              {isOpen && <div className="rp-all-folder-body">{items.map(node)}</div>}
-            </div>
-          );
-        })}
-        {uncategorized.length > 0 && (
-          <div className="rp-all-folder">
-            <div className="rp-all-folder-header static">
-              <Folder size={16} className="icn rp-all-folder-icon" />
-              <span className="rp-all-folder-name">미분류</span>
-              <span className="rp-all-folder-count">{uncategorized.length}</span>
-            </div>
-            <div className="rp-all-folder-body">{uncategorized.map(node)}</div>
-          </div>
-        )}
-        {filtered.length === 0 && (
-          <div className="rp-all-empty">표시할 보고서가 없습니다</div>
-        )}
-      </div>
+      {filtered.length === 0 ? (
+        <div className="rp-all-empty">표시할 보고서가 없습니다</div>
+      ) : (
+        <div className="rp-rgrid">
+          {filtered.map((r) => (
+            <button
+              key={r.id}
+              className="rp-rcard"
+              onClick={() => setPreview(r)}
+              title="클릭하여 미리보기"
+            >
+              <span className="rp-rcard-icon">
+                <BarChart3 size={20} className="icn" />
+              </span>
+              <span className="rp-rcard-name">{r.name}</span>
+              <span className="rp-rcard-meta">
+                <span className={`rp-rcard-tag${r.category ? "" : " muted"}`}>
+                  {r.category || "미분류"}
+                </span>
+                <span className="rp-rcard-owner">
+                  {r.owner_username || (r.report_type === "managed" ? "공용" : "")}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="rp-total">Total {filtered.length} records</div>
+
+      {preview && (
+        <ReportInfoModal
+          report={preview}
+          fav={isFav(preview.id)}
+          onToggleFav={() => onToggleFav(preview.id)}
+          onOpen={() => {
+            onOpen(preview);
+            setPreview(null);
+          }}
+          onClose={() => setPreview(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReportInfoModal({
+  report,
+  fav,
+  onToggleFav,
+  onOpen,
+  onClose,
+}: {
+  report: ReportItem;
+  fav: boolean;
+  onToggleFav: () => void;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="rp-modal-overlay" onClick={onClose}>
+      <div className="rp-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="rp-modal-x" title="닫기" onClick={onClose}>
+          <X size={18} />
+        </button>
+        <div className="rp-modal-hero">
+          <BarChart3 size={30} className="icn" />
+        </div>
+        <h2 className="rp-modal-name">{report.name}</h2>
+        <dl className="rp-modal-info">
+          <div>
+            <dt>폴더</dt>
+            <dd>{report.category || "미분류"}</dd>
+          </div>
+          <div>
+            <dt>소유자</dt>
+            <dd>
+              {report.owner_username ||
+                (report.report_type === "managed" ? "공용" : "-")}
+            </dd>
+          </div>
+          <div>
+            <dt>유형</dt>
+            <dd>{report.report_type === "managed" ? "공용 보고서" : "개인 보고서"}</dd>
+          </div>
+        </dl>
+        <div className="rp-modal-actions">
+          <button
+            className={`btn btn-ghost rp-modal-fav${fav ? " on" : ""}`}
+            onClick={onToggleFav}
+          >
+            <Star size={15} className="icn" fill={fav ? "currentColor" : "none"} />{" "}
+            {fav ? "즐겨찾기 해제" : "즐겨찾기"}
+          </button>
+          <button className="btn btn-primary" onClick={onOpen}>
+            보고서 열기
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
