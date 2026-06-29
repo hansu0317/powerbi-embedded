@@ -474,7 +474,7 @@ function Sidebar({
           className={`app-nav-item${view === "my" ? " active" : ""}`}
           onClick={() => onSelectView("my")}
         >
-          <Folder size={17} className="icn" /> 내 보고서
+          <Folder size={17} className="icn" /> 열람 보고서
         </div>
 
         {view === "my" && (
@@ -527,7 +527,7 @@ function Sidebar({
               />
             ))}
             {myReports.length === 0 && (
-              <div className="rp-tree-empty">업로드한 보고서가 없습니다</div>
+              <div className="rp-tree-empty">열람 가능한 보고서가 없습니다</div>
             )}
           </div>
         )}
@@ -690,8 +690,8 @@ function ReportLanding({
     <div className="rp-landing">
       <div className="rp-landing-head">
         <div>
-          <h1 className="rp-landing-hi">내 보고서</h1>
-          <p className="rp-landing-sub">내가 업로드한 보고서입니다</p>
+          <h1 className="rp-landing-hi">열람 보고서</h1>
+          <p className="rp-landing-sub">권한이 있거나 내가 올린, 열람 가능한 보고서입니다</p>
         </div>
         <button className="btn btn-ghost" onClick={onGoUpload}>
           <Upload size={16} className="icn" /> 새 보고서 등록
@@ -701,7 +701,7 @@ function ReportLanding({
       {reports.length === 0 ? (
         <div className="rp-landing-empty">
           <BarChart3 size={52} className="icn" />
-          <p>아직 업로드한 보고서가 없습니다</p>
+          <p>아직 열람 가능한 보고서가 없습니다</p>
         </div>
       ) : (
         grid(reports)
