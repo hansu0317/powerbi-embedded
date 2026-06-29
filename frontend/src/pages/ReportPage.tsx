@@ -77,9 +77,19 @@ export default function ReportPage({ data }: { data: ReportData }) {
   const { isFav, toggle: toggleFav } = useFavorites(data.favorites, csrf_token);
   const { recents, push: pushRecent } = useRecents(data.recents, csrf_token);
 
-  // 내 보고서 = 열람 가능한 보고서 전체(권한 받은 + 본인 업로드), 폴더별 트리.
-  // 관리자도 동일하게 트리로 본다(전체 보고서 표는 관리용으로 별도 유지).
-  const myReports = reports;
+  // 열람 보고서:
+  //  - 관리자: 본인이 업로드한 개인 보고서만 (전체 보고서 표가 따로 있으므로 여기는 '내 것'만)
+  //  - 일반 사용자: 열람 가능한 보고서 전체(권한 받은 + 업로드)
+  // 관리자는 권한과 무관하게 모든 보고서를 보므로, 열람 보고서까지 전부 띄우면 과함 → 본인 것만.
+  const myReports = useMemo(
+    () =>
+      user.is_admin
+        ? reports.filter(
+            (r) => r.report_type === "personal" && r.owner_username === user.username,
+          )
+        : reports,
+    [reports, user.username, user.is_admin],
+  );
   const [mode, setMode] = useState<Mode>(
     () => (sessionStorage.getItem(MODE_KEY) as Mode) || "home",
   );
@@ -802,6 +812,15 @@ function AllReportsView({
 
   const [preview, setPreview] = useState<ReportItem | null>(null);
 
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // 검색어가 바뀌거나 결과 수가 줄면 1페이지로
+  useEffect(() => setPage(1), [query]);
+  const cur = Math.min(page, totalPages);
+  const pageItems = filtered.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE);
+  const pageNums = Array.from({ length: totalPages }, (_, i) => i + 1);
+
   return (
     <div className="rp-page">
       <h1 className="rp-page-title">전체 보고서</h1>
@@ -831,7 +850,7 @@ function AllReportsView({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {pageItems.map((r) => (
               <tr
                 key={r.id}
                 className="rp-all-row"
@@ -859,7 +878,37 @@ function AllReportsView({
           </tbody>
         </table>
       </div>
-      <div className="rp-total">Total {filtered.length} records</div>
+
+      <div className="rp-pager">
+        <span className="rp-pager-total">Total {filtered.length} records</span>
+        {totalPages > 1 && (
+          <div className="rp-pager-nav">
+            <button
+              className="rp-pager-btn"
+              disabled={cur === 1}
+              onClick={() => setPage(cur - 1)}
+            >
+              ‹
+            </button>
+            {pageNums.map((n) => (
+              <button
+                key={n}
+                className={`rp-pager-btn${n === cur ? " active" : ""}`}
+                onClick={() => setPage(n)}
+              >
+                {n}
+              </button>
+            ))}
+            <button
+              className="rp-pager-btn"
+              disabled={cur === totalPages}
+              onClick={() => setPage(cur + 1)}
+            >
+              ›
+            </button>
+          </div>
+        )}
+      </div>
 
       {preview && (
         <ReportInfoModal
