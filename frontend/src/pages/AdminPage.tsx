@@ -578,7 +578,9 @@ function ReportsSection({
               <th>유형</th>
               <th>소유자</th>
               <th>카테고리</th>
-              <th>열람</th>
+              <th title="열람권한이 명시적으로 부여된 사용자 수 (관리자 우회 접근은 제외)">
+                열람권한
+              </th>
               <th>상태</th>
               <th>액션</th>
             </tr>
