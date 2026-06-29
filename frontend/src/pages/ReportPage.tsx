@@ -7,11 +7,38 @@ import {
   Info,
   LayoutList,
   Search,
+  Star,
   Upload,
   X,
 } from "lucide-react";
 import type { ReportData, ReportItem } from "../bootstrap";
 import { fetchEmbed, fetchUploadStatus } from "../api";
+import { useFavorites } from "../useFavorites";
+
+/* 즐겨찾기 별 토글 버튼 */
+function FavStar({
+  on,
+  onToggle,
+  size = 17,
+}: {
+  on: boolean;
+  onToggle: () => void;
+  size?: number;
+}) {
+  return (
+    <button
+      type="button"
+      className={`fav-star${on ? " on" : ""}`}
+      title={on ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+    >
+      <Star size={size} className="icn" fill={on ? "currentColor" : "none"} />
+    </button>
+  );
+}
 
 // PowerBI 서비스 싱글턴 (탭 전체가 공유)
 const powerbi = new pbi.service.Service(
@@ -41,6 +68,7 @@ function loadTabs(): OpenTab[] {
 export default function ReportPage({ data }: { data: ReportData }) {
   const { user, reports, csrf_token } = data;
 
+  const { isFav, toggle: toggleFav } = useFavorites();
   const [view, setView] = useState<View>("my");
   const [tabs, setTabs] = useState<OpenTab[]>(() => loadTabs());
   const [active, setActive] = useState<number | null>(
@@ -105,6 +133,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
           reports={reports}
           view={view}
           activeId={active}
+          isFav={isFav}
           onSelectView={setView}
           onOpen={openReport}
         />
@@ -115,6 +144,8 @@ export default function ReportPage({ data }: { data: ReportData }) {
               displayName={user.display_name}
               tabs={tabs}
               active={active}
+              isFav={isFav}
+              onToggleFav={toggleFav}
               onActivate={setActive}
               onClose={closeTab}
               onOpen={openReport}
@@ -122,7 +153,12 @@ export default function ReportPage({ data }: { data: ReportData }) {
             />
           )}
           {view === "all" && (
-            <AllReportsView reports={reports} onOpen={openReport} />
+            <AllReportsView
+              reports={reports}
+              isFav={isFav}
+              onToggleFav={toggleFav}
+              onOpen={openReport}
+            />
           )}
           {view === "upload" && <UploadView csrf={csrf_token} />}
         </main>
@@ -136,15 +172,18 @@ function Sidebar({
   reports,
   view,
   activeId,
+  isFav,
   onSelectView,
   onOpen,
 }: {
   reports: ReportItem[];
   view: View;
   activeId: number | null;
+  isFav: (id: number) => boolean;
   onSelectView: (v: View) => void;
   onOpen: (r: ReportItem) => void;
 }) {
+  const favReports = reports.filter((r) => isFav(r.id));
   const { grouped, uncategorized } = useMemo(() => {
     const g = new Map<string, ReportItem[]>();
     const u: ReportItem[] = [];
@@ -184,6 +223,24 @@ function Sidebar({
 
         {view === "my" && (
           <div className="rp-tree">
+            {favReports.length > 0 && (
+              <div className="rp-group">
+                <div className="rp-group-header rp-group-fav">
+                  <Star size={12} className="icn" fill="currentColor" /> 즐겨찾기
+                </div>
+                <div className="rp-group-body">
+                  {favReports.map((r) => (
+                    <TreeItem
+                      key={"fav-" + r.id}
+                      report={r}
+                      active={r.id === activeId}
+                      onOpen={onOpen}
+                      indent
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
             {[...grouped.entries()].map(([cat, items]) => (
               <div
                 key={cat}
@@ -265,6 +322,8 @@ function MyReportsView({
   displayName,
   tabs,
   active,
+  isFav,
+  onToggleFav,
   onActivate,
   onClose,
   onOpen,
@@ -274,6 +333,8 @@ function MyReportsView({
   displayName: string;
   tabs: OpenTab[];
   active: number | null;
+  isFav: (id: number) => boolean;
+  onToggleFav: (id: number) => void;
   onActivate: (id: number) => void;
   onClose: (id: number) => void;
   onOpen: (r: ReportItem) => void;
@@ -284,6 +345,8 @@ function MyReportsView({
       <ReportLanding
         reports={reports}
         displayName={displayName}
+        isFav={isFav}
+        onToggleFav={onToggleFav}
         onOpen={onOpen}
         onGoUpload={onGoUpload}
       />
@@ -326,14 +389,52 @@ function MyReportsView({
 function ReportLanding({
   reports,
   displayName,
+  isFav,
+  onToggleFav,
   onOpen,
   onGoUpload,
 }: {
   reports: ReportItem[];
   displayName: string;
+  isFav: (id: number) => boolean;
+  onToggleFav: (id: number) => void;
   onOpen: (r: ReportItem) => void;
   onGoUpload: () => void;
 }) {
+  const favReports = reports.filter((r) => isFav(r.id));
+
+  const grid = (items: ReportItem[]) => (
+    <div className="rp-card-grid">
+      {items.map((r) => (
+        <div
+          key={r.id}
+          className="rp-card"
+          role="button"
+          tabIndex={0}
+          onClick={() => onOpen(r)}
+          onKeyDown={(e) => e.key === "Enter" && onOpen(r)}
+        >
+          <div className="rp-card-icon">
+            <BarChart3 size={22} className="icn" />
+          </div>
+          <div className="rp-card-body">
+            <div className="rp-card-name" title={r.name}>
+              {r.name}
+            </div>
+            <div className="rp-card-meta">
+              {r.category ? (
+                <span className="rp-card-tag">{r.category}</span>
+              ) : (
+                <span className="rp-card-tag muted">미분류</span>
+              )}
+            </div>
+          </div>
+          <FavStar on={isFav(r.id)} onToggle={() => onToggleFav(r.id)} />
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="rp-landing">
       <div className="rp-landing-head">
@@ -352,27 +453,18 @@ function ReportLanding({
           <p>아직 열람 가능한 보고서가 없습니다</p>
         </div>
       ) : (
-        <div className="rp-card-grid">
-          {reports.map((r) => (
-            <button key={r.id} className="rp-card" onClick={() => onOpen(r)}>
-              <div className="rp-card-icon">
-                <BarChart3 size={22} className="icn" />
-              </div>
-              <div className="rp-card-body">
-                <div className="rp-card-name" title={r.name}>
-                  {r.name}
-                </div>
-                <div className="rp-card-meta">
-                  {r.category ? (
-                    <span className="rp-card-tag">{r.category}</span>
-                  ) : (
-                    <span className="rp-card-tag muted">미분류</span>
-                  )}
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
+        <>
+          {favReports.length > 0 && (
+            <>
+              <h2 className="rp-landing-section">
+                <Star size={16} className="icn" fill="currentColor" /> 즐겨찾기
+              </h2>
+              {grid(favReports)}
+            </>
+          )}
+          <h2 className="rp-landing-section">전체 보고서</h2>
+          {grid(reports)}
+        </>
       )}
     </div>
   );
@@ -445,9 +537,13 @@ function ReportPanel({ id, active }: { id: number; active: boolean }) {
 /* ── 전체 보고서 (검색 + 표) ───────────────────────────── */
 function AllReportsView({
   reports,
+  isFav,
+  onToggleFav,
   onOpen,
 }: {
   reports: ReportItem[];
+  isFav: (id: number) => boolean;
+  onToggleFav: (id: number) => void;
   onOpen: (r: ReportItem) => void;
 }) {
   const [q, setQ] = useState("");
@@ -476,17 +572,17 @@ function AllReportsView({
       <div className="card-table rp-all-table">
         <table>
           <colgroup>
-            <col style={{ width: "42%" }} />
-            <col style={{ width: "23%" }} />
-            <col style={{ width: "15%" }} />
-            <col style={{ width: "20%" }} />
+            <col style={{ width: "44%" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "12%" }} />
           </colgroup>
           <thead>
             <tr>
               <th>보고서 명</th>
               <th>카테고리</th>
-              <th style={{ textAlign: "center" }}>권한 보유</th>
               <th>소유자명</th>
+              <th style={{ textAlign: "center" }}>즐겨찾기</th>
             </tr>
           </thead>
           <tbody>
@@ -501,12 +597,15 @@ function AllReportsView({
                   <BarChart3 size={15} className="icn" /> {r.name}
                 </td>
                 <td>{r.category || "-"}</td>
-                <td style={{ textAlign: "center", color: "var(--sage-deep)" }}>
-                  ✓
-                </td>
                 <td>
                   {r.owner_username ||
                     (r.report_type === "managed" ? "공용" : "-")}
+                </td>
+                <td style={{ textAlign: "center" }}>
+                  <FavStar
+                    on={isFav(r.id)}
+                    onToggle={() => onToggleFav(r.id)}
+                  />
                 </td>
               </tr>
             ))}
