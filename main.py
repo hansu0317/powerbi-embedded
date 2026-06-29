@@ -106,3 +106,13 @@ async def reject_oversized_uploads(request: Request, call_next):
         except ValueError:
             return HTMLResponse("잘못된 Content-Length입니다.", status_code=400)
     return await call_next(request)
+
+
+@app.middleware("http")
+async def static_no_cache(request: Request, call_next):
+    """프론트 번들(app.js/app.css)은 파일명이 고정이라 브라우저가 옛 버전을 캐시할 수 있다.
+    no-cache로 매 요청 재검증(변경 없으면 304)하게 해 빌드 후 항상 최신을 받게 한다."""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/dist/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response

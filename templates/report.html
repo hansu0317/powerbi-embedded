@@ -12,6 +12,7 @@
       page: "report",
       data: {
         user: {
+          username: {{ user.username | tojson }},
           display_name: {{ user.display_name | tojson }},
           is_admin: {{ (user.is_admin or False) | tojson }}
         },

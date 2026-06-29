@@ -76,6 +76,15 @@ export default function ReportPage({ data }: { data: ReportData }) {
 
   const { isFav, toggle: toggleFav } = useFavorites(data.favorites, csrf_token);
   const { recents, push: pushRecent } = useRecents(data.recents, csrf_token);
+
+  // 내 보고서 = 내가 업로드한 것(개인 보고서 + 소유자=나). 전체 보고서 = 볼 수 있는 전체.
+  const myReports = useMemo(
+    () =>
+      reports.filter(
+        (r) => r.report_type === "personal" && r.owner_username === user.username,
+      ),
+    [reports, user.username],
+  );
   const [mode, setMode] = useState<Mode>(
     () => (sessionStorage.getItem(MODE_KEY) as Mode) || "home",
   );
@@ -200,6 +209,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
         <div className="app-body">
           <Sidebar
             reports={reports}
+            myReports={myReports}
             view={view}
             activeId={active}
             isFav={isFav}
@@ -209,8 +219,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
           <main className="app-main">
             {view === "my" && (
               <MyReportsView
-                reports={reports}
-                displayName={user.display_name}
+                reports={myReports}
                 tabs={tabs}
                 active={active}
                 isFav={isFav}
@@ -394,6 +403,7 @@ function HomeCard({
 /* ── 사이드바 ─────────────────────────────────────────── */
 function Sidebar({
   reports,
+  myReports,
   view,
   activeId,
   isFav,
@@ -401,6 +411,7 @@ function Sidebar({
   onOpen,
 }: {
   reports: ReportItem[];
+  myReports: ReportItem[];
   view: View;
   activeId: number | null;
   isFav: (id: number) => boolean;
@@ -411,14 +422,14 @@ function Sidebar({
   const { grouped, uncategorized } = useMemo(() => {
     const g = new Map<string, ReportItem[]>();
     const u: ReportItem[] = [];
-    for (const r of reports) {
+    for (const r of myReports) {
       if (r.category) {
         if (!g.has(r.category)) g.set(r.category, []);
         g.get(r.category)!.push(r);
       } else u.push(r);
     }
     return { grouped: g, uncategorized: u };
-  }, [reports]);
+  }, [myReports]);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
@@ -494,8 +505,8 @@ function Sidebar({
                 onOpen={onOpen}
               />
             ))}
-            {reports.length === 0 && (
-              <div className="rp-tree-empty">열람 가능한 보고서가 없습니다</div>
+            {myReports.length === 0 && (
+              <div className="rp-tree-empty">업로드한 보고서가 없습니다</div>
             )}
           </div>
         )}
@@ -543,7 +554,6 @@ function TreeItem({
 /* ── 내 보고서 (랜딩 / 탭 + 임베드, 탭은 하단) ─────────── */
 function MyReportsView({
   reports,
-  displayName,
   tabs,
   active,
   isFav,
@@ -554,7 +564,6 @@ function MyReportsView({
   onGoUpload,
 }: {
   reports: ReportItem[];
-  displayName: string;
   tabs: OpenTab[];
   active: number | null;
   isFav: (id: number) => boolean;
@@ -568,7 +577,6 @@ function MyReportsView({
     return (
       <ReportLanding
         reports={reports}
-        displayName={displayName}
         isFav={isFav}
         onToggleFav={onToggleFav}
         onOpen={onOpen}
@@ -612,21 +620,17 @@ function MyReportsView({
 
 function ReportLanding({
   reports,
-  displayName,
   isFav,
   onToggleFav,
   onOpen,
   onGoUpload,
 }: {
   reports: ReportItem[];
-  displayName: string;
   isFav: (id: number) => boolean;
   onToggleFav: (id: number) => void;
   onOpen: (r: ReportItem) => void;
   onGoUpload: () => void;
 }) {
-  const favReports = reports.filter((r) => isFav(r.id));
-
   const grid = (items: ReportItem[]) => (
     <div className="rp-card-grid">
       {items.map((r) => (
@@ -663,8 +667,8 @@ function ReportLanding({
     <div className="rp-landing">
       <div className="rp-landing-head">
         <div>
-          <h1 className="rp-landing-hi">{displayName}님, 안녕하세요 👋</h1>
-          <p className="rp-landing-sub">열람할 보고서를 선택해 시작하세요</p>
+          <h1 className="rp-landing-hi">내 보고서</h1>
+          <p className="rp-landing-sub">내가 업로드한 보고서입니다</p>
         </div>
         <button className="btn btn-ghost" onClick={onGoUpload}>
           <Upload size={16} className="icn" /> 새 보고서 등록
@@ -674,21 +678,10 @@ function ReportLanding({
       {reports.length === 0 ? (
         <div className="rp-landing-empty">
           <BarChart3 size={52} className="icn" />
-          <p>아직 열람 가능한 보고서가 없습니다</p>
+          <p>아직 업로드한 보고서가 없습니다</p>
         </div>
       ) : (
-        <>
-          {favReports.length > 0 && (
-            <>
-              <h2 className="rp-landing-section">
-                <Star size={16} className="icn" fill="currentColor" /> 즐겨찾기
-              </h2>
-              {grid(favReports)}
-            </>
-          )}
-          <h2 className="rp-landing-section">전체 보고서</h2>
-          {grid(reports)}
-        </>
+        grid(reports)
       )}
     </div>
   );

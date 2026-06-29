@@ -3,6 +3,7 @@
 // 템플릿이 그 값을 JSON 으로 직렬화해 심어 둔다.
 
 export interface SessionUser {
+  username: string;
   display_name: string;
   is_admin: boolean;
 }
