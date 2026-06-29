@@ -1,0 +1,252 @@
+/* 보고서 뷰어 — 소프트 세이지 */
+
+.rp-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ── 헤더 ─────────────────────────────────────────────── */
+.rp-header {
+  height: 56px;
+  flex-shrink: 0;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(120deg, var(--sage-hover), var(--sage));
+  box-shadow: 0 2px 10px rgba(85, 139, 47, 0.25);
+}
+.rp-brand { font-size: 1.45rem; align-items: baseline; }
+.rp-brand-tag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  margin-left: 8px;
+  letter-spacing: 0.02em;
+}
+
+.rp-user { display: flex; align-items: center; gap: 12px; }
+.rp-username { color: #fff; font-size: 0.88rem; font-weight: 600; }
+.rp-hdr-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.rp-hdr-btn:hover { background: rgba(255, 255, 255, 0.34); }
+.rp-hdr-btn.admin {
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--sage-deep);
+  border-color: #fff;
+}
+.rp-hdr-btn.admin:hover { background: #fff; }
+
+/* ── 레이아웃 ─────────────────────────────────────────── */
+.rp-layout { display: flex; flex: 1; overflow: hidden; }
+
+/* ── 사이드바 ─────────────────────────────────────────── */
+.rp-sidebar {
+  width: 230px;
+  min-width: 230px;
+  background: var(--sidebar-bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.rp-sidebar-title {
+  padding: 18px 18px 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--sage-light);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.rp-sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(197, 225, 165, 0.25) transparent;
+}
+.rp-sidebar-scroll::-webkit-scrollbar { width: 5px; }
+.rp-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(197, 225, 165, 0.25);
+  border-radius: 3px;
+}
+
+.rp-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 18px 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #aebfa0;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s;
+}
+.rp-group-header:hover { color: var(--sage-light); }
+.rp-group-arrow {
+  font-size: 0.58rem;
+  display: inline-block;
+  transition: transform 0.2s;
+}
+.rp-group.collapsed .rp-group-arrow { transform: rotate(-90deg); }
+.rp-group.collapsed .rp-group-body { display: none; }
+
+.rp-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  color: #d4ddc9;
+  font-size: 0.87rem;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, color 0.12s;
+}
+.rp-item.indent { padding-left: 30px; }
+.rp-item:hover { background: rgba(197, 225, 165, 0.1); color: #fff; }
+.rp-item.active {
+  background: rgba(156, 204, 101, 0.22);
+  color: #eaf6d8;
+  border-left-color: var(--sage);
+}
+.rp-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── 업로드 ───────────────────────────────────────────── */
+.rp-upload {
+  padding: 14px 16px 18px;
+  border-top: 1px solid var(--sidebar-line);
+}
+.rp-upload-btn {
+  width: 100%;
+  background: rgba(156, 204, 101, 0.18);
+  border: 1px dashed rgba(197, 225, 165, 0.55);
+  color: var(--sage-light);
+  padding: 10px 0;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.rp-upload-btn:hover:not(:disabled) { background: rgba(156, 204, 101, 0.32); }
+.rp-upload-btn:disabled { opacity: 0.5; cursor: wait; }
+.rp-upload-status {
+  margin-top: 8px;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: #9aa890;
+  word-break: break-all;
+}
+.rp-upload-status.ok { color: var(--sage-light); }
+.rp-upload-status.err { color: #ff9b9b; }
+
+/* ── 콘텐츠 ───────────────────────────────────────────── */
+.rp-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.rp-panels { flex: 1; position: relative; overflow: hidden; background: #fff; }
+
+.rp-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+.rp-empty-icon { font-size: 3.6rem; filter: grayscale(0.1); }
+.rp-empty h2 { font-size: 1.05rem; color: var(--ink-soft); font-weight: 600; }
+.rp-empty p { font-size: 0.84rem; color: var(--muted); }
+
+.rp-panel { position: absolute; inset: 0; display: none; }
+.rp-panel.active { display: flex; flex-direction: column; }
+.rp-embed { flex: 1; width: 100%; }
+.rp-embed iframe { border: none; }
+
+.rp-panel-loading {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  color: var(--sage-deep);
+  z-index: 10;
+}
+.rp-panel-error {
+  margin: 40px;
+  background: #fdecec;
+  border: 1px solid #f3c2c0;
+  border-radius: 8px;
+  padding: 20px;
+  color: #b3403c;
+  font-size: 0.88rem;
+}
+
+/* ── 탭 바 ────────────────────────────────────────────── */
+.rp-tabsbar {
+  display: flex;
+  align-items: stretch;
+  background: #fff;
+  border-top: 1px solid var(--line);
+  overflow-x: auto;
+  flex-shrink: 0;
+  height: 42px;
+}
+.rp-tabsbar::-webkit-scrollbar { height: 3px; }
+.rp-tabsbar::-webkit-scrollbar-thumb { background: var(--sage-light); }
+.rp-no-tabs {
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.rp-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 14px;
+  height: 100%;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+  transition: background 0.12s;
+  min-width: 120px;
+}
+.rp-tab:hover { background: var(--sage-bg); }
+.rp-tab.active {
+  color: var(--sage-deep);
+  background: var(--sage-soft);
+  border-top: 2px solid var(--sage);
+  font-weight: 600;
+}
+.rp-tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.rp-tab-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.05rem;
+  padding: 0 5px;
+  line-height: 1;
+  opacity: 0.5;
+  border-radius: 3px;
+}
+.rp-tab-close:hover { opacity: 1; background: rgba(85, 139, 47, 0.12); }

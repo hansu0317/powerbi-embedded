@@ -3,75 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Power BI 보고서 뷰어</title>
-  <script src="https://cdn.jsdelivr.net/npm/powerbi-client@2.23.1/dist/powerbi.min.js"></script>
-  <link rel="stylesheet" href="/static/css/common.css">
-  <link rel="stylesheet" href="/static/css/report.css">
+  <title>qualisoft BI 포털</title>
+  <link rel="stylesheet" href="/static/dist/app.css">
+  <script>
+    window.__BOOTSTRAP__ = {
+      page: "report",
+      data: {
+        user: {
+          display_name: {{ user.display_name | tojson }},
+          is_admin: {{ (user.is_admin or False) | tojson }}
+        },
+        reports: [
+          {%- for r in reports %}
+          {
+            "id": {{ r['id'] | tojson }},
+            "name": {{ r['name'] | tojson }},
+            "category": {{ r['category'] | tojson }}
+          }{{ "," if not loop.last else "" }}
+          {%- endfor %}
+        ],
+        csrf_token: {{ csrf_token | tojson }}
+      }
+    };
+  </script>
 </head>
 <body>
-  <header>
-    <h1>Power BI 보고서 뷰어</h1>
-    <div class="user-info">
-      <span>{{ user.display_name }}</span>
-      {% if user.is_admin %}
-      <a href="/admin" class="logout-btn" style="background:rgba(255,200,0,0.22);border-color:rgba(255,200,0,0.5);">관리자포털</a>
-      {% endif %}
-      <a href="/logout" class="logout-btn" onclick="sessionStorage.clear()">로그아웃</a>
-    </div>
-  </header>
-
-  <div class="layout">
-    <nav class="sidebar">
-      {# Fabric 폴더 구조 그대로 트리 렌더링 — category = Fabric 폴더명 #}
-      {% set categorized   = reports | selectattr('category') | list %}
-      {% set uncategorized = reports | rejectattr('category') | list %}
-
-      {% for cat, group in categorized | groupby('category') %}
-      {% set gid = 'folder-' ~ cat | replace(' ', '-') %}
-      <div class="sidebar-group" id="{{ gid }}">
-        <div class="sidebar-group-header" onclick="toggleGroup('{{ gid }}')">
-          <span class="sidebar-group-arrow">▼</span> 📁 {{ cat }}
-        </div>
-        <div class="sidebar-group-body">
-          {% for report in group %}
-          <div class="sidebar-item" data-report-id="{{ report['id'] }}"
-               onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
-            <span>📊</span>{{ report['name'] }}
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-      {% endfor %}
-
-      {% for report in uncategorized %}
-      <div class="sidebar-item" data-report-id="{{ report['id'] }}"
-           onclick='openReport({{ report['id'] }}, {{ report['name']|tojson }})'>
-        <span>📊</span>{{ report['name'] }}
-      </div>
-      {% endfor %}
-
-      <div class="sidebar-upload">
-        <input type="file" id="pbix-file" accept=".pbix" hidden>
-        <button class="upload-btn" id="upload-btn" onclick="document.getElementById('pbix-file').click()">⬆ 내 보고서 올리기 (.pbix)</button>
-        <div class="upload-status" id="upload-status">파일명이 보고서 이름이 됩니다</div>
-      </div>
-    </nav>
-
-    <div class="content">
-      <div class="tab-panels" id="tab-panels">
-        <div class="empty-state" id="empty-state">
-          <div class="empty-icon">📊</div>
-          <h2>왼쪽에서 보고서를 선택하세요</h2>
-          <p>여러 보고서를 탭으로 동시에 열 수 있습니다</p>
-        </div>
-      </div>
-      <div class="tabs-bar" id="tabs-bar">
-        <div class="no-tabs-hint" id="no-tabs-hint">← 보고서를 선택하세요</div>
-      </div>
-    </div>
-  </div>
-
-  <script>const csrfToken = {{ csrf_token|tojson }};</script>
-  <script src="/static/js/report.js"></script>
+  <div id="root"></div>
+  <script type="module" src="/static/dist/app.js"></script>
 </body>
 </html>

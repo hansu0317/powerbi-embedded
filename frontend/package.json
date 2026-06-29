@@ -1,0 +1,25 @@
+{
+  "name": "qualisoft-portal-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "qualisoft BI 포털 프론트엔드 (Vite + React + TypeScript). 빌드 결과물은 ../static/dist 로 출력되어 FastAPI가 그대로 서빙한다.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "powerbi-client": "^2.23.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

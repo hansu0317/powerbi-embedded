@@ -1,0 +1,71 @@
+/* 로그인 화면 — 소프트 세이지 */
+
+.login-bg {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 18% 22%, rgba(197, 225, 165, 0.55), transparent 42%),
+    radial-gradient(circle at 82% 78%, rgba(156, 204, 101, 0.40), transparent 46%),
+    linear-gradient(135deg, #f7faf1 0%, #eef5e2 100%);
+}
+
+.login-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 44px 40px;
+  width: 380px;
+  max-width: 100%;
+  box-shadow: 0 18px 50px rgba(85, 139, 47, 0.18);
+  border: 1px solid var(--line);
+}
+
+.login-logo { text-align: center; margin-bottom: 30px; }
+.login-logo .brand { font-size: 2.3rem; }
+.login-sub { font-size: 0.84rem; color: var(--muted); margin-top: 10px; }
+
+.login-card label {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.login-card input[type="text"],
+.login-card input[type="password"] {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.92rem;
+  margin-bottom: 16px;
+  outline: none;
+  background: #fbfdf8;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  font-family: inherit;
+}
+.login-card input:focus {
+  border-color: var(--sage);
+  box-shadow: 0 0 0 3px rgba(156, 204, 101, 0.25);
+  background: #fff;
+}
+
+.login-submit {
+  width: 100%;
+  padding: 12px;
+  font-size: 0.96rem;
+  margin-top: 4px;
+}
+
+.login-error {
+  background: #fdecec;
+  border: 1px solid #f3c2c0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #b3403c;
+  font-size: 0.82rem;
+  margin-bottom: 18px;
+}

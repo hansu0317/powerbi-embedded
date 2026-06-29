@@ -3,281 +3,72 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>관리자 포털 - Power BI 게이트웨이</title>
-  <link rel="stylesheet" href="/static/css/common.css">
-  <link rel="stylesheet" href="/static/css/admin.css">
+  <title>관리자 포털 - qualisoft BI 포털</title>
+  <link rel="stylesheet" href="/static/dist/app.css">
+  <script>
+    window.__BOOTSTRAP__ = {
+      page: "admin",
+      data: {
+        user: {
+          display_name: {{ user.display_name | tojson }},
+          is_admin: {{ (user.is_admin or False) | tojson }}
+        },
+        stats: {
+          active_users: {{ stats.active_users | tojson }},
+          active_reports: {{ stats.active_reports | tojson }},
+          today_uploads: {{ stats.today_uploads | tojson }},
+          today_success: {{ stats.today_success | tojson }}
+        },
+        users: [
+          {%- for u in users %}
+          {
+            "id": {{ u.id | tojson }},
+            "username": {{ u.username | tojson }},
+            "display_name": {{ u.display_name | tojson }},
+            "pbi_username": {{ u.pbi_username | tojson }},
+            "roles": {{ u.roles | tojson }},
+            "is_admin": {{ (u.is_admin or False) | tojson }},
+            "is_active": {{ (u.is_active or False) | tojson }},
+            "report_count": {{ u.report_count | tojson }},
+            "last_login_at": {{ (u.last_login_at.strftime('%Y-%m-%d %H:%M:%S') if u.last_login_at else None) | tojson }}
+          }{{ "," if not loop.last else "" }}
+          {%- endfor %}
+        ],
+        reports: [
+          {%- for r in reports %}
+          {
+            "id": {{ r.id | tojson }},
+            "name": {{ r.name | tojson }},
+            "report_type": {{ r.report_type | tojson }},
+            "status": {{ r.status | tojson }},
+            "owner_username": {{ r.owner_username | tojson }},
+            "category": {{ r.category | tojson }},
+            "viewer_count": {{ r.viewer_count | tojson }},
+            "pbi_dataset_id": {{ r.pbi_dataset_id | tojson }},
+            "created_at": {{ (r.created_at.strftime('%Y-%m-%d') if r.created_at else None) | tojson }}
+          }{{ "," if not loop.last else "" }}
+          {%- endfor %}
+        ],
+        jobs: [
+          {%- for j in jobs %}
+          {
+            "id": {{ j.id | tojson }},
+            "username": {{ j.username | tojson }},
+            "report_name": {{ j.report_name | tojson }},
+            "status": {{ j.status | tojson }},
+            "error_message": {{ j.error_message | tojson }},
+            "created_at": {{ (j.created_at.strftime('%m-%d %H:%M:%S') if j.created_at else None) | tojson }},
+            "updated_at": {{ (j.updated_at.strftime('%m-%d %H:%M:%S') if j.updated_at else None) | tojson }}
+          }{{ "," if not loop.last else "" }}
+          {%- endfor %}
+        ],
+        csrf_token: {{ csrf_token | tojson }}
+      }
+    };
+  </script>
 </head>
 <body>
-  <header>
-    <h1>⚙ 관리자 포털</h1>
-    <div class="header-right">
-      <span>{{ user.display_name }}</span>
-      <a href="/" class="hdr-btn yellow">보고서뷰어</a>
-      <a href="/logout" class="hdr-btn">로그아웃</a>
-    </div>
-  </header>
-
-  <div class="layout">
-    <nav class="sidebar">
-      <div class="sidebar-title">관리 메뉴</div>
-      <div class="sidebar-item active" onclick="showSection('overview', this)"><span>🏠</span>현황</div>
-      <div class="sidebar-item" onclick="showSection('users', this)"><span>👥</span>사용자</div>
-      <div class="sidebar-item" onclick="showSection('reports', this)"><span>📊</span>보고서</div>
-      <div class="sidebar-item" onclick="showSection('jobs', this)"><span>📋</span>업로드 이력</div>
-    </nav>
-
-    <div class="content">
-
-      <!-- 현황 -->
-      <div class="section active" id="section-overview">
-        <h2>현황</h2>
-        <div class="stat-grid">
-          <div class="stat-card">
-            <div class="label">활성 사용자</div>
-            <div class="value">{{ stats.active_users }}</div>
-            <div class="sub">계정 비활성 제외</div>
-          </div>
-          <div class="stat-card">
-            <div class="label">활성 보고서</div>
-            <div class="value">{{ stats.active_reports }}</div>
-            <div class="sub">삭제·아카이브 제외</div>
-          </div>
-          <div class="stat-card">
-            <div class="label">오늘 업로드</div>
-            <div class="value">{{ stats.today_uploads }}</div>
-            <div class="sub">성공 {{ stats.today_success }}건</div>
-          </div>
-        </div>
-
-        <h2>최근 업로드</h2>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>ID</th><th>사용자</th><th>보고서명</th><th>상태</th><th>일시</th></tr></thead>
-            <tbody>
-              {% for j in jobs[:10] %}
-              <tr>
-                <td>#{{ j.id }}</td>
-                <td>{{ j.username }}</td>
-                <td>{{ j.report_name }}</td>
-                <td>
-                  {% if j.status == 'completed' %}<span class="pill ok">완료</span>
-                  {% elif j.status in ('publishing','accepted','pbi_succeeded') %}<span class="pill pending">진행 중</span>
-                  {% else %}<span class="pill fail">{{ j.status }}</span>
-                  {% endif %}
-                </td>
-                <td>{{ j.created_at.strftime('%m-%d %H:%M:%S') if j.created_at else '-' }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- 사용자 -->
-      <div class="section" id="section-users">
-        <h2>사용자 관리</h2>
-
-        <div class="form-box">
-          <h3>새 사용자 추가</h3>
-          <form id="add-user-form" onsubmit="submitAddUser(event)">
-            <input type="hidden" name="csrf" value="{{ csrf_token }}">
-            <div class="form-grid">
-              <div class="form-group">
-                <label>아이디 *</label>
-                <input name="username" required placeholder="login_id">
-              </div>
-              <div class="form-group">
-                <label>비밀번호 * (8자 이상)</label>
-                <input name="password" type="password" required placeholder="••••••••">
-              </div>
-              <div class="form-group">
-                <label>표시 이름 *</label>
-                <input name="display_name" required placeholder="홍길동">
-              </div>
-              <div class="form-group">
-                <label>PBI 사용자명 (RLS 식별자)</label>
-                <input name="pbi_username" placeholder="아이디와 동일하면 공란">
-              </div>
-              <div class="form-group">
-                <label>역할 (RLS)</label>
-                <input name="roles" value="도메인">
-              </div>
-              <div class="form-group">
-                <label>관리자 권한</label>
-                <select name="is_admin">
-                  <option value="false">일반 사용자</option>
-                  <option value="true">관리자</option>
-                </select>
-              </div>
-            </div>
-            <button type="submit" class="btn btn-primary">사용자 추가</button>
-          </form>
-        </div>
-
-        <div class="table-wrap">
-          <table id="users-table" style="min-width:700px;">
-            <colgroup>
-              <col style="width:44px">
-              <col style="width:130px">
-              <col style="width:110px">
-              <col style="width:130px">
-              <col style="width:80px">
-              <col style="width:60px">
-              <col style="width:130px">
-              <col style="width:70px">
-              <col style="width:100px">
-            </colgroup>
-            <thead><tr>
-              <th>ID</th><th>아이디</th><th>표시 이름</th><th>PBI 사용자명</th>
-              <th>역할</th><th>보고서</th><th>마지막 로그인</th><th>상태</th><th>액션</th>
-            </tr></thead>
-            <tbody>
-              {% for u in users %}
-              <tr id="user-row-{{ u.id }}">
-                <td>{{ u.id }}</td>
-                <td>
-                  {{ u.username }}
-                  {% if u.is_admin %}<span class="pill admin" style="margin-left:4px">관리자</span>{% endif %}
-                </td>
-                <td>{{ u.display_name }}</td>
-                <td>{{ u.pbi_username }}</td>
-                <td>{{ u.roles }}</td>
-                <td>{{ u.report_count }}</td>
-                <td>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M:%S') if u.last_login_at else '-' }}</td>
-                <td>
-                  <span class="pill {{ 'active' if u.is_active else 'inactive' }}" id="user-status-{{ u.id }}">
-                    {{ '활성' if u.is_active else '비활성' }}
-                  </span>
-                </td>
-                <td>
-                  {% if u.username != 'admin' %}
-                  <button class="btn btn-warn btn-sm" onclick="toggleUser({{ u.id }})">활성/비활성</button>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- 보고서 -->
-      <div class="section" id="section-reports">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <h2 style="margin-bottom:0">보고서 관리</h2>
-          <div style="display:flex;align-items:center;gap:10px">
-            <span id="import-result" style="font-size:0.82rem;color:#555"></span>
-            <button class="btn btn-primary" id="import-pbi-btn" onclick="importFromPbi()">
-              ⬇ PBI에서 가져오기
-            </button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table style="min-width:800px;">
-            <colgroup>
-              <col style="width:44px">
-              <col style="width:180px">
-              <col style="width:55px">
-              <col style="width:120px">
-              <col style="width:100px">
-              <col style="width:55px">
-              <col style="width:60px">
-              <col style="width:90px">
-              <col style="width:90px">
-            </colgroup>
-            <thead><tr>
-              <th>ID</th><th>보고서명</th><th>유형</th><th>소유자</th>
-              <th>카테고리</th><th>열람 수</th><th>상태</th><th>등록일</th><th>액션</th>
-            </tr></thead>
-            <tbody>
-              {% for r in reports %}
-              <tr id="report-row-{{ r.id }}">
-                <td>{{ r.id }}</td>
-                <td title="{{ r.name }}">{{ r.name }}</td>
-                <td>{{ '공용' if r.report_type == 'managed' else '개인' }}</td>
-                <td title="{{ r.owner_username or '-' }}">{{ r.owner_username or '-' }}</td>
-                <td>{{ r.category or '-' }}</td>
-                <td>{{ r.viewer_count }}</td>
-                <td>
-                  {% if r.status == 'active' %}<span class="pill active">활성</span>
-                  {% elif r.status == 'deleted' %}<span class="pill inactive">삭제됨</span>
-                  {% else %}<span class="pill pending">{{ r.status }}</span>
-                  {% endif %}
-                </td>
-                <td>{{ r.created_at.strftime('%Y-%m-%d') if r.created_at else '-' }}</td>
-                <td style="display:flex;gap:4px;flex-wrap:wrap;">
-                  <button class="btn btn-primary btn-sm" data-rid="{{ r.id }}" data-rname="{{ r.name }}" onclick="openAccessModal(+this.dataset.rid, this.dataset.rname)">권한</button>
-                  {% if r.pbi_dataset_id %}
-                  <button class="btn btn-sm" style="background:#0078d4;color:white" data-rid="{{ r.id }}" data-rname="{{ r.name }}" onclick="refreshDataset(+this.dataset.rid, this.dataset.rname)">새로고침</button>
-                  {% endif %}
-                  {% if r.status != 'deleted' %}
-                  <button class="btn btn-danger btn-sm" data-rid="{{ r.id }}" data-rname="{{ r.name }}" onclick="deleteReport(+this.dataset.rid, this.dataset.rname)">삭제</button>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- 업로드 이력 -->
-      <div class="section" id="section-jobs">
-        <h2>업로드 이력 (최근 30건)</h2>
-        <div class="table-wrap">
-          <table style="min-width:700px;">
-            <colgroup>
-              <col style="width:54px">
-              <col style="width:100px">
-              <col style="width:160px">
-              <col style="width:80px">
-              <col>
-              <col style="width:100px">
-              <col style="width:100px">
-            </colgroup>
-            <thead><tr><th>ID</th><th>사용자</th><th>보고서명</th><th>상태</th><th>오류</th><th>시작</th><th>갱신</th></tr></thead>
-            <tbody>
-              {% for j in jobs %}
-              <tr>
-                <td>#{{ j.id }}</td>
-                <td>{{ j.username }}</td>
-                <td>{{ j.report_name }}</td>
-                <td>
-                  {% if j.status == 'completed' %}<span class="pill ok">완료</span>
-                  {% elif j.status in ('publishing','accepted','pbi_succeeded') %}<span class="pill pending">진행 중</span>
-                  {% else %}<span class="pill fail">{{ j.status }}</span>
-                  {% endif %}
-                </td>
-                <td style="font-size:0.76rem;color:#b91c1c;" title="{{ j.error_message or '' }}">
-                  {%- if j.status != 'completed' and j.error_message -%}{{ j.error_message }}{%- else -%}-{%- endif -%}
-                </td>
-                <td>{{ j.created_at.strftime('%m-%d %H:%M:%S') if j.created_at else '-' }}</td>
-                <td>{{ j.updated_at.strftime('%m-%d %H:%M:%S') if j.updated_at else '-' }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- 권한 관리 모달 -->
-  <div class="modal-overlay" id="access-modal" style="display:none" onclick="closeAccessModal(event)">
-    <div class="modal-box" onclick="event.stopPropagation()">
-      <div class="modal-header">
-        <h3 id="access-modal-title">열람 권한 관리</h3>
-        <button class="modal-close" onclick="closeAccessModal()">×</button>
-      </div>
-      <div class="modal-body" id="access-modal-body"></div>
-    </div>
-  </div>
-
-  <div class="toast" id="toast"></div>
-
-  <script>const csrfToken = {{ csrf_token|tojson }};</script>
-  <script src="/static/js/admin.js"></script>
-
+  <div id="root"></div>
+  <script type="module" src="/static/dist/app.js"></script>
 </body>
 </html>

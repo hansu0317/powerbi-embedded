@@ -3,28 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>로그인 - Power BI 보고서 뷰어</title>
-  <link rel="stylesheet" href="/static/css/login.css">
+  <title>로그인 - qualisoft BI 포털</title>
+  <link rel="stylesheet" href="/static/dist/app.css">
+  <script>
+    window.__BOOTSTRAP__ = {
+      page: "login",
+      data: {
+        error: {{ error | tojson }},
+        csrf_token: {{ csrf_token | tojson }}
+      }
+    };
+  </script>
 </head>
 <body>
-  <div class="card">
-    <div class="logo">
-      <div class="icon">📊</div>
-      <h1>Power BI 보고서 뷰어</h1>
-      <p>사내 보고서 조회 시스템</p>
-    </div>
-    {% if error %}
-    <div class="error">{{ error }}</div>
-    {% endif %}
-    <form method="post" action="/login">
-      <input type="hidden" name="csrf" value="{{ csrf_token }}">
-      <label for="username">아이디</label>
-      <input id="username" name="username" type="text" placeholder="사용자 아이디" required autofocus>
-      <label for="password">비밀번호</label>
-      <input id="password" name="password" type="password" placeholder="비밀번호" required>
-      <button type="submit">로그인</button>
-    </form>
-  </div>
-<script>sessionStorage.clear();</script>
+  <div id="root"></div>
+  <script type="module" src="/static/dist/app.js"></script>
 </body>
 </html>

@@ -37,5 +37,13 @@ env/
 *.tmp
 *.bak
 
-# React/Vite 프론트엔드 (jinja 브랜치에서 미사용)
-frontend/
+# 디자인 목업 이미지 (커밋 제외)
+images/
+
+# 프론트엔드 (Vite + React + TS) — 소스는 커밋, 빌드 의존성·산출물은 제외
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts

@@ -1,0 +1,89 @@
+/* qualisoft BI 포털 — 소프트 세이지 테마
+   메인톤: #9CCC65 / 밝은톤: #C5E1A5 / 연한배경: #F4F8EE / 호버: #7CB342 */
+
+:root {
+  --sage:        #9CCC65;
+  --sage-light:  #C5E1A5;
+  --sage-bg:     #F4F8EE;
+  --sage-hover:  #7CB342;
+  --sage-deep:   #558B2F;
+  --sage-soft:   #EAF3DD;
+
+  --ink:        #2f3a2a;
+  --ink-soft:   #5b6b50;
+  --muted:      #8a9a80;
+  --line:       #e3ebd8;
+
+  --danger:     #d9534f;
+  --warn:       #d9a441;
+  --ok:         #4f9d52;
+
+  --sidebar-bg:   #2c3327;
+  --sidebar-line: rgba(197, 225, 165, 0.14);
+
+  --radius:  10px;
+  --shadow:  0 2px 10px rgba(85, 139, 47, 0.08);
+  --font: "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--sage-bg);
+}
+
+/* ── 브랜드 로고 ──────────────────────────────────────── */
+.brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  user-select: none;
+}
+.brand .b-quali { color: var(--sage-deep); }
+.brand .b-soft  { color: var(--sage-hover); }
+.brand .b-dot   { color: var(--sage); }
+
+/* 헤더 위(어두운/컬러 배경)에서 흰색 로고 변형 */
+.brand.on-dark .b-quali,
+.brand.on-dark .b-soft { color: #fff; }
+.brand.on-dark .b-dot  { color: var(--sage-light); }
+
+/* ── 버튼 ─────────────────────────────────────────────── */
+.btn {
+  padding: 8px 18px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 600;
+  font-family: inherit;
+  transition: background 0.15s, opacity 0.15s, box-shadow 0.15s;
+}
+.btn:disabled { opacity: 0.55; cursor: wait; }
+.btn-primary  { background: var(--sage); color: #20300f; }
+.btn-primary:hover:not(:disabled) { background: var(--sage-hover); color: #fff; }
+.btn-danger   { background: var(--danger); color: #fff; }
+.btn-danger:hover:not(:disabled)  { opacity: 0.88; }
+.btn-warn     { background: var(--warn); color: #fff; }
+.btn-warn:hover:not(:disabled)    { opacity: 0.88; }
+.btn-ghost    { background: var(--sage-soft); color: var(--sage-deep); }
+.btn-ghost:hover:not(:disabled)   { background: var(--sage-light); }
+.btn-sm       { padding: 4px 12px; font-size: 0.76rem; border-radius: 5px; }
+
+/* ── 상태 배지 ────────────────────────────────────────── */
+.pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pill.active, .pill.ok      { background: var(--sage-soft); color: var(--sage-deep); }
+.pill.inactive, .pill.fail  { background: #fdecec; color: #b3403c; }
+.pill.admin                 { background: #fff5dd; color: #927200; }
+.pill.pending               { background: #eef4ff; color: #3a5a9a; }
