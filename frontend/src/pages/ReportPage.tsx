@@ -77,13 +77,17 @@ export default function ReportPage({ data }: { data: ReportData }) {
   const { isFav, toggle: toggleFav } = useFavorites(data.favorites, csrf_token);
   const { recents, push: pushRecent } = useRecents(data.recents, csrf_token);
 
-  // 내 보고서 = 내가 업로드한 것(개인 보고서 + 소유자=나). 전체 보고서 = 볼 수 있는 전체.
+  // 내 보고서:
+  //  - 관리자: 본인이 업로드한 개인 보고서만 (전체는 '전체 보고서' 표에서 관리)
+  //  - 일반 사용자: 열람 가능한 보고서 전체 (전체 보고서 메뉴가 없으므로 여기서 다 본다)
   const myReports = useMemo(
     () =>
-      reports.filter(
-        (r) => r.report_type === "personal" && r.owner_username === user.username,
-      ),
-    [reports, user.username],
+      user.is_admin
+        ? reports.filter(
+            (r) => r.report_type === "personal" && r.owner_username === user.username,
+          )
+        : reports,
+    [reports, user.username, user.is_admin],
   );
   const [mode, setMode] = useState<Mode>(
     () => (sessionStorage.getItem(MODE_KEY) as Mode) || "home",
@@ -236,8 +240,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 reports={reports}
                 query={allQuery}
                 onQuery={setAllQuery}
-                isFav={isFav}
-                onToggleFav={toggleFav}
                 onOpen={openReport}
               />
             )}
@@ -784,15 +786,11 @@ function AllReportsView({
   reports,
   query,
   onQuery,
-  isFav,
-  onToggleFav,
   onOpen,
 }: {
   reports: ReportItem[];
   query: string;
   onQuery: (q: string) => void;
-  isFav: (id: number) => boolean;
-  onToggleFav: (id: number) => void;
   onOpen: (r: ReportItem) => void;
 }) {
   const filtered = useMemo(() => {
@@ -804,8 +802,6 @@ function AllReportsView({
         (r.category || "").toLowerCase().includes(k),
     );
   }, [query, reports]);
-
-  const [preview, setPreview] = useState<ReportItem | null>(null);
 
   return (
     <div className="rp-page">
@@ -819,104 +815,52 @@ function AllReportsView({
         />
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="rp-all-empty">표시할 보고서가 없습니다</div>
-      ) : (
-        <div className="rp-rgrid">
-          {filtered.map((r) => (
-            <button
-              key={r.id}
-              className="rp-rcard"
-              onClick={() => setPreview(r)}
-              title="클릭하여 미리보기"
-            >
-              <span className="rp-rcard-icon">
-                <BarChart3 size={20} className="icn" />
-              </span>
-              <span className="rp-rcard-name">{r.name}</span>
-              <span className="rp-rcard-meta">
-                <span className={`rp-rcard-tag${r.category ? "" : " muted"}`}>
-                  {r.category || "미분류"}
-                </span>
-                <span className="rp-rcard-owner">
-                  {r.owner_username || (r.report_type === "managed" ? "공용" : "")}
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="rp-total">Total {filtered.length} records</div>
-
-      {preview && (
-        <ReportInfoModal
-          report={preview}
-          fav={isFav(preview.id)}
-          onToggleFav={() => onToggleFav(preview.id)}
-          onOpen={() => {
-            onOpen(preview);
-            setPreview(null);
-          }}
-          onClose={() => setPreview(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-function ReportInfoModal({
-  report,
-  fav,
-  onToggleFav,
-  onOpen,
-  onClose,
-}: {
-  report: ReportItem;
-  fav: boolean;
-  onToggleFav: () => void;
-  onOpen: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="rp-modal-overlay" onClick={onClose}>
-      <div className="rp-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="rp-modal-x" title="닫기" onClick={onClose}>
-          <X size={18} />
-        </button>
-        <div className="rp-modal-hero">
-          <BarChart3 size={30} className="icn" />
-        </div>
-        <h2 className="rp-modal-name">{report.name}</h2>
-        <dl className="rp-modal-info">
-          <div>
-            <dt>폴더</dt>
-            <dd>{report.category || "미분류"}</dd>
-          </div>
-          <div>
-            <dt>소유자</dt>
-            <dd>
-              {report.owner_username ||
-                (report.report_type === "managed" ? "공용" : "-")}
-            </dd>
-          </div>
-          <div>
-            <dt>유형</dt>
-            <dd>{report.report_type === "managed" ? "공용 보고서" : "개인 보고서"}</dd>
-          </div>
-        </dl>
-        <div className="rp-modal-actions">
-          <button
-            className={`btn btn-ghost rp-modal-fav${fav ? " on" : ""}`}
-            onClick={onToggleFav}
-          >
-            <Star size={15} className="icn" fill={fav ? "currentColor" : "none"} />{" "}
-            {fav ? "즐겨찾기 해제" : "즐겨찾기"}
-          </button>
-          <button className="btn btn-primary" onClick={onOpen}>
-            보고서 열기
-          </button>
-        </div>
+      <div className="card-table rp-all-table">
+        <table>
+          <colgroup>
+            <col style={{ width: "46%" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "20%" }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>보고서 명</th>
+              <th>카테고리</th>
+              <th>유형</th>
+              <th>소유자명</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => (
+              <tr
+                key={r.id}
+                className="rp-all-row"
+                onClick={() => onOpen(r)}
+                title="클릭하여 열기"
+              >
+                <td className="rp-all-name">
+                  <BarChart3 size={15} className="icn" /> {r.name}
+                </td>
+                <td>{r.category || "-"}</td>
+                <td>{r.report_type === "managed" ? "공용" : "개인"}</td>
+                <td>
+                  {r.owner_username ||
+                    (r.report_type === "managed" ? "공용" : "-")}
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={4} className="rp-all-empty">
+                  표시할 보고서가 없습니다
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
+      <div className="rp-total">Total {filtered.length} records</div>
     </div>
   );
 }
