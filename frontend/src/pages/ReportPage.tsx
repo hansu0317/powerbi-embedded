@@ -77,18 +77,9 @@ export default function ReportPage({ data }: { data: ReportData }) {
   const { isFav, toggle: toggleFav } = useFavorites(data.favorites, csrf_token);
   const { recents, push: pushRecent } = useRecents(data.recents, csrf_token);
 
-  // 내 보고서:
-  //  - 관리자: 본인이 업로드한 개인 보고서만 (전체는 '전체 보고서' 표에서 관리)
-  //  - 일반 사용자: 열람 가능한 보고서 전체 (전체 보고서 메뉴가 없으므로 여기서 다 본다)
-  const myReports = useMemo(
-    () =>
-      user.is_admin
-        ? reports.filter(
-            (r) => r.report_type === "personal" && r.owner_username === user.username,
-          )
-        : reports,
-    [reports, user.username, user.is_admin],
-  );
+  // 내 보고서 = 열람 가능한 보고서 전체(권한 받은 + 본인 업로드), 폴더별 트리.
+  // 관리자도 동일하게 트리로 본다(전체 보고서 표는 관리용으로 별도 유지).
+  const myReports = reports;
   const [mode, setMode] = useState<Mode>(
     () => (sessionStorage.getItem(MODE_KEY) as Mode) || "home",
   );
@@ -240,6 +231,8 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 reports={reports}
                 query={allQuery}
                 onQuery={setAllQuery}
+                isFav={isFav}
+                onToggleFav={toggleFav}
                 onOpen={openReport}
               />
             )}
@@ -786,11 +779,15 @@ function AllReportsView({
   reports,
   query,
   onQuery,
+  isFav,
+  onToggleFav,
   onOpen,
 }: {
   reports: ReportItem[];
   query: string;
   onQuery: (q: string) => void;
+  isFav: (id: number) => boolean;
+  onToggleFav: (id: number) => void;
   onOpen: (r: ReportItem) => void;
 }) {
   const filtered = useMemo(() => {
@@ -802,6 +799,8 @@ function AllReportsView({
         (r.category || "").toLowerCase().includes(k),
     );
   }, [query, reports]);
+
+  const [preview, setPreview] = useState<ReportItem | null>(null);
 
   return (
     <div className="rp-page">
@@ -836,8 +835,8 @@ function AllReportsView({
               <tr
                 key={r.id}
                 className="rp-all-row"
-                onClick={() => onOpen(r)}
-                title="클릭하여 열기"
+                onClick={() => setPreview(r)}
+                title="클릭하여 미리보기"
               >
                 <td className="rp-all-name">
                   <BarChart3 size={15} className="icn" /> {r.name}
@@ -861,6 +860,76 @@ function AllReportsView({
         </table>
       </div>
       <div className="rp-total">Total {filtered.length} records</div>
+
+      {preview && (
+        <ReportInfoModal
+          report={preview}
+          fav={isFav(preview.id)}
+          onToggleFav={() => onToggleFav(preview.id)}
+          onOpen={() => {
+            onOpen(preview);
+            setPreview(null);
+          }}
+          onClose={() => setPreview(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReportInfoModal({
+  report,
+  fav,
+  onToggleFav,
+  onOpen,
+  onClose,
+}: {
+  report: ReportItem;
+  fav: boolean;
+  onToggleFav: () => void;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="rp-modal-overlay" onClick={onClose}>
+      <div className="rp-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="rp-modal-x" title="닫기" onClick={onClose}>
+          <X size={18} />
+        </button>
+        <div className="rp-modal-hero">
+          <BarChart3 size={30} className="icn" />
+        </div>
+        <h2 className="rp-modal-name">{report.name}</h2>
+        <dl className="rp-modal-info">
+          <div>
+            <dt>폴더</dt>
+            <dd>{report.category || "미분류"}</dd>
+          </div>
+          <div>
+            <dt>소유자</dt>
+            <dd>
+              {report.owner_username ||
+                (report.report_type === "managed" ? "공용" : "-")}
+            </dd>
+          </div>
+          <div>
+            <dt>유형</dt>
+            <dd>{report.report_type === "managed" ? "공용 보고서" : "개인 보고서"}</dd>
+          </div>
+        </dl>
+        <div className="rp-modal-actions">
+          <button
+            className={`btn btn-ghost rp-modal-fav${fav ? " on" : ""}`}
+            onClick={onToggleFav}
+          >
+            <Star size={15} className="icn" fill={fav ? "currentColor" : "none"} />{" "}
+            {fav ? "즐겨찾기 해제" : "즐겨찾기"}
+          </button>
+          <button className="btn btn-primary" onClick={onOpen}>
+            보고서 열기
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
