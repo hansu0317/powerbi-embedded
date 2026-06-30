@@ -143,14 +143,8 @@ export default function ReportPage({ data }: { data: ReportData }) {
         <div className="topbar-right">
           <span className="topbar-user">{user.display_name}</span>
           {user.is_admin && (
-            <a
-              href="/admin"
-              className="topbar-btn"
-              target="qualisoft-admin"
-              rel="noopener"
-              title="새 탭에서 열림 — 보고서 뷰어는 그대로 유지됩니다"
-            >
-              관리자 포털 ↗
+            <a href="/admin" className="topbar-btn">
+              관리자 포털
             </a>
           )}
           <a
