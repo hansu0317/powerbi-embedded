@@ -754,12 +754,18 @@ function AccessModal({
                 <span className="ad-access-id">{u.username}</span>
                 {u.is_admin && <span className="pill admin">관리자</span>}
               </div>
-              <button
-                className={`btn btn-sm ${u.can_view ? "btn-danger" : "btn-primary"}`}
-                onClick={() => setAccess(u.id, !u.can_view)}
-              >
-                {u.can_view ? "해제" : "부여"}
-              </button>
+              {u.is_admin ? (
+                <span className="ad-access-always" title="관리자는 권한과 무관하게 모든 보고서를 봅니다">
+                  전체 열람 (권한 불필요)
+                </span>
+              ) : (
+                <button
+                  className={`btn btn-sm ${u.can_view ? "btn-danger" : "btn-primary"}`}
+                  onClick={() => setAccess(u.id, !u.can_view)}
+                >
+                  {u.can_view ? "해제" : "부여"}
+                </button>
+              )}
             </div>
           ))}
         </div>

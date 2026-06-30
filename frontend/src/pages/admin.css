@@ -225,6 +225,7 @@
 .ad-access-info { display: flex; align-items: center; gap: 7px; }
 .ad-access-name { font-weight: 600; font-size: 0.88rem; color: var(--ink); }
 .ad-access-id { font-size: 0.74rem; color: var(--muted); }
+.ad-access-always { font-size: 0.78rem; font-weight: 600; color: var(--sage-deep); white-space: nowrap; }
 
 /* 좁은 화면: 폼 1열 */
 @media (max-width: 560px) {
