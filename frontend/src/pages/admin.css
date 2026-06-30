@@ -31,16 +31,35 @@
 }
 .ad-sync-close:hover { background: #f3e4b8; }
 
-.ad-content { padding: 28px 32px; min-width: 0; }
-.ad-content section { margin-bottom: 8px; }
-.ad-content h2 { font-size: 1.15rem; font-weight: 800; color: var(--ink); margin-bottom: 20px; }
+/* 한 화면에 맞춤(스크롤 없음): 표 영역이 남는 높이를 채우고 페이저는 하단 */
+.ad-content {
+  padding: 22px 28px;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ad-content > section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ad-content > section > h2 { flex-shrink: 0; }
+.ad-content > section > .ad-stat-grid,
+.ad-content > section > .ad-section-head { flex-shrink: 0; }
+.ad-content > section > .card-table { flex: 1; min-height: 0; overflow: hidden; }
+.ad-content > section > .rp-pager { flex-shrink: 0; margin-top: 12px; }
+.ad-content h2 { font-size: 1.1rem; font-weight: 800; color: var(--ink); margin-bottom: 14px; }
 
 .ad-section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 .ad-section-actions { display: flex; align-items: center; gap: 10px; }
 .ad-import-result { font-size: 0.82rem; color: var(--ink-soft); }
@@ -50,12 +69,12 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
-  margin-bottom: 34px;
+  margin-bottom: 20px;
 }
 .ad-stat-card {
   background: #fff;
   border-radius: var(--radius);
-  padding: 22px;
+  padding: 18px 20px;
   box-shadow: var(--shadow);
   border: 1px solid var(--line);
   border-top: 3px solid var(--sage);

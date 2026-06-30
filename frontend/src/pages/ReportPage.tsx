@@ -658,7 +658,7 @@ function ReportPanel({ id, active }: { id: number; active: boolean }) {
             filterPaneEnabled: Boolean(s.enable_filter),
             layoutType: pbi.models.LayoutType.Custom,
             customLayout: {
-              displayOption: pbi.models.DisplayOption.FitToWidth,
+              displayOption: pbi.models.DisplayOption.FitToPage,
             },
             panes: {
               pageNavigation: { visible: Boolean(s.enable_page_nav) },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -28,7 +28,7 @@ import {
   adminToggleUser,
   SyncStatus,
 } from "../api";
-import { Pager, usePaged } from "../Pager";
+import { Pager, usePaged, useFitRows } from "../Pager";
 
 type SectionKey = "overview" | "users" | "reports" | "jobs";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
@@ -237,6 +237,8 @@ function OverviewSection({
   stats: AdminData["stats"];
   jobs: AdminJob[];
 }) {
+  const tableRef = useRef<HTMLDivElement>(null);
+  const fit = useFitRows(tableRef, 40, 38);
   return (
     <section>
       <h2>현황</h2>
@@ -251,7 +253,7 @@ function OverviewSection({
       </div>
 
       <h2>최근 업로드</h2>
-      <div className="card-table">
+      <div className="card-table" ref={tableRef}>
         <table>
           <colgroup>
             <col style={{ width: "12%" }} />
@@ -270,7 +272,7 @@ function OverviewSection({
             </tr>
           </thead>
           <tbody>
-            {jobs.slice(0, 10).map((j) => (
+            {jobs.slice(0, fit).map((j) => (
               <tr key={j.id}>
                 <td>{j.id}</td>
                 <td>{j.username}</td>
@@ -315,7 +317,9 @@ function UsersSection({
   onAdd: () => void;
   onToggle: (id: number) => void;
 }) {
-  const { pageItems, page, totalPages, total, setPage } = usePaged(users, 8);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const pageSize = useFitRows(tableRef, 40, 38);
+  const { pageItems, page, totalPages, total, setPage } = usePaged(users, pageSize);
   return (
     <section>
       <div className="ad-section-head">
@@ -324,7 +328,7 @@ function UsersSection({
           <Plus size={15} className="icn" /> 새 사용자 추가
         </button>
       </div>
-      <div className="card-table">
+      <div className="card-table" ref={tableRef}>
         <table>
           <colgroup>
             <col style={{ width: "6%" }} />
@@ -493,7 +497,9 @@ function ReportsSection({
 }) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState("");
-  const { pageItems, page, totalPages, total, setPage } = usePaged(reports, 8);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const pageSize = useFitRows(tableRef, 40, 38);
+  const { pageItems, page, totalPages, total, setPage } = usePaged(reports, pageSize);
 
   const doImport = async () => {
     setImporting(true);
@@ -559,7 +565,7 @@ function ReportsSection({
           </button>
         </div>
       </div>
-      <div className="card-table">
+      <div className="card-table" ref={tableRef}>
         <table>
           <colgroup>
             <col style={{ width: "7%" }} />
@@ -632,11 +638,13 @@ function ReportsSection({
 }
 
 function JobsSection({ jobs }: { jobs: AdminJob[] }) {
-  const { pageItems, page, totalPages, total, setPage } = usePaged(jobs, 8);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const pageSize = useFitRows(tableRef, 40, 38);
+  const { pageItems, page, totalPages, total, setPage } = usePaged(jobs, pageSize);
   return (
     <section>
       <h2>업로드 이력 (최근 30건)</h2>
-      <div className="card-table">
+      <div className="card-table" ref={tableRef}>
         <table>
           <colgroup>
             <col style={{ width: "7%" }} />
