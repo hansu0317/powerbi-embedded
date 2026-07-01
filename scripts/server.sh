@@ -1,5 +1,5 @@
 #!/bin/bash
-PYTHON=/home/test01/.pyenv/versions/3.11.9/bin/python3
+PYTHON=/home/azureuser/powerbi-embedded/venv/bin/python3
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 PID_FILE="$PROJECT_ROOT/.server.pid"
@@ -32,7 +32,7 @@ start() {
     fi
     rotate_log
     cd "$PROJECT_ROOT"
-    setsid -f $PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8247 \
+    setsid -f $PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8247 --no-access-log \
         </dev/null > "$LOG_FILE" 2>&1
     sleep 2
     PID=$(pgrep -n -f "$PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8247")

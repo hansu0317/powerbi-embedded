@@ -143,14 +143,8 @@ export default function ReportPage({ data }: { data: ReportData }) {
         <div className="topbar-right">
           <span className="topbar-user">{user.display_name}</span>
           {user.is_admin && (
-            <a
-              href="/admin"
-              className="topbar-btn"
-              target="qualisoft-admin"
-              rel="noopener"
-              title="새 탭에서 열림 — 보고서 뷰어는 그대로 유지됩니다"
-            >
-              관리자 포털 ↗
+            <a href="/admin" className="topbar-btn">
+              관리자 포털
             </a>
           )}
           <a
@@ -196,6 +190,8 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 reports={myReports}
                 tabs={tabs}
                 active={active}
+                isFav={isFav}
+                onToggleFav={toggleFav}
                 onActivate={setActive}
                 onClose={closeTab}
                 onGoUpload={() => setView("upload")}
@@ -555,6 +551,8 @@ function MyReportsView({
   reports,
   tabs,
   active,
+  isFav,
+  onToggleFav,
   onActivate,
   onClose,
   onGoUpload,
@@ -562,6 +560,8 @@ function MyReportsView({
   reports: ReportItem[];
   tabs: OpenTab[];
   active: number | null;
+  isFav: (id: number) => boolean;
+  onToggleFav: (id: number) => void;
   onActivate: (id: number) => void;
   onClose: (id: number) => void;
   onGoUpload: () => void;
@@ -569,8 +569,25 @@ function MyReportsView({
   if (tabs.length === 0) {
     return <ReportLanding reports={reports} onGoUpload={onGoUpload} />;
   }
+  const activeTab = tabs.find((t) => t.id === active);
   return (
     <div className="rp-workarea">
+      {activeTab && (
+        <div className="rp-report-toolbar">
+          <span className="rp-report-toolbar-name">{activeTab.name}</span>
+          <button
+            className={`rp-report-toolbar-fav${isFav(activeTab.id) ? " on" : ""}`}
+            title={isFav(activeTab.id) ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+            onClick={() => onToggleFav(activeTab.id)}
+          >
+            <Star
+              size={16}
+              className="icn"
+              fill={isFav(activeTab.id) ? "currentColor" : "none"}
+            />
+          </button>
+        </div>
+      )}
       <div className="rp-panels">
         {tabs.map((t) => (
           <ReportPanel key={t.id} id={t.id} active={t.id === active} />
