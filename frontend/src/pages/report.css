@@ -169,7 +169,6 @@
 
 .home-hero {
   position: relative;
-  overflow: hidden;
   padding: 30px 36px 44px;
   text-align: center;
   flex-shrink: 0;
