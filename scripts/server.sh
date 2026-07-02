@@ -1,7 +1,14 @@
 #!/bin/bash
-PYTHON=/home/azureuser/powerbi-embedded/venv/bin/python3
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# 프로젝트 venv가 있으면 우선 사용, 없으면 PATH의 python3 (환경별 경로 하드코딩 금지)
+if [ -z "$PYTHON" ]; then
+    if [ -x "$PROJECT_ROOT/venv/bin/python3" ]; then
+        PYTHON="$PROJECT_ROOT/venv/bin/python3"
+    else
+        PYTHON="$(command -v python3)"
+    fi
+fi
 PID_FILE="$PROJECT_ROOT/.server.pid"
 LOG_DIR="$PROJECT_ROOT/logs"
 LOG_FILE="$LOG_DIR/server.log"
