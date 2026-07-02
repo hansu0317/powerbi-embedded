@@ -162,7 +162,9 @@ def migrate():
 
             # ── 2. 기존 서버 보강 (컬럼이 없으면 추가) ───────────────────────
             # 아래 백필이 category를 참조하므로, 컬럼을 먼저 보강한다(신규 DB에서 컬럼 부재 방지).
-            cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS category VARCHAR(50)")
+            cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS category VARCHAR(255)")
+            # category는 Fabric 폴더 전체 경로("본부/팀")를 저장하므로 50자에서 확장한다.
+            cur.execute("ALTER TABLE reports ALTER COLUMN category TYPE VARCHAR(255)")
             # 기존 개인 보고서 중 category가 NULL인 것에 소유자 username을 소급 적용한다.
             # UI가 category 기준 폴더 트리로 변경되면서 개인 보고서도 Fabric 폴더명(username)이
             # category가 되어야 사이드바에 올바른 폴더로 표시된다.
@@ -181,7 +183,6 @@ def migrate():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ")
             cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
-            cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS category VARCHAR(50)")
             cur.execute("ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pbi_workspace_id VARCHAR(36)")
             cur.execute("ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS report_id INTEGER REFERENCES reports(id) ON DELETE SET NULL")
 

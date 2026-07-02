@@ -412,16 +412,28 @@ function Sidebar({
   onOpen: (r: ReportItem) => void;
 }) {
   const favReports = reports.filter((r) => isFav(r.id));
-  const { grouped, uncategorized } = useMemo(() => {
-    const g = new Map<string, ReportItem[]>();
+  const { folderTree, uncategorized } = useMemo(() => {
+    // category("본부/팀" 경로 문자열)를 "/"로 쪼개 N단계 폴더 트리를 만든다
+    const root = new Map<string, FolderNode>();
     const u: ReportItem[] = [];
     for (const r of myReports) {
-      if (r.category) {
-        if (!g.has(r.category)) g.set(r.category, []);
-        g.get(r.category)!.push(r);
-      } else u.push(r);
+      const parts = (r.category || "").split("/").filter(Boolean);
+      if (parts.length === 0) {
+        u.push(r);
+        continue;
+      }
+      let level = root;
+      let node: FolderNode | null = null;
+      let path = "";
+      for (const name of parts) {
+        path = path ? `${path}/${name}` : name;
+        if (!level.has(name)) level.set(name, { name, path, children: new Map(), reports: [] });
+        node = level.get(name)!;
+        level = node.children;
+      }
+      node!.reports.push(r);
     }
-    return { grouped: g, uncategorized: u };
+    return { folderTree: root, uncategorized: u };
   }, [myReports]);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
@@ -469,26 +481,16 @@ function Sidebar({
                 </div>
               </div>
             )}
-            {[...grouped.entries()].map(([cat, items]) => (
-              <div
-                key={cat}
-                className={`rp-group${collapsed[cat] ? " collapsed" : ""}`}
-              >
-                <div className="rp-group-header" onClick={() => toggle(cat)}>
-                  <ChevronDown size={13} className="icn rp-group-arrow" /> {cat}
-                </div>
-                <div className="rp-group-body">
-                  {items.map((r) => (
-                    <TreeItem
-                      key={r.id}
-                      report={r}
-                      active={r.id === activeId}
-                      onOpen={onOpen}
-                      indent
-                    />
-                  ))}
-                </div>
-              </div>
+            {[...folderTree.values()].map((node) => (
+              <TreeGroup
+                key={node.path}
+                node={node}
+                depth={0}
+                collapsed={collapsed}
+                onToggle={toggle}
+                activeId={activeId}
+                onOpen={onOpen}
+              />
             ))}
             {uncategorized.map((r) => (
               <TreeItem
@@ -523,20 +525,81 @@ function Sidebar({
   );
 }
 
+type FolderNode = {
+  name: string;
+  path: string; // "본부/팀" — 접기 상태 키
+  children: Map<string, FolderNode>;
+  reports: ReportItem[];
+};
+
+function TreeGroup({
+  node,
+  depth,
+  collapsed,
+  onToggle,
+  activeId,
+  onOpen,
+}: {
+  node: FolderNode;
+  depth: number;
+  collapsed: Record<string, boolean>;
+  onToggle: (path: string) => void;
+  activeId: number | null;
+  onOpen: (r: ReportItem) => void;
+}) {
+  return (
+    <div className={`rp-group${collapsed[node.path] ? " collapsed" : ""}`}>
+      <div
+        className="rp-group-header"
+        style={{ paddingLeft: 30 + depth * 12 }}
+        onClick={() => onToggle(node.path)}
+      >
+        <ChevronDown size={13} className="icn rp-group-arrow" /> {node.name}
+      </div>
+      <div className="rp-group-body">
+        {[...node.children.values()].map((child) => (
+          <TreeGroup
+            key={child.path}
+            node={child}
+            depth={depth + 1}
+            collapsed={collapsed}
+            onToggle={onToggle}
+            activeId={activeId}
+            onOpen={onOpen}
+          />
+        ))}
+        {node.reports.map((r) => (
+          <TreeItem
+            key={r.id}
+            report={r}
+            active={r.id === activeId}
+            onOpen={onOpen}
+            indent
+            depth={depth}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TreeItem({
   report,
   active,
   onOpen,
   indent,
+  depth,
 }: {
   report: ReportItem;
   active: boolean;
   onOpen: (r: ReportItem) => void;
   indent?: boolean;
+  depth?: number;
 }) {
   return (
     <div
       className={`rp-tree-item${active ? " active" : ""}${indent ? " indent" : ""}`}
+      style={depth ? { paddingLeft: 46 + depth * 12 } : undefined}
       onClick={() => onOpen(report)}
       title={report.name}
     >

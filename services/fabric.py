@@ -102,6 +102,7 @@ async def fetch_pbi_folders_and_reports() -> list[dict]:
     폴더 목록은 Fabric API(다른 스코프), 보고서 목록은 PBI API로 각각 조회한다.
     folder_id로 매핑해 각 보고서가 어느 폴더에 속하는지 결정한다.
     폴더 없는 보고서(루트)는 folder_name=None으로 반환한다.
+    folder_name은 하위 폴더까지 포함한 전체 경로("본부/팀")다.
     """
     fabric_token = await asyncio.to_thread(get_fabric_token)
     pbi_token    = await asyncio.to_thread(get_access_token)
@@ -112,19 +113,34 @@ async def fetch_pbi_folders_and_reports() -> list[dict]:
     fabric_api = f"https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_ID}"
 
     async with httpx.AsyncClient(timeout=30) as client:
-        # 1. Fabric 폴더 목록 (folderId → displayName)
-        folder_map: dict[str, str] = {}
-        params: dict = {"recursive": "false"}
+        # 1. Fabric 폴더 목록 (folderId → 전체 경로 "본부/팀")
+        folder_nodes: dict[str, dict] = {}
+        params: dict = {"recursive": "true"}
         while True:
             resp = await client.get(f"{fabric_api}/folders", headers=fabric_headers, params=params)
             resp.raise_for_status()
             data = resp.json()
             for item in data.get("value", []):
-                folder_map[item["id"]] = item["displayName"]
+                folder_nodes[item["id"]] = {
+                    "name":   item["displayName"],
+                    "parent": item.get("parentFolderId"),
+                }
             ct = data.get("continuationToken")
             if not ct:
                 break
             params = {"continuationToken": ct}
+
+        # parentFolderId를 따라 올라가며 경로를 조합 (seen은 순환 참조 방어)
+        folder_map: dict[str, str] = {}
+        for fid in folder_nodes:
+            parts: list[str] = []
+            cur: str | None = fid
+            seen: set[str] = set()
+            while cur and cur in folder_nodes and cur not in seen:
+                seen.add(cur)
+                parts.append(folder_nodes[cur]["name"])
+                cur = folder_nodes[cur]["parent"]
+            folder_map[fid] = "/".join(reversed(parts))
 
         # 2. Fabric /items → 보고서별 folderId 매핑
         #    PBI REST API(/reports)는 folderId를 반환하지 않으므로 Fabric /items를 사용한다.

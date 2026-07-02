@@ -383,7 +383,7 @@ def db_register_report(
 ):
     """업로드된 보고서를 등록하고 소유자와 관리자에게 열람 권한을 부여한다.
 
-    category는 Fabric 폴더명(= 업로더 username)으로 전달하면 사이드바 폴더 트리에 반영된다.
+    category는 Fabric 폴더 경로(개인 보고서는 업로더 username)로 전달하면 사이드바 폴더 트리에 반영된다.
     """
     with db_conn() as conn:
         with conn.cursor() as cur:
