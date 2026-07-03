@@ -123,7 +123,7 @@ async def api_upload(request: Request, file: UploadFile = File(...), report_name
     job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name)
     logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s", user["username"], name, job_id)
 
-    asyncio.create_task(_process_upload(user, name, pbix_bytes, file_size, job_id, request.client.host))
+    asyncio.create_task(_process_upload(user, name, pbix_bytes, file_size, job_id, get_client_ip(request)))
     return {"job_id": job_id, "report_name": name, "status": "accepted"}
 
 
@@ -141,7 +141,7 @@ async def api_upload_status(request: Request, job_id: int):
         "status":      job["status"],
         "report_name": job["report_name"],
         "report_id":   job["report_id"],
-        "error":       job["error_message"] if job["status"] not in ("completed", "accepted", "publishing", "accepted", "pbi_succeeded") else None,
+        "error":       job["error_message"] if job["status"] not in ("completed", "accepted", "publishing", "pbi_succeeded") else None,
     }
 
 

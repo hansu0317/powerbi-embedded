@@ -321,7 +321,8 @@ def db_reserve_upload(user_id: int, report_name: str) -> int:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(%s)", (user_id,))
             cur.execute(
-                "SELECT COUNT(*) AS count FROM reports WHERE owner_id = %s AND report_type = 'personal'",
+                "SELECT COUNT(*) AS count FROM reports "
+                "WHERE owner_id = %s AND report_type = 'personal' AND status <> 'deleted'",
                 (user_id,),
             )
             if cur.fetchone()["count"] >= MAX_PERSONAL_REPORTS:

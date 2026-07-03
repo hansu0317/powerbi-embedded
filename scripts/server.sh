@@ -39,10 +39,13 @@ start() {
     fi
     rotate_log
     cd "$PROJECT_ROOT"
-    setsid -f $PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8247 --no-access-log \
-        </dev/null > "$LOG_FILE" 2>&1
-    sleep 2
-    PID=$(pgrep -n -f "$PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8247")
+    nohup "$PYTHON" -m uvicorn main:app \
+    	--host 0.0.0.0 \
+    	--port 8247 \
+    	--no-access-log \
+    	</dev/null > "$LOG_FILE" 2>&1 &
+
+    PID=$!
     if [ -z "$PID" ]; then
         echo "서버 시작 실패. 로그를 확인하세요: $LOG_FILE"
         return 1
