@@ -9,11 +9,8 @@ import psycopg2.errors
 import psycopg2.extras
 import psycopg2.pool
 
-from config import (
-    DB_CONFIG, WORKSPACE_ID,
-    MAX_PERSONAL_REPORTS, MAX_UPLOADS_PER_DAY,
-    LOGIN_BLOCK_MAX_FAIL, LOGIN_BLOCK_MINUTES,
-)
+import config
+from config import DB_CONFIG, WORKSPACE_ID
 from errors import AppError
 
 logger = logging.getLogger("powerbi-gateway")
@@ -74,9 +71,9 @@ def db_check_and_get_user(username: str, ip: str):
                 "SELECT COUNT(*) AS count FROM login_attempts "
                 "WHERE username = %s AND ip_address = %s AND succeeded = FALSE "
                 "AND attempted_at >= NOW() - %s * INTERVAL '1 minute'",
-                (username, ip, LOGIN_BLOCK_MINUTES),
+                (username, ip, config.LOGIN_BLOCK_MINUTES),
             )
-            if cur.fetchone()["count"] >= LOGIN_BLOCK_MAX_FAIL:
+            if cur.fetchone()["count"] >= config.LOGIN_BLOCK_MAX_FAIL:
                 return "blocked", None
             cur.execute(
                 "SELECT id, username, display_name, pbi_username, roles, password, is_admin, is_active "
@@ -129,11 +126,12 @@ def db_cleanup_login_attempts():
 # ── 사용자 ────────────────────────────────────────────────────────────────────
 
 def db_get_user(username: str):
+    """세션 사용자 조회. 비활성 계정은 None — 로그인 이후 비활성화돼도 다음 요청부터 즉시 차단된다."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, username, display_name, pbi_username, roles, is_admin "
-                "FROM users WHERE username = %s",
+                "FROM users WHERE username = %s AND is_active = TRUE",
                 (username,),
             )
             return cur.fetchone()
@@ -227,14 +225,21 @@ def db_get_user_recents(user_id: int, limit: int = 8) -> list:
             return [row["report_id"] for row in cur.fetchall()]
 
 
-def db_add_recent(user_id: int, report_id: int) -> None:
-    """최근 본 보고서 기록 (이미 있으면 viewed_at 갱신)."""
+def db_add_recent(user_id: int, report_id: int, keep: int = 30) -> None:
+    """최근 본 보고서 기록 (이미 있으면 viewed_at 갱신). 최신 keep건만 남기고 정리."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO user_recent_reports (user_id, report_id) VALUES (%s, %s) "
                 "ON CONFLICT (user_id, report_id) DO UPDATE SET viewed_at = NOW()",
                 (user_id, report_id),
+            )
+            cur.execute(
+                """DELETE FROM user_recent_reports
+                   WHERE user_id = %s AND report_id NOT IN (
+                       SELECT report_id FROM user_recent_reports
+                       WHERE user_id = %s ORDER BY viewed_at DESC LIMIT %s)""",
+                (user_id, user_id, keep),
             )
         conn.commit()
 
@@ -325,14 +330,14 @@ def db_reserve_upload(user_id: int, report_name: str) -> int:
                 "WHERE owner_id = %s AND report_type = 'personal' AND status <> 'deleted'",
                 (user_id,),
             )
-            if cur.fetchone()["count"] >= MAX_PERSONAL_REPORTS:
-                raise AppError.RATE_PERSONAL_MAX.http(max=MAX_PERSONAL_REPORTS)
+            if cur.fetchone()["count"] >= config.MAX_PERSONAL_REPORTS:
+                raise AppError.RATE_PERSONAL_MAX.http(max=config.MAX_PERSONAL_REPORTS)
             cur.execute(
                 "SELECT COUNT(*) AS count FROM upload_jobs WHERE user_id = %s AND created_at >= CURRENT_DATE",
                 (user_id,),
             )
-            if cur.fetchone()["count"] >= MAX_UPLOADS_PER_DAY:
-                raise AppError.RATE_UPLOAD_DAILY.http(max=MAX_UPLOADS_PER_DAY)
+            if cur.fetchone()["count"] >= config.MAX_UPLOADS_PER_DAY:
+                raise AppError.RATE_UPLOAD_DAILY.http(max=config.MAX_UPLOADS_PER_DAY)
             try:
                 cur.execute(
                     "INSERT INTO upload_jobs (user_id, report_name, status) VALUES (%s, %s, 'publishing') RETURNING id",
@@ -344,6 +349,40 @@ def db_reserve_upload(user_id: int, report_name: str) -> int:
                 raise AppError.UPLOAD_IN_PROGRESS.http(name=report_name) from exc
         conn.commit()
     return row["id"]
+
+
+def db_count_other_reports_using_dataset(pbi_dataset_id: str, exclude_report_id: int) -> int:
+    """같은 PBI 데이터셋을 쓰는 다른 활성 보고서 수.
+
+    관리자 삭제 시 데이터셋까지 지워도 되는지 판단용 — 0이면 안전하게 삭제 가능."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT COUNT(*) AS count
+                   FROM report_meta m JOIN reports r ON r.id = m.report_id
+                   WHERE m.pbi_dataset_id = %s AND m.report_id <> %s AND r.status <> 'deleted'""",
+                (pbi_dataset_id, exclude_report_id),
+            )
+            return cur.fetchone()["count"]
+
+
+def db_fail_stale_publishing_jobs() -> int:
+    """서버 시작 시 고아가 된 'publishing' 잡을 실패 처리한다.
+
+    publishing(파일 수신~Import 접수 전)은 메모리의 업로드 태스크만 진행시킬 수
+    있으므로, 재시작 직후 남아 있으면 전부 복구 불가다. 방치하면 부분 UNIQUE
+    인덱스 때문에 같은 이름 재업로드가 계속 409로 막힌다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE upload_jobs
+                   SET status = 'failed', updated_at = NOW(),
+                       error_message = '서버 재시작으로 업로드가 중단되었습니다. 다시 업로드해 주세요.'
+                   WHERE status = 'publishing'"""
+            )
+            count = cur.rowcount
+        conn.commit()
+    return count
 
 
 def db_get_upload_job(job_id: int, user_id: int) -> dict | None:
@@ -564,7 +603,7 @@ def db_admin_get_users() -> list:
 
 
 def db_admin_add_user(username: str, pw_hash: str, display_name: str,
-                      pbi_username: str, roles: str, is_admin: bool) -> int:
+                      pbi_username: str, roles: list[str], is_admin: bool) -> int:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -750,14 +789,24 @@ def db_set_report_access(report_id: int, user_id: int, can_view: bool, granted_b
         conn.commit()
 
 
-def db_update_app_config(key: str, value: str) -> None:
-    """app_config 키를 INSERT OR UPDATE한다 (관리자 포털 런타임 설정 변경용)."""
+def db_get_app_config() -> list:
+    """app_config 전체 행 (관리자 포털 설정 화면용)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT key, value, description, updated_at FROM app_config ORDER BY key")
+            return cur.fetchall()
+
+
+def db_update_app_config(key: str, value: str) -> bool:
+    """존재하는 app_config 키의 값을 갱신한다. 없는 키는 거부(False).
+
+    키 생성은 마이그레이션 시드에서만 한다 — 오타 키가 조용히 쌓이는 것을 방지."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO app_config (key, value, updated_at)
-                   VALUES (%s, %s, NOW())
-                   ON CONFLICT (key) DO UPDATE
-                   SET value = EXCLUDED.value, updated_at = NOW()""",
-                (key, value),
+                "UPDATE app_config SET value = %s, updated_at = NOW() WHERE key = %s",
+                (value, key),
             )
+            updated = cur.rowcount > 0
+        conn.commit()
+    return updated

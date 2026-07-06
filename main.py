@@ -22,7 +22,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from contextlib import asynccontextmanager
 
-from config import SECRET_KEY, COOKIE_SECURE, MAX_PBIX_SIZE
+import config
+from config import SECRET_KEY, COOKIE_SECURE
 from database import db_cleanup_login_attempts
 from errors import AppError
 from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
@@ -97,10 +98,10 @@ async def reject_oversized_uploads(request: Request, call_next):
     if request.method == "POST" and request.url.path == "/api/upload":
         content_length = request.headers.get("content-length")
         try:
-            if content_length and int(content_length) > MAX_PBIX_SIZE + 1024 * 1024:
+            if content_length and int(content_length) > config.MAX_PBIX_SIZE + 1024 * 1024:
                 err = AppError.FILE_TOO_LARGE
                 return HTMLResponse(
-                    err.message.format(max_mb=MAX_PBIX_SIZE // (1024 * 1024)),
+                    err.message.format(max_mb=config.MAX_PBIX_SIZE // (1024 * 1024)),
                     status_code=err.status,
                 )
         except ValueError:

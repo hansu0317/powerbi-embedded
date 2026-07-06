@@ -12,11 +12,8 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from config import (
-    PBI_API, WORKSPACE_ID,
-    MAX_PBIX_SIZE, REPORT_NAME_MAX_LEN,
-    IMPORT_POLL_MAX, IMPORT_POLL_INTERVAL,
-)
+import config
+from config import PBI_API, WORKSPACE_ID
 from database import (
     db_get_reports, db_get_all_active_reports, db_can_view_report, db_find_report,
     db_reserve_upload, db_update_upload_job, db_get_upload_job, db_register_report,
@@ -153,8 +150,8 @@ async def _read_and_validate_pbix(
         raise AppError.FILE_WRONG_TYPE.http()
 
     name = report_name.strip() or Path(file.filename).stem.strip()
-    if not name or len(name) > REPORT_NAME_MAX_LEN:
-        raise AppError.NAME_INVALID.http(max=REPORT_NAME_MAX_LEN)
+    if not name or len(name) > config.REPORT_NAME_MAX_LEN:
+        raise AppError.NAME_INVALID.http(max=config.REPORT_NAME_MAX_LEN)
 
     if await asyncio.to_thread(db_find_report, user_id, name):
         raise AppError.REPORT_NAME_CONFLICT.http(name=name)
@@ -164,8 +161,8 @@ async def _read_and_validate_pbix(
     file.file.seek(0)
     if not file_size:
         raise AppError.FILE_EMPTY.http()
-    if file_size > MAX_PBIX_SIZE:
-        raise AppError.FILE_TOO_LARGE.http(max_mb=MAX_PBIX_SIZE // (1024 * 1024))
+    if file_size > config.MAX_PBIX_SIZE:
+        raise AppError.FILE_TOO_LARGE.http(max_mb=config.MAX_PBIX_SIZE // (1024 * 1024))
     if file.file.read(4)[:2] != b"PK":
         raise AppError.FILE_INVALID_CONTENT.http()
     file.file.seek(0)
@@ -235,8 +232,8 @@ async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: i
         logger.info("UPLOAD ACCEPT | user=%-12s | report=%s | import_id=%s", user["username"], name, import_id)
 
         # 2) 변환 완료 대기
-        for _ in range(IMPORT_POLL_MAX):
-            await asyncio.sleep(IMPORT_POLL_INTERVAL)
+        for _ in range(config.IMPORT_POLL_MAX):
+            await asyncio.sleep(config.IMPORT_POLL_INTERVAL)
             resp = await client.get(f"{PBI_API}/imports/{import_id}", headers=headers)
             if resp.status_code != 200:
                 await asyncio.to_thread(db_update_upload_job, job_id, "unknown", error_message=f"poll HTTP {resp.status_code}")

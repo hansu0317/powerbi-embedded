@@ -1,5 +1,6 @@
-// 백엔드 API 호출 헬퍼. 기존 엔드포인트를 그대로 사용한다 (백엔드 변경 없음).
+// 백엔드 API 호출 헬퍼.
 // CSRF 토큰은 서버가 부트스트랩으로 내려준 값을 X-CSRF-Token 헤더로 전달한다.
+import type { AdminReport } from "./bootstrap";
 
 function extractDetail(j: any, fallback: string): string {
   const detail = j?.detail;
@@ -11,6 +12,8 @@ export interface EmbedResponse {
   report_id: string;
   embed_url: string;
   embed_token: string;
+  expires_at: number; // 토큰 만료 (Unix 초) — 프론트가 만료 전 재발급에 사용
+
   settings?: {
     enable_page_nav?: boolean;
     enable_filter?: boolean;
@@ -104,6 +107,38 @@ export async function adminImportPbi(csrf: string) {
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(extractDetail(j, res.statusText));
   return j as { registered: number; skipped: number; deleted: number; total: number };
+}
+
+export interface AppConfigRow {
+  key: string;
+  value: string;
+  description: string | null;
+  updated_at: string | null;
+}
+
+export async function adminGetConfig(): Promise<AppConfigRow[]> {
+  const res = await fetch("/api/admin/config");
+  if (!res.ok) throw new Error("설정 조회 실패");
+  const j = await res.json();
+  return j.config as AppConfigRow[];
+}
+
+export async function adminSetConfig(key: string, value: string, csrf: string) {
+  const res = await fetch("/api/admin/config", {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "설정 저장 실패"));
+  return j as { key: string; value: string };
+}
+
+export async function adminFetchReports(): Promise<AdminReport[]> {
+  const res = await fetch("/api/admin/reports");
+  if (!res.ok) throw new Error("보고서 목록 조회 실패");
+  const j = await res.json();
+  return j.reports as AdminReport[];
 }
 
 export async function adminAddUser(form: FormData) {

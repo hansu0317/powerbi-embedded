@@ -4,11 +4,12 @@ import logging
 
 import httpx
 
-from config import PBI_API, PBI_GROUPS, PBI_SYNC_INTERVAL, WORKSPACE_ID
+import config
+from config import PBI_API, PBI_GROUPS, WORKSPACE_ID
 from database import (
     db_get_synced_reports, db_mark_report_deleted, db_restore_report,
     db_get_pending_imports, db_get_recoverable_jobs,
-    db_update_upload_job, db_register_report,
+    db_update_upload_job, db_register_report, db_fail_stale_publishing_jobs,
 )
 from services.azure import get_access_token, get_fabric_token
 
@@ -56,15 +57,19 @@ async def sync_pbi_reports() -> dict:
 
 
 async def pbi_sync_loop():
-    """서버 시작 시 1회 + PBI_SYNC_INTERVAL 주기로 PBI 동기화를 반복한다."""
+    """서버 시작 시 1회 + pbi_sync_interval 주기로 PBI 동기화를 반복한다.
+
+    주기는 매 회 config에서 다시 읽으므로 관리자 설정 변경이 재시작 없이 반영된다.
+    0(비활성)이어도 루프는 유지한다 — 나중에 다시 켤 수 있게."""
     try:
         logger.info("PBI SYNC (startup) | %s", await sync_pbi_reports())
     except Exception:
         logger.exception("STARTUP PBI SYNC FAIL")
-    if PBI_SYNC_INTERVAL <= 0:
-        return
     while True:
-        await asyncio.sleep(PBI_SYNC_INTERVAL)
+        interval = config.PBI_SYNC_INTERVAL
+        await asyncio.sleep(interval if interval > 0 else 60)
+        if interval <= 0:
+            continue
         try:
             summary = await sync_pbi_reports()
             if summary["deleted"] or summary["restored"]:
@@ -76,8 +81,14 @@ async def pbi_sync_loop():
 # ── 시작 시 복구 ──────────────────────────────────────────────────────────────
 
 def recover_db_jobs():
-    """pbi_succeeded·db_failed 상태 업로드를 재시작 시 DB에 등록한다."""
+    """pbi_succeeded·db_failed 상태 업로드를 재시작 시 DB에 등록한다.
+
+    그 전에 고아 'publishing' 잡을 실패 처리한다 — 방치하면 같은 이름
+    재업로드가 부분 UNIQUE 인덱스에 걸려 계속 409가 난다."""
     import psycopg2
+    stale = db_fail_stale_publishing_jobs()
+    if stale:
+        logger.warning("UPLOAD CLEANUP | 중단된 publishing 잡 %d건 실패 처리", stale)
     jobs = db_get_recoverable_jobs()
     for job in jobs:
         try:

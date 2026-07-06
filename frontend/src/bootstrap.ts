@@ -41,7 +41,7 @@ export interface AdminUser {
   username: string;
   display_name: string;
   pbi_username: string;
-  roles: string;
+  roles: string[];
   is_admin: boolean;
   is_active: boolean;
   report_count: number;

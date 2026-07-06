@@ -9,7 +9,8 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from config import PASSWORD_MIN_LEN, WORKSPACE_ID
+import config
+from config import WORKSPACE_ID
 from database import (
     db_admin_get_stats, db_admin_get_users, db_admin_add_user,
     db_admin_toggle_user_active, db_admin_get_reports,
@@ -17,11 +18,14 @@ from database import (
     db_import_managed_report,
     db_get_report, db_get_report_access, db_set_report_access,
     db_get_synced_reports, db_hard_delete_report, db_get_pbi_report_map,
+    db_count_other_reports_using_dataset, db_get_app_config, db_update_app_config,
 )
 from deps import current_user, csrf_token, verify_csrf, require_admin
 from errors import AppError
 from services.fabric import sync_pbi_reports, fetch_pbi_folders_and_reports
-from services.powerbi import pbi_delete_report, pbi_refresh_dataset, invalidate_embed_cache
+from services.powerbi import (
+    pbi_delete_report, pbi_delete_dataset, pbi_refresh_dataset, invalidate_embed_cache,
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -54,6 +58,50 @@ async def admin_page(request: Request):
     })
 
 
+@router.get("/api/admin/config")
+async def api_admin_get_config(request: Request):
+    """런타임 설정(app_config) 목록."""
+    user = await current_user(request)
+    require_admin(user)
+    rows = await asyncio.to_thread(db_get_app_config)
+    return {"config": rows}
+
+
+@router.post("/api/admin/config")
+async def api_admin_set_config(request: Request):
+    """런타임 설정 변경 — 저장 즉시 재시작 없이 반영된다.
+
+    키는 마이그레이션이 시드한 것만 허용하고, 값은 정수만 받는다(현재 키 전부 정수)."""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    require_admin(user)
+    body = await request.json()
+    key, value = str(body.get("key", "")), str(body.get("value", "")).strip()
+    try:
+        int(value)
+    except ValueError:
+        raise AppError.CONFIG_VALUE_INVALID.http(value=value)
+    updated = await asyncio.to_thread(db_update_app_config, key, value)
+    if not updated:
+        raise AppError.CONFIG_KEY_UNKNOWN.http(key=key)
+    config.reload_app_config()
+    logger.info("ADMIN CONFIG | admin=%s | %s=%s", user["username"], key, value)
+    return {"key": key, "value": value}
+
+
+@router.get("/api/admin/reports")
+async def api_admin_get_reports(request: Request):
+    """보고서 목록 재조회 — 관리자 포털을 새로고침 없이 최신 상태로 유지한다.
+
+    새 보고서는 직원 업로드·가져오기로 페이지 로드 이후에도 생기므로,
+    부트스트랩 데이터만으로는 권한부여 화면이 낡은 상태로 남는다.
+    """
+    user = await current_user(request)
+    require_admin(user)
+    reports = await asyncio.to_thread(db_admin_get_reports)
+    return {"reports": reports}
+
+
 @router.post("/api/admin/users/add")
 async def api_admin_add_user(
     request: Request,
@@ -68,13 +116,15 @@ async def api_admin_add_user(
     verify_csrf(request, csrf)
     user = await current_user(request)
     require_admin(user)
-    if len(password) < PASSWORD_MIN_LEN:
-        raise AppError.PASSWORD_TOO_SHORT.http(min=PASSWORD_MIN_LEN)
+    if len(password) < config.PASSWORD_MIN_LEN:
+        raise AppError.PASSWORD_TOO_SHORT.http(min=config.PASSWORD_MIN_LEN)
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    # 폼은 콤마 구분 문자열로 받고 DB에는 TEXT[] 배열로 저장한다
+    role_list = [r.strip() for r in roles.split(",") if r.strip()] or ["도메인"]
     try:
         new_id = await asyncio.to_thread(
             db_admin_add_user, username, pw_hash, display_name,
-            pbi_username or username, roles or "도메인", is_admin,
+            pbi_username or username, role_list, is_admin,
         )
     except psycopg2.errors.UniqueViolation:
         raise AppError.USER_ALREADY_EXISTS.http(username=username)
@@ -110,6 +160,21 @@ async def api_admin_delete_report(request: Request, report_id: int):
         except Exception as exc:
             pbi_warning = str(exc)
             logger.warning("PBI DELETE WARN | report_id=%s | error=%s", report_id, exc)
+
+        # 보고서만 지우면 데이터셋이 남아 용량이 누수된다.
+        # 단, 같은 데이터셋을 쓰는 다른 활성 보고서가 있으면 절대 지우지 않는다.
+        if pbi_warning is None and report.get("pbi_dataset_id"):
+            shared = await asyncio.to_thread(
+                db_count_other_reports_using_dataset, report["pbi_dataset_id"], report_id,
+            )
+            if shared == 0:
+                try:
+                    await pbi_delete_dataset(ws_id, report["pbi_dataset_id"])
+                except Exception as exc:
+                    pbi_warning = f"보고서는 삭제됐지만 데이터셋 삭제에 실패했습니다: {exc}"
+                    logger.warning("PBI DATASET DELETE WARN | report_id=%s | error=%s", report_id, exc)
+            else:
+                logger.info("PBI DATASET KEEP | report_id=%s | 공유 보고서 %d건", report_id, shared)
 
     deleted = await asyncio.to_thread(db_admin_soft_delete_report, report_id, user["id"])
     if not deleted:

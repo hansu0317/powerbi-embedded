@@ -38,7 +38,7 @@ PBI_GROUPS = "https://api.powerbi.com/v1.0/myorg/groups"
 
 # ── app_config 로더 ───────────────────────────────────────────────────────────
 def _load_app_config() -> dict:
-    """DB app_config 테이블에서 런타임 설정을 읽는다. 서버 기동 시 1회 로드."""
+    """DB app_config 테이블에서 런타임 설정을 읽는다."""
     try:
         with psycopg2.connect(cursor_factory=psycopg2.extras.RealDictCursor, **DB_CONFIG) as conn:
             with conn.cursor() as cur:
@@ -56,17 +56,26 @@ def _int(cfg: dict, key: str, default: int) -> int:
         return default
 
 
-_cfg = _load_app_config()
+def reload_app_config():
+    """app_config를 다시 읽어 아래 런타임 상수를 갱신한다.
 
-MAX_PBIX_SIZE        = _int(_cfg, "max_pbix_size_mb",          1024) * 1024 * 1024
-MAX_UPLOADS_PER_DAY  = _int(_cfg, "max_uploads_per_day",         int(os.getenv("MAX_UPLOADS_PER_DAY",  "10")))
-MAX_PERSONAL_REPORTS = _int(_cfg, "max_personal_reports",        int(os.getenv("MAX_PERSONAL_REPORTS", "20")))
-REPORT_NAME_MAX_LEN  = _int(_cfg, "report_name_max_len",         50)
-PASSWORD_MIN_LEN     = _int(_cfg, "password_min_len",             8)
-PBI_SYNC_INTERVAL    = _int(_cfg, "pbi_sync_interval",           int(os.getenv("PBI_SYNC_INTERVAL", "600")))
-LOGIN_BLOCK_MAX_FAIL = _int(_cfg, "login_block_max_fail",         5)
-LOGIN_BLOCK_MINUTES  = _int(_cfg, "login_block_minutes",         15)
-IMPORT_POLL_MAX      = _int(_cfg, "import_poll_max",            100)
-IMPORT_POLL_INTERVAL = _int(_cfg, "import_poll_interval_sec",     3)
-EMBED_TOKEN_LIFETIME = _int(_cfg, "embed_token_lifetime_min",    60)
-MAX_EMBED_RLS_ROLES  = _int(_cfg, "max_embed_rls_roles",         10)
+    서버 기동 시 1회 + 관리자 포털에서 설정을 저장할 때마다 호출된다.
+    소비 측은 반드시 `config.MAX_PBIX_SIZE`처럼 속성으로 읽어야 갱신이 반영된다
+    (`from config import MAX_PBIX_SIZE`는 import 시점 값으로 고정되므로 금지)."""
+    cfg = _load_app_config()
+    g = globals()
+    g["MAX_PBIX_SIZE"]        = _int(cfg, "max_pbix_size_mb",          1024) * 1024 * 1024
+    g["MAX_UPLOADS_PER_DAY"]  = _int(cfg, "max_uploads_per_day",         int(os.getenv("MAX_UPLOADS_PER_DAY",  "10")))
+    g["MAX_PERSONAL_REPORTS"] = _int(cfg, "max_personal_reports",        int(os.getenv("MAX_PERSONAL_REPORTS", "20")))
+    g["REPORT_NAME_MAX_LEN"]  = _int(cfg, "report_name_max_len",         50)
+    g["PASSWORD_MIN_LEN"]     = _int(cfg, "password_min_len",             8)
+    g["PBI_SYNC_INTERVAL"]    = _int(cfg, "pbi_sync_interval",           int(os.getenv("PBI_SYNC_INTERVAL", "600")))
+    g["LOGIN_BLOCK_MAX_FAIL"] = _int(cfg, "login_block_max_fail",         5)
+    g["LOGIN_BLOCK_MINUTES"]  = _int(cfg, "login_block_minutes",         15)
+    g["IMPORT_POLL_MAX"]      = _int(cfg, "import_poll_max",            100)
+    g["IMPORT_POLL_INTERVAL"] = _int(cfg, "import_poll_interval_sec",     3)
+    g["EMBED_TOKEN_LIFETIME"] = _int(cfg, "embed_token_lifetime_min",    60)
+    g["MAX_EMBED_RLS_ROLES"]  = _int(cfg, "max_embed_rls_roles",         10)
+
+
+reload_app_config()

@@ -721,7 +721,26 @@ function ReportPanel({ id, active }: { id: number; active: boolean }) {
 
   useEffect(() => {
     let cancelled = false;
+    let renewTimer: number | undefined;
     const el = ref.current;
+
+    // 임베드 토큰(1시간) 만료 5분 전에 재발급해 iframe이 죽지 않게 한다.
+    // 실패하면 1분 뒤 재시도 — 만료 전까지 여러 번 기회가 있다.
+    const scheduleRenew = (report: pbi.Embed, expiresAt: number) => {
+      const delay = Math.max(expiresAt * 1000 - Date.now() - 5 * 60 * 1000, 30_000);
+      renewTimer = window.setTimeout(async () => {
+        if (cancelled) return;
+        try {
+          const d = await fetchEmbed(id);
+          if (cancelled) return;
+          await report.setAccessToken(d.embed_token);
+          scheduleRenew(report, d.expires_at);
+        } catch {
+          if (!cancelled) scheduleRenew(report, Date.now() / 1000 + 6 * 60);
+        }
+      }, delay);
+    };
+
     (async () => {
       try {
         const d = await fetchEmbed(id);
@@ -748,6 +767,7 @@ function ReportPanel({ id, active }: { id: number; active: boolean }) {
         };
         if (s.default_page) config.pageName = s.default_page;
         const report = powerbi.embed(el, config);
+        scheduleRenew(report, d.expires_at);
         report.on("loaded", () => !cancelled && setLoading(false));
         report.on("error", (ev: any) => {
           if (cancelled) return;
@@ -763,6 +783,7 @@ function ReportPanel({ id, active }: { id: number; active: boolean }) {
     })();
     return () => {
       cancelled = true;
+      if (renewTimer) window.clearTimeout(renewTimer);
       if (el) powerbi.reset(el);
     };
   }, [id]);

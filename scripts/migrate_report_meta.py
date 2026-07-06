@@ -37,7 +37,7 @@ def migrate():
                     password VARCHAR(255) NOT NULL,          -- bcrypt 해시
                     display_name VARCHAR(100) NOT NULL,
                     pbi_username VARCHAR(255) NOT NULL,      -- GenerateToken identity
-                    roles TEXT NOT NULL DEFAULT '도메인',    -- RLS 역할 (콤마 구분)
+                    roles TEXT[] NOT NULL DEFAULT ARRAY['도메인'],  -- RLS 역할 (report_rls.role_names와 동일 형식)
                     is_admin BOOLEAN NOT NULL DEFAULT FALSE
                 )"""
             )
@@ -176,6 +176,21 @@ def migrate():
                      AND r.report_type = 'personal'
                      AND r.category IS NULL"""
             )
+            # users.roles: 콤마 구분 TEXT → TEXT[] (report_rls.role_names와 형식 통일, 1NF)
+            # 공백 정리 후 배열로 변환, 빈 요소 제거. 이미 배열이면 건너뜀(멱등).
+            cur.execute(
+                r"""DO $$
+                   BEGIN
+                     IF EXISTS (SELECT 1 FROM information_schema.columns
+                                WHERE table_name='users' AND column_name='roles'
+                                  AND data_type='text') THEN
+                       ALTER TABLE users ALTER COLUMN roles DROP DEFAULT;
+                       ALTER TABLE users ALTER COLUMN roles TYPE TEXT[]
+                         USING array_remove(string_to_array(regexp_replace(roles, '\s*,\s*', ',', 'g'), ','), '');
+                       ALTER TABLE users ALTER COLUMN roles SET DEFAULT ARRAY['도메인'];
+                     END IF;
+                   END $$"""
+            )
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE")
             cur.execute("UPDATE users SET is_admin = TRUE WHERE username = 'admin'")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
@@ -235,6 +250,12 @@ def migrate():
             cur.execute(
                 """ALTER TABLE reports ADD CONSTRAINT reports_status_check
                    CHECK (status IN ('active', 'disabled', 'archived', 'deleted'))"""
+            )
+            # report_type도 status처럼 CHECK로 오타·잘못된 값 유입을 막는다
+            cur.execute("ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_type_check")
+            cur.execute(
+                """ALTER TABLE reports ADD CONSTRAINT reports_type_check
+                   CHECK (report_type IN ('managed', 'personal'))"""
             )
             # 관리 보고서는 이름이 전체에서 유일, 개인 보고서는 소유자 안에서 유일
             cur.execute(

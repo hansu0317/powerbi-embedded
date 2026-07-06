@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Plus,
   RefreshCw,
+  Settings as SettingsIcon,
   Users as UsersIcon,
   X,
 } from "lucide-react";
@@ -18,19 +19,23 @@ import type {
 } from "../bootstrap";
 import {
   AccessUser,
+  AppConfigRow,
   adminAddUser,
   adminDeleteReport,
   adminGetAccess,
   adminImportPbi,
   adminRefreshDataset,
   adminSetAccess,
+  adminFetchReports,
+  adminGetConfig,
+  adminSetConfig,
   adminSyncStatus,
   adminToggleUser,
   SyncStatus,
 } from "../api";
 import { Pager, usePaged, useFitRows } from "../Pager";
 
-type SectionKey = "overview" | "users" | "reports" | "jobs";
+type SectionKey = "overview" | "users" | "reports" | "jobs" | "config";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
 
 const SECTIONS: {
@@ -41,6 +46,7 @@ const SECTIONS: {
   { key: "overview", Icon: LayoutDashboard, label: "현황" },
   { key: "users", Icon: UsersIcon, label: "사용자" },
   { key: "reports", Icon: BarChart3, label: "보고서" },
+  { key: "config", Icon: SettingsIcon, label: "설정" },
   { key: "jobs", Icon: ClipboardList, label: "업로드 이력" },
 ];
 
@@ -72,6 +78,19 @@ export default function AdminPage({ data }: { data: AdminData }) {
   useEffect(() => {
     adminSyncStatus().then(setSync).catch(() => {});
   }, []);
+
+  // 직원 업로드 등으로 페이지 로드 이후 생긴 보고서를 반영 (실패 시 기존 목록 유지)
+  const refreshReports = useCallback(async () => {
+    try {
+      setReports(await adminFetchReports());
+    } catch {
+      /* 부트스트랩 목록 유지 */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (section === "reports") refreshReports();
+  }, [section, refreshReports]);
 
   const runImport = async () => {
     setImporting(true);
@@ -200,6 +219,9 @@ export default function AdminPage({ data }: { data: AdminData }) {
               />
             )}
             {section === "jobs" && <JobsSection jobs={data.jobs} />}
+            {section === "config" && (
+              <ConfigSection csrf={csrf_token} showToast={showToast} />
+            )}
           </div>
         </main>
       </div>
@@ -220,7 +242,10 @@ export default function AdminPage({ data }: { data: AdminData }) {
         <AccessModal
           report={accessReport}
           csrf={csrf_token}
-          onClose={() => setAccessReport(null)}
+          onClose={() => {
+            setAccessReport(null);
+            refreshReports(); // 방금 부여·해제한 결과를 '열람권한' 수에 반영
+          }}
           showToast={showToast}
         />
       )}
@@ -368,7 +393,7 @@ function UsersSection({
                 </td>
                 <td title={u.display_name}>{u.display_name}</td>
                 <td title={u.pbi_username}>{u.pbi_username}</td>
-                <td>{u.roles}</td>
+                <td>{u.roles.join(", ")}</td>
                 <td>{u.report_count}</td>
                 <td title={u.last_login_at || ""}>{u.last_login_at || "-"}</td>
                 <td>
@@ -692,6 +717,111 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
         </table>
       </div>
       <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
+    </section>
+  );
+}
+
+function ConfigSection({
+  csrf,
+  showToast,
+}: {
+  csrf: string;
+  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
+}) {
+  const [rows, setRows] = useState<AppConfigRow[] | null>(null);
+  const [edited, setEdited] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+
+  useEffect(() => {
+    adminGetConfig()
+      .then(setRows)
+      .catch(() => showToast("설정 조회 실패", "err"));
+  }, [showToast]);
+
+  const save = async (key: string) => {
+    const value = (edited[key] ?? "").trim();
+    if (!value) return;
+    setSaving(key);
+    try {
+      await adminSetConfig(key, value, csrf);
+      setRows((prev) =>
+        prev ? prev.map((r) => (r.key === key ? { ...r, value } : r)) : prev,
+      );
+      setEdited((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      showToast(`'${key}' 저장됨 — 재시작 없이 즉시 적용됩니다.`, "ok");
+    } catch (e) {
+      showToast("오류: " + (e as Error).message, "err");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <section>
+      <div className="ad-section-head">
+        <h2 style={{ marginBottom: 0 }}>런타임 설정</h2>
+        <span className="ad-import-result">
+          저장 즉시 반영됩니다 (서버 재시작 불필요). 동기화 주기는 다음 회차부터.
+        </span>
+      </div>
+      <div className="card-table">
+        <table>
+          <colgroup>
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "48%" }} />
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "15%" }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>키</th>
+              <th>설명</th>
+              <th>값</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {!rows && (
+              <tr>
+                <td colSpan={4}>불러오는 중...</td>
+              </tr>
+            )}
+            {rows?.map((r) => (
+              <tr key={r.key}>
+                <td title={r.key}>{r.key}</td>
+                <td title={r.description || ""}>{r.description || "-"}</td>
+                <td>
+                  <input
+                    style={{ width: "90%" }}
+                    inputMode="numeric"
+                    value={edited[r.key] ?? r.value}
+                    onChange={(e) =>
+                      setEdited((prev) => ({ ...prev, [r.key]: e.target.value }))
+                    }
+                  />
+                </td>
+                <td>
+                  <button
+                    className="btn btn-sm btn-primary"
+                    disabled={
+                      saving === r.key ||
+                      edited[r.key] === undefined ||
+                      edited[r.key] === r.value
+                    }
+                    onClick={() => save(r.key)}
+                  >
+                    {saving === r.key ? "저장 중..." : "저장"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
