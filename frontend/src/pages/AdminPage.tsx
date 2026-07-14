@@ -5,6 +5,7 @@ import {
   ClipboardList,
   Download,
   LayoutDashboard,
+  Layers,
   Plus,
   RefreshCw,
   Settings as SettingsIcon,
@@ -19,23 +20,35 @@ import type {
 } from "../bootstrap";
 import {
   AccessUser,
+  AdminGroup,
   AppConfigRow,
+  GroupAccess,
+  GroupMember,
+  SyncStatus,
+  UserReportRow,
+  adminGetUserReports,
   adminAddUser,
+  adminCreateGroup,
+  adminDeleteGroup,
   adminDeleteReport,
+  adminFetchReports,
   adminGetAccess,
+  adminGetConfig,
+  adminGetGroupAccess,
+  adminGetGroupMembers,
+  adminGetGroups,
   adminImportPbi,
   adminRefreshDataset,
   adminSetAccess,
-  adminFetchReports,
-  adminGetConfig,
   adminSetConfig,
+  adminSetGroupAccess,
+  adminSetGroupMember,
   adminSyncStatus,
   adminToggleUser,
-  SyncStatus,
 } from "../api";
 import { Pager, usePaged, useFitRows } from "../Pager";
 
-type SectionKey = "overview" | "users" | "reports" | "jobs" | "config";
+type SectionKey = "overview" | "users" | "groups" | "reports" | "jobs" | "config";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
 
 const SECTIONS: {
@@ -45,6 +58,7 @@ const SECTIONS: {
 }[] = [
   { key: "overview", Icon: LayoutDashboard, label: "현황" },
   { key: "users", Icon: UsersIcon, label: "사용자" },
+  { key: "groups", Icon: Layers, label: "그룹" },
   { key: "reports", Icon: BarChart3, label: "보고서" },
   { key: "config", Icon: SettingsIcon, label: "설정" },
   { key: "jobs", Icon: ClipboardList, label: "업로드 이력" },
@@ -218,6 +232,9 @@ export default function AdminPage({ data }: { data: AdminData }) {
                 onManageAccess={setAccessReport}
               />
             )}
+            {section === "groups" && (
+              <GroupsSection csrf={csrf_token} showToast={showToast} />
+            )}
             {section === "jobs" && <JobsSection jobs={data.jobs} />}
             {section === "config" && (
               <ConfigSection csrf={csrf_token} showToast={showToast} />
@@ -345,6 +362,7 @@ function UsersSection({
   const tableRef = useRef<HTMLDivElement>(null);
   const pageSize = useFitRows(tableRef, 40, 38);
   const { pageItems, page, totalPages, total, setPage } = usePaged(users, pageSize);
+  const [reportsUser, setReportsUser] = useState<AdminUser | null>(null);
   return (
     <section>
       <div className="ad-section-head">
@@ -394,7 +412,19 @@ function UsersSection({
                 <td title={u.display_name}>{u.display_name}</td>
                 <td title={u.pbi_username}>{u.pbi_username}</td>
                 <td>{u.roles.join(", ")}</td>
-                <td>{u.report_count}</td>
+                <td>
+                  {u.is_admin ? (
+                    <span title="관리자는 권한과 무관하게 전체 열람">전체</span>
+                  ) : (
+                    <button
+                      className="btn btn-sm"
+                      title="클릭하면 열람 가능한 보고서 목록을 봅니다"
+                      onClick={() => setReportsUser(u)}
+                    >
+                      {u.report_count}
+                    </button>
+                  )}
+                </td>
                 <td title={u.last_login_at || ""}>{u.last_login_at || "-"}</td>
                 <td>
                   <span className={`pill ${u.is_active ? "active" : "inactive"}`}>
@@ -417,6 +447,9 @@ function UsersSection({
         </table>
       </div>
       <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
+      {reportsUser && (
+        <UserReportsModal user={reportsUser} onClose={() => setReportsUser(null)} />
+      )}
     </section>
   );
 }
@@ -624,7 +657,12 @@ function ReportsSection({
                 <td>{r.report_type === "managed" ? "공용" : "개인"}</td>
                 <td title={r.owner_username || "-"}>{r.owner_username || "-"}</td>
                 <td>{r.category || "-"}</td>
-                <td>{r.viewer_count}</td>
+                <td>
+                  {r.viewer_count}
+                  {r.group_count > 0 && (
+                    <span className="ad-access-id"> +{r.group_count}그룹</span>
+                  )}
+                </td>
                 <td>
                   {r.status === "active" ? (
                     <span className="pill active">활성</span>
@@ -760,68 +798,77 @@ function ConfigSection({
     }
   };
 
+  const categories: { title: string; hint?: string; keys: string[] }[] = [
+    {
+      title: "업로드",
+      keys: [
+        "max_pbix_size_mb", "max_uploads_per_day", "max_personal_reports",
+        "report_name_max_len", "import_poll_interval_sec", "import_poll_max",
+      ],
+    },
+    {
+      title: "로그인 · 보안",
+      keys: ["password_min_len", "login_block_max_fail", "login_block_minutes"],
+    },
+    {
+      title: "동기화 · 임베드",
+      hint: "동기화 주기는 진행 중인 회차가 끝난 뒤부터 적용됩니다.",
+      keys: [
+        "pbi_sync_interval", "embed_token_lifetime_min",
+        "pbi_token_cache_margin_sec", "max_embed_rls_roles",
+      ],
+    },
+  ];
+  const byKey = new Map((rows ?? []).map((r) => [r.key, r]));
+
   return (
     <section>
       <div className="ad-section-head">
         <h2 style={{ marginBottom: 0 }}>런타임 설정</h2>
-        <span className="ad-import-result">
-          저장 즉시 반영됩니다 (서버 재시작 불필요). 동기화 주기는 다음 회차부터.
+        <span className="cfg-live-badge" title="저장 시 서버가 config를 다시 읽어 메모리 값을 즉시 갱신합니다">
+          ● 저장 즉시 적용 — 재시작 불필요
         </span>
       </div>
-      <div className="card-table">
-        <table>
-          <colgroup>
-            <col style={{ width: "22%" }} />
-            <col style={{ width: "48%" }} />
-            <col style={{ width: "15%" }} />
-            <col style={{ width: "15%" }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>키</th>
-              <th>설명</th>
-              <th>값</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {!rows && (
-              <tr>
-                <td colSpan={4}>불러오는 중...</td>
-              </tr>
-            )}
-            {rows?.map((r) => (
-              <tr key={r.key}>
-                <td title={r.key}>{r.key}</td>
-                <td title={r.description || ""}>{r.description || "-"}</td>
-                <td>
-                  <input
-                    style={{ width: "90%" }}
-                    inputMode="numeric"
-                    value={edited[r.key] ?? r.value}
-                    onChange={(e) =>
-                      setEdited((prev) => ({ ...prev, [r.key]: e.target.value }))
-                    }
-                  />
-                </td>
-                <td>
-                  <button
-                    className="btn btn-sm btn-primary"
-                    disabled={
-                      saving === r.key ||
-                      edited[r.key] === undefined ||
-                      edited[r.key] === r.value
-                    }
-                    onClick={() => save(r.key)}
-                  >
-                    {saving === r.key ? "저장 중..." : "저장"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {!rows && <div className="ad-modal-loading">불러오는 중...</div>}
+      {rows &&
+        categories.map((cat) => (
+          <div key={cat.title} className="cfg-group">
+            <h3 className="cfg-group-title">
+              {cat.title}
+              {cat.hint && <span className="cfg-group-hint">{cat.hint}</span>}
+            </h3>
+            <div className="cfg-grid">
+              {cat.keys.map((key) => {
+                const r = byKey.get(key);
+                if (!r) return null;
+                const dirty = edited[key] !== undefined && edited[key] !== r.value;
+                return (
+                  <div key={key} className={`cfg-card${dirty ? " dirty" : ""}`}>
+                    <div className="cfg-key">{key}</div>
+                    <div className="cfg-desc">{r.description || "-"}</div>
+                    <div className="cfg-row">
+                      <input
+                        inputMode="numeric"
+                        value={edited[key] ?? r.value}
+                        onChange={(e) =>
+                          setEdited((prev) => ({ ...prev, [key]: e.target.value }))
+                        }
+                        onKeyDown={(e) => e.key === "Enter" && dirty && save(key)}
+                      />
+                      <button
+                        className="btn btn-sm btn-primary"
+                        disabled={saving === key || !dirty}
+                        onClick={() => save(key)}
+                      >
+                        {saving === key ? "저장 중..." : "저장"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
     </section>
   );
 }
@@ -837,12 +884,19 @@ function AccessModal({
   onClose: () => void;
   showToast: (msg: string, tone?: "ok" | "err" | "") => void;
 }) {
+  const [tab, setTab] = useState<"users" | "groups">("users");
   const [users, setUsers] = useState<AccessUser[] | null>(null);
+  const [groups, setGroups] = useState<GroupAccess[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setUsers(await adminGetAccess(report.id));
+      const [u, g] = await Promise.all([
+        adminGetAccess(report.id),
+        adminGetGroupAccess(report.id),
+      ]);
+      setUsers(u);
+      setGroups(g);
     } catch {
       setError("권한 목록 조회 실패");
     }
@@ -862,6 +916,16 @@ function AccessModal({
     }
   };
 
+  const setGroupAccess = async (groupId: number, canView: boolean) => {
+    try {
+      await adminSetGroupAccess(report.id, groupId, canView, csrf);
+      showToast(canView ? "그룹에 열람 권한이 부여됐습니다." : "그룹 열람 권한이 해제됐습니다.", "ok");
+      await load();
+    } catch {
+      showToast("오류가 발생했습니다.", "err");
+    }
+  };
+
   return (
     <div className="ad-modal-overlay" onClick={onClose}>
       <div className="ad-modal" onClick={(e) => e.stopPropagation()}>
@@ -871,31 +935,337 @@ function AccessModal({
             ×
           </button>
         </div>
+        <div className="ad-modal-tabs">
+          <button
+            className={`btn btn-sm ${tab === "users" ? "btn-primary" : ""}`}
+            onClick={() => setTab("users")}
+          >
+            사용자 {users ? `(${users.filter((u) => !u.is_admin && u.can_view).length})` : ""}
+          </button>
+          <button
+            className={`btn btn-sm ${tab === "groups" ? "btn-primary" : ""}`}
+            onClick={() => setTab("groups")}
+            style={{ marginLeft: 6 }}
+          >
+            그룹 {groups ? `(${groups.filter((g) => g.can_view).length})` : ""}
+          </button>
+        </div>
         <div className="ad-modal-body">
           {error && <div className="ad-modal-err">{error}</div>}
-          {!error && !users && <div className="ad-modal-loading">불러오는 중...</div>}
-          {users && users.length === 0 && (
-            <div className="ad-modal-loading">사용자가 없습니다.</div>
+          {!error && tab === "users" && !users && (
+            <div className="ad-modal-loading">불러오는 중...</div>
           )}
-          {users?.map((u) => (
+          {tab === "users" &&
+            users?.map((u) => (
+              <div key={u.id} className="ad-access-row">
+                <div className="ad-access-info">
+                  <span className="ad-access-name">{u.display_name}</span>
+                  <span className="ad-access-id">{u.username}</span>
+                  {u.is_admin && <span className="pill admin">관리자</span>}
+                </div>
+                {u.is_admin ? (
+                  <span className="ad-access-always" title="관리자는 권한과 무관하게 모든 보고서를 봅니다">
+                    전체 열람 (권한 불필요)
+                  </span>
+                ) : (
+                  <button
+                    className={`btn btn-sm ${u.can_view ? "btn-danger" : "btn-primary"}`}
+                    onClick={() => setAccess(u.id, !u.can_view)}
+                  >
+                    {u.can_view ? "해제" : "부여"}
+                  </button>
+                )}
+              </div>
+            ))}
+          {tab === "groups" && !error && !groups && (
+            <div className="ad-modal-loading">불러오는 중...</div>
+          )}
+          {tab === "groups" && groups && groups.length === 0 && (
+            <div className="ad-modal-loading">
+              그룹이 없습니다. 관리자 포털 '그룹' 탭에서 먼저 만드세요.
+            </div>
+          )}
+          {tab === "groups" &&
+            groups?.map((g) => (
+              <div key={g.id} className="ad-access-row">
+                <div className="ad-access-info">
+                  <span className="ad-access-name">{g.name}</span>
+                  <span className="ad-access-id">멤버 {g.member_count}명</span>
+                </div>
+                <button
+                  className={`btn btn-sm ${g.can_view ? "btn-danger" : "btn-primary"}`}
+                  onClick={() => setGroupAccess(g.id, !g.can_view)}
+                >
+                  {g.can_view ? "해제" : "부여"}
+                </button>
+              </div>
+            ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UserReportsModal({
+  user,
+  onClose,
+}: {
+  user: AdminUser;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<UserReportRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    adminGetUserReports(user.id)
+      .then(setRows)
+      .catch(() => setError("열람 보고서 조회 실패"));
+  }, [user.id]);
+
+  return (
+    <div className="ad-modal-overlay" onClick={onClose}>
+      <div className="ad-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ad-modal-header">
+          <h3>
+            열람 가능 보고서 — {user.display_name}{" "}
+            <span className="ad-access-id">{user.username}</span>
+          </h3>
+          <button className="ad-modal-close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="ad-modal-body">
+          {error && <div className="ad-modal-err">{error}</div>}
+          {!error && !rows && <div className="ad-modal-loading">불러오는 중...</div>}
+          {rows && rows.length === 0 && (
+            <div className="ad-modal-loading">열람 가능한 보고서가 없습니다.</div>
+          )}
+          {rows?.map((r) => (
+            <div key={r.id} className="ad-access-row">
+              <div className="ad-access-info">
+                <span className="ad-access-name">{r.name}</span>
+                {r.category && <span className="ad-access-id">{r.category}</span>}
+              </div>
+              <div>
+                {r.direct && <span className="pill active">직접</span>}
+                {r.via_groups.map((g) => (
+                  <span key={g} className="pill admin" style={{ marginLeft: 4 }}>
+                    {g}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 그룹 관리 ─────────────────────────────────────────── */
+
+function GroupsSection({
+  csrf,
+  showToast,
+}: {
+  csrf: string;
+  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
+}) {
+  const [groups, setGroups] = useState<AdminGroup[] | null>(null);
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [memberGroup, setMemberGroup] = useState<AdminGroup | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setGroups(await adminGetGroups());
+    } catch {
+      showToast("그룹 목록 조회 실패", "err");
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const create = async () => {
+    if (!name.trim()) return;
+    try {
+      await adminCreateGroup(name.trim(), desc.trim(), csrf);
+      showToast(`'${name.trim()}' 그룹이 생성됐습니다.`, "ok");
+      setName("");
+      setDesc("");
+      await load();
+    } catch (e) {
+      showToast("오류: " + (e as Error).message, "err");
+    }
+  };
+
+  const remove = async (g: AdminGroup) => {
+    if (!confirm(`'${g.name}' 그룹을 삭제할까요?\n멤버·보고서 부여도 함께 해제됩니다 (개별 부여는 유지).`)) return;
+    try {
+      await adminDeleteGroup(g.id, csrf);
+      showToast(`'${g.name}' 그룹이 삭제됐습니다.`, "ok");
+      await load();
+    } catch (e) {
+      showToast("오류: " + (e as Error).message, "err");
+    }
+  };
+
+  return (
+    <section>
+      <div className="ad-section-head">
+        <h2 style={{ marginBottom: 0 }}>그룹 관리</h2>
+        <span className="ad-import-result">
+          팀·부서 단위로 묶어 보고서 권한을 한 번에 부여합니다 (부여는 보고서 탭 → 권한 → 그룹).
+        </span>
+      </div>
+      <div className="ad-section-head" style={{ gap: 8 }}>
+        <input
+          placeholder="그룹 이름 (예: 영업팀)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && create()}
+        />
+        <input
+          placeholder="설명 (선택)"
+          value={desc}
+          onChange={(e) => setDesc(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && create()}
+          style={{ flex: 1 }}
+        />
+        <button className="btn btn-primary" onClick={create} disabled={!name.trim()}>
+          <Plus size={15} className="icn" /> 그룹 추가
+        </button>
+      </div>
+      <div className="card-table">
+        <table>
+          <colgroup>
+            <col style={{ width: "20%" }} />
+            <col style={{ width: "34%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "22%" }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>그룹명</th>
+              <th>설명</th>
+              <th>멤버</th>
+              <th title="이 그룹에 열람 권한이 부여된 보고서 수">보고서</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {!groups && (
+              <tr>
+                <td colSpan={5}>불러오는 중...</td>
+              </tr>
+            )}
+            {groups && groups.length === 0 && (
+              <tr>
+                <td colSpan={5}>그룹이 없습니다. 위에서 첫 그룹을 만들어 보세요.</td>
+              </tr>
+            )}
+            {groups?.map((g) => (
+              <tr key={g.id}>
+                <td title={g.name}>{g.name}</td>
+                <td title={g.description || ""}>{g.description || "-"}</td>
+                <td>{g.member_count}</td>
+                <td>{g.report_count}</td>
+                <td>
+                  <button className="btn btn-sm" onClick={() => setMemberGroup(g)}>
+                    멤버 관리
+                  </button>
+                  <button
+                    className="btn btn-sm btn-danger"
+                    style={{ marginLeft: 6 }}
+                    onClick={() => remove(g)}
+                  >
+                    삭제
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {memberGroup && (
+        <GroupMembersModal
+          group={memberGroup}
+          csrf={csrf}
+          showToast={showToast}
+          onClose={() => {
+            setMemberGroup(null);
+            load(); // 멤버 수 갱신
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function GroupMembersModal({
+  group,
+  csrf,
+  onClose,
+  showToast,
+}: {
+  group: AdminGroup;
+  csrf: string;
+  onClose: () => void;
+  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
+}) {
+  const [members, setMembers] = useState<GroupMember[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setMembers(await adminGetGroupMembers(group.id));
+    } catch {
+      setError("멤버 목록 조회 실패");
+    }
+  }, [group.id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const setMember = async (userId: number, member: boolean) => {
+    try {
+      await adminSetGroupMember(group.id, userId, member, csrf);
+      showToast(member ? "멤버로 추가됐습니다." : "멤버에서 제외됐습니다.", "ok");
+      await load();
+    } catch {
+      showToast("오류가 발생했습니다.", "err");
+    }
+  };
+
+  return (
+    <div className="ad-modal-overlay" onClick={onClose}>
+      <div className="ad-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ad-modal-header">
+          <h3>멤버 관리 — {group.name}</h3>
+          <button className="ad-modal-close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="ad-modal-body">
+          {error && <div className="ad-modal-err">{error}</div>}
+          {!error && !members && <div className="ad-modal-loading">불러오는 중...</div>}
+          {members?.map((u) => (
             <div key={u.id} className="ad-access-row">
               <div className="ad-access-info">
                 <span className="ad-access-name">{u.display_name}</span>
                 <span className="ad-access-id">{u.username}</span>
                 {u.is_admin && <span className="pill admin">관리자</span>}
               </div>
-              {u.is_admin ? (
-                <span className="ad-access-always" title="관리자는 권한과 무관하게 모든 보고서를 봅니다">
-                  전체 열람 (권한 불필요)
-                </span>
-              ) : (
-                <button
-                  className={`btn btn-sm ${u.can_view ? "btn-danger" : "btn-primary"}`}
-                  onClick={() => setAccess(u.id, !u.can_view)}
-                >
-                  {u.can_view ? "해제" : "부여"}
-                </button>
-              )}
+              <button
+                className={`btn btn-sm ${u.is_member ? "btn-danger" : "btn-primary"}`}
+                onClick={() => setMember(u.id, !u.is_member)}
+              >
+                {u.is_member ? "제외" : "추가"}
+              </button>
             </div>
           ))}
         </div>

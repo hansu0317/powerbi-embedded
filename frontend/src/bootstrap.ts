@@ -56,6 +56,7 @@ export interface AdminReport {
   owner_username: string | null;
   category: string | null;
   viewer_count: number;
+  group_count: number;
   pbi_dataset_id: string | null;
   created_at: string | null;
 }

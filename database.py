@@ -140,19 +140,24 @@ def db_get_user(username: str):
 # ── 보고서 ────────────────────────────────────────────────────────────────────
 
 def db_get_reports(username: str) -> list:
+    """사용자가 열람 가능한 보고서 목록 — 직접 부여 + 그룹 부여 합집합."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id, r.category,
                           owner.username AS owner_username,
                           s.preview_image_url, s.tab_type
-                   FROM user_reports ur
-                   JOIN reports r     ON r.id = ur.report_id
+                   FROM reports r
                    JOIN report_meta m ON m.report_id = r.id
                    LEFT JOIN report_settings s ON s.report_id = r.id
                    LEFT JOIN users owner ON owner.id = r.owner_id
-                   JOIN users   u ON u.id = ur.user_id
-                   WHERE u.username = %s AND ur.can_view = TRUE AND r.status = 'active'
+                   JOIN users u ON u.username = %s
+                   WHERE r.status = 'active' AND (
+                       EXISTS (SELECT 1 FROM user_reports ur
+                               WHERE ur.user_id = u.id AND ur.report_id = r.id AND ur.can_view)
+                    OR EXISTS (SELECT 1 FROM user_groups ug
+                               JOIN group_reports gr ON gr.group_id = ug.group_id
+                               WHERE ug.user_id = u.id AND gr.report_id = r.id AND gr.can_view))
                    ORDER BY r.category NULLS LAST, r.name""",
                 (username,),
             )
@@ -270,16 +275,21 @@ def db_hard_delete_report(report_id: int) -> bool:
 
 
 def db_can_view_report(username: str, report_id: int) -> bool:
-    """사용자가 해당 보고서를 열람할 수 있는지 단건 조회."""
+    """사용자가 해당 보고서를 열람할 수 있는지 단건 조회.
+
+    열람 가능 = 직접 부여(user_reports) OR 소속 그룹에 부여(group_reports)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT 1 FROM user_reports ur
-                   JOIN reports r ON r.id = ur.report_id
-                   JOIN users   u ON u.id = ur.user_id
-                   WHERE u.username = %s AND ur.report_id = %s
-                     AND ur.can_view = TRUE AND r.status = 'active'""",
-                (username, report_id),
+                """SELECT 1 FROM users u
+                   JOIN reports r ON r.id = %s AND r.status = 'active'
+                   WHERE u.username = %s AND (
+                       EXISTS (SELECT 1 FROM user_reports ur
+                               WHERE ur.user_id = u.id AND ur.report_id = r.id AND ur.can_view)
+                    OR EXISTS (SELECT 1 FROM user_groups ug
+                               JOIN group_reports gr ON gr.group_id = ug.group_id
+                               WHERE ug.user_id = u.id AND gr.report_id = r.id AND gr.can_view))""",
+                (report_id, username),
             )
             return cur.fetchone() is not None
 
@@ -604,15 +614,48 @@ def db_admin_get_stats() -> dict:
 
 
 def db_admin_get_users() -> list:
+    """사용자 목록 + 열람 가능 보고서 수 (직접 부여 + 그룹 경유, active만)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT u.id, u.username, u.display_name, u.pbi_username, u.roles,
                           u.is_admin, u.is_active, u.last_login_at, u.created_at,
-                          COUNT(DISTINCT ur.report_id) AS report_count
-                   FROM users u
-                   LEFT JOIN user_reports ur ON ur.user_id = u.id
-                   GROUP BY u.id ORDER BY u.id"""
+                          (SELECT COUNT(*) FROM reports r
+                           WHERE r.status = 'active' AND (
+                               EXISTS (SELECT 1 FROM user_reports ur
+                                       WHERE ur.user_id = u.id AND ur.report_id = r.id AND ur.can_view)
+                            OR EXISTS (SELECT 1 FROM user_groups ug
+                                       JOIN group_reports gr ON gr.group_id = ug.group_id
+                                       WHERE ug.user_id = u.id AND gr.report_id = r.id AND gr.can_view))
+                          ) AS report_count
+                   FROM users u ORDER BY u.id"""
+            )
+            return cur.fetchall()
+
+
+def db_get_user_report_list(user_id: int) -> list:
+    """사용자가 열람 가능한 보고서 목록 + 경로(직접 부여 여부, 경유 그룹명들).
+
+    관리자 포털 사용자 화면의 '보고서 N' 클릭 팝업용."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT r.id, r.name, r.category,
+                          (ur.user_id IS NOT NULL) AS direct,
+                          COALESCE(ARRAY_AGG(DISTINCT g.name)
+                                   FILTER (WHERE g.name IS NOT NULL), '{}') AS via_groups
+                   FROM reports r
+                   LEFT JOIN user_reports ur
+                          ON ur.report_id = r.id AND ur.user_id = %s AND ur.can_view
+                   LEFT JOIN user_groups ug ON ug.user_id = %s
+                   LEFT JOIN group_reports gr
+                          ON gr.group_id = ug.group_id AND gr.report_id = r.id AND gr.can_view
+                   LEFT JOIN groups g ON g.id = gr.group_id
+                   WHERE r.status = 'active'
+                     AND (ur.user_id IS NOT NULL OR gr.group_id IS NOT NULL)
+                   GROUP BY r.id, r.name, r.category, ur.user_id
+                   ORDER BY r.category NULLS LAST, r.name""",
+                (user_id, user_id),
             )
             return cur.fetchall()
 
@@ -652,7 +695,9 @@ def db_admin_get_reports() -> list:
                           u.username AS owner_username,
                           m.pbi_report_id, m.pbi_display_name, m.pbi_dataset_id,
                           COALESCE(m.pbi_workspace_id, %s) AS pbi_workspace_id,
-                          COUNT(ur.user_id) FILTER (WHERE NOT vu.is_admin) AS viewer_count
+                          COUNT(ur.user_id) FILTER (WHERE NOT vu.is_admin) AS viewer_count,
+                          (SELECT COUNT(*) FROM group_reports gr
+                           WHERE gr.report_id = r.id AND gr.can_view) AS group_count
                    FROM reports r
                    LEFT JOIN users u ON u.id = r.owner_id
                    LEFT JOIN report_meta m ON m.report_id = r.id
@@ -811,6 +856,112 @@ def db_get_app_config() -> list:
         with conn.cursor() as cur:
             cur.execute("SELECT key, value, description, updated_at FROM app_config ORDER BY key")
             return cur.fetchall()
+
+
+# ── 그룹 (팀/부서 단위 권한) ─────────────────────────────────────────────────
+
+def db_admin_get_groups() -> list:
+    """그룹 목록 + 멤버 수 + 부여된 보고서 수."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT g.id, g.name, g.description, g.created_at,
+                          (SELECT COUNT(*) FROM user_groups ug WHERE ug.group_id = g.id) AS member_count,
+                          (SELECT COUNT(*) FROM group_reports gr
+                           WHERE gr.group_id = g.id AND gr.can_view) AS report_count
+                   FROM groups g ORDER BY g.name"""
+            )
+            return cur.fetchall()
+
+
+def db_admin_create_group(name: str, description: str, actor_id: int) -> int:
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO groups (name, description, created_by) VALUES (%s, %s, %s) RETURNING id",
+                (name, description or None, actor_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return row["id"]
+
+
+def db_admin_delete_group(group_id: int) -> bool:
+    """그룹 삭제 — 멤버·보고서 부여는 CASCADE로 함께 제거된다 (개별 부여는 무관)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM groups WHERE id = %s", (group_id,))
+            deleted = cur.rowcount > 0
+        conn.commit()
+    return deleted
+
+
+def db_get_group_members(group_id: int) -> list:
+    """활성 사용자 전체 + 이 그룹 소속 여부 (그룹 멤버 편집 모달용)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT u.id, u.username, u.display_name, u.is_admin,
+                          (ug.user_id IS NOT NULL) AS is_member
+                   FROM users u
+                   LEFT JOIN user_groups ug ON ug.user_id = u.id AND ug.group_id = %s
+                   WHERE u.is_active = TRUE
+                   ORDER BY u.is_admin DESC, u.username""",
+                (group_id,),
+            )
+            return cur.fetchall()
+
+
+def db_set_group_member(group_id: int, user_id: int, member: bool, added_by: int) -> None:
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            if member:
+                cur.execute(
+                    """INSERT INTO user_groups (user_id, group_id, added_by) VALUES (%s, %s, %s)
+                       ON CONFLICT (user_id, group_id) DO NOTHING""",
+                    (user_id, group_id, added_by),
+                )
+            else:
+                cur.execute(
+                    "DELETE FROM user_groups WHERE user_id = %s AND group_id = %s",
+                    (user_id, group_id),
+                )
+        conn.commit()
+
+
+def db_get_report_group_access(report_id: int) -> list:
+    """그룹 전체 + 이 보고서 부여 여부 (권한 모달 '그룹' 탭용)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT g.id, g.name,
+                          (SELECT COUNT(*) FROM user_groups ug WHERE ug.group_id = g.id) AS member_count,
+                          COALESCE(gr.can_view, FALSE) AS can_view
+                   FROM groups g
+                   LEFT JOIN group_reports gr ON gr.group_id = g.id AND gr.report_id = %s
+                   ORDER BY g.name""",
+                (report_id,),
+            )
+            return cur.fetchall()
+
+
+def db_set_report_group_access(report_id: int, group_id: int, can_view: bool, granted_by: int) -> None:
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            if can_view:
+                cur.execute(
+                    """INSERT INTO group_reports (group_id, report_id, can_view, granted_by)
+                       VALUES (%s, %s, TRUE, %s)
+                       ON CONFLICT (group_id, report_id) DO UPDATE
+                       SET can_view = TRUE, granted_by = EXCLUDED.granted_by""",
+                    (group_id, report_id, granted_by),
+                )
+            else:
+                cur.execute(
+                    "DELETE FROM group_reports WHERE group_id = %s AND report_id = %s",
+                    (group_id, report_id),
+                )
+        conn.commit()
 
 
 def db_update_app_config(key: str, value: str) -> bool:

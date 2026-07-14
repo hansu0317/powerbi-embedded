@@ -231,3 +231,74 @@
 @media (max-width: 560px) {
   .ad-form-grid { grid-template-columns: 1fr; }
 }
+
+/* ── 권한 모달 탭 (사용자/그룹) ── */
+.ad-modal-tabs {
+  display: flex;
+  padding: 10px 22px 0;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+/* ── 런타임 설정 (카드 그리드) ── */
+.cfg-live-badge {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--sage-deep);
+  background: #eef4e8;
+  border: 1px solid #d8e4cc;
+  border-radius: 999px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+.cfg-group { margin-bottom: 18px; }
+.cfg-group-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0 0 8px 2px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.cfg-group-hint { font-size: 0.72rem; font-weight: 400; color: var(--muted); }
+.cfg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px;
+}
+.cfg-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cfg-card:hover { box-shadow: 0 2px 8px rgba(60, 80, 50, 0.06); }
+.cfg-card.dirty { border-color: var(--sage-deep); box-shadow: 0 0 0 2px #dfe9d4; }
+.cfg-key {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--sage-deep);
+}
+.cfg-desc {
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.45;
+  min-height: 2.2em;
+}
+.cfg-row { display: flex; gap: 8px; align-items: center; }
+.cfg-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.86rem;
+  text-align: right;
+}
+.cfg-row input:focus { outline: none; border-color: var(--sage-deep); }

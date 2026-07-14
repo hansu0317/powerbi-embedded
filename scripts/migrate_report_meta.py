@@ -380,12 +380,55 @@ def _v1_baseline(cur):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# v2 — 그룹 단위 열람 권한 (2026-07)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _v2_groups(cur):
+    """팀/부서 단위 권한 부여: groups + user_groups(멤버) + group_reports(그룹×보고서).
+
+    사용자의 열람 가능 = user_reports(직접 부여) OR 소속 그룹의 group_reports.
+    entra_group_id는 추후 Entra(AD) 보안 그룹 동기화용 예약 컬럼."""
+    cur.execute(
+        """CREATE TABLE groups (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(50) NOT NULL UNIQUE,
+            description TEXT,
+            entra_group_id VARCHAR(36),
+            created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE user_groups (
+            user_id  INTEGER NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            added_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, group_id)
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE group_reports (
+            group_id  INTEGER NOT NULL REFERENCES groups(id)  ON DELETE CASCADE,
+            report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+            can_view BOOLEAN NOT NULL DEFAULT TRUE,
+            granted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (group_id, report_id)
+        )"""
+    )
+    # 역방향 조회용: 그룹의 멤버 목록 / 보고서에 부여된 그룹 목록
+    cur.execute("CREATE INDEX user_groups_group_idx ON user_groups (group_id)")
+    cur.execute("CREATE INDEX group_reports_report_idx ON group_reports (report_id)")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 버전 레지스트리 — 새 스키마 변경은 여기에 (버전, 함수)로 추가한다
 # ═══════════════════════════════════════════════════════════════════════════
 
 MIGRATIONS = [
     (1, _v1_baseline),
-    # (2, _v2_xxx),   # ← 다음 변경 (예: RLS 관리 UI용 스키마)
+    (2, _v2_groups),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

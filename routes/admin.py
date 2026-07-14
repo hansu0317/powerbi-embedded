@@ -19,6 +19,10 @@ from database import (
     db_get_report, db_get_report_access, db_set_report_access,
     db_get_synced_reports, db_hard_delete_report, db_get_pbi_report_map,
     db_count_other_reports_using_dataset, db_get_app_config, db_update_app_config,
+    db_admin_get_groups, db_admin_create_group, db_admin_delete_group,
+    db_get_group_members, db_set_group_member,
+    db_get_report_group_access, db_set_report_group_access,
+    db_get_user_report_list,
 )
 from deps import current_user, csrf_token, verify_csrf, require_admin
 from errors import AppError
@@ -56,6 +60,108 @@ async def admin_page(request: Request):
         "reports": reports, "jobs": jobs,
         "csrf_token": csrf_token(request),
     })
+
+
+@router.get("/api/admin/users/{user_id}/reports")
+async def api_admin_get_user_reports(request: Request, user_id: int):
+    """사용자가 열람 가능한 보고서 목록 (직접/그룹 경로 포함) — '보고서 N' 클릭 팝업."""
+    user = await current_user(request)
+    require_admin(user)
+    reports = await asyncio.to_thread(db_get_user_report_list, user_id)
+    return {"reports": reports}
+
+
+# ── 그룹 (팀/부서 단위 권한) ─────────────────────────────────────────────────
+
+@router.get("/api/admin/groups")
+async def api_admin_get_groups(request: Request):
+    """그룹 목록 (멤버 수·부여 보고서 수 포함)."""
+    user = await current_user(request)
+    require_admin(user)
+    return {"groups": await asyncio.to_thread(db_admin_get_groups)}
+
+
+@router.post("/api/admin/groups")
+async def api_admin_create_group(request: Request):
+    """그룹 생성. body: {name, description?}"""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    require_admin(user)
+    body = await request.json()
+    name = str(body.get("name", "")).strip()
+    if not name or len(name) > 50:
+        raise AppError.GROUP_NAME_INVALID.http()
+    try:
+        group_id = await asyncio.to_thread(
+            db_admin_create_group, name, str(body.get("description", "")).strip(), user["id"],
+        )
+    except psycopg2.errors.UniqueViolation:
+        raise AppError.GROUP_ALREADY_EXISTS.http(name=name)
+    logger.info("ADMIN ADD GROUP | admin=%s | group=%s | id=%s", user["username"], name, group_id)
+    return {"id": group_id, "name": name}
+
+
+@router.post("/api/admin/groups/{group_id}/delete")
+async def api_admin_delete_group(request: Request, group_id: int):
+    """그룹 삭제 — 멤버·보고서 부여도 함께 제거(개별 부여는 영향 없음)."""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    require_admin(user)
+    deleted = await asyncio.to_thread(db_admin_delete_group, group_id)
+    if not deleted:
+        raise AppError.GROUP_NOT_FOUND.http()
+    logger.info("ADMIN DEL GROUP | admin=%s | group_id=%s", user["username"], group_id)
+    return {"deleted": True}
+
+
+@router.get("/api/admin/groups/{group_id}/members")
+async def api_admin_get_group_members(request: Request, group_id: int):
+    """활성 사용자 전체 + 소속 여부 (멤버 편집 모달)."""
+    user = await current_user(request)
+    require_admin(user)
+    return {"members": await asyncio.to_thread(db_get_group_members, group_id)}
+
+
+@router.post("/api/admin/groups/{group_id}/members/{user_id}")
+async def api_admin_set_group_member(request: Request, group_id: int, user_id: int):
+    """그룹 멤버 추가/제거. body: {member: bool}"""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    require_admin(user)
+    body = await request.json()
+    member = bool(body.get("member", False))
+    try:
+        await asyncio.to_thread(db_set_group_member, group_id, user_id, member, user["id"])
+    except psycopg2.errors.ForeignKeyViolation:
+        raise AppError.GROUP_NOT_FOUND.http()
+    return {"group_id": group_id, "user_id": user_id, "member": member}
+
+
+@router.get("/api/admin/reports/{report_id}/group-access")
+async def api_admin_get_group_access(request: Request, report_id: int):
+    """보고서에 부여된 그룹 현황 (권한 모달 '그룹' 탭)."""
+    user = await current_user(request)
+    require_admin(user)
+    return {"groups": await asyncio.to_thread(db_get_report_group_access, report_id)}
+
+
+@router.post("/api/admin/reports/{report_id}/group-access/{group_id}")
+async def api_admin_set_group_access(request: Request, report_id: int, group_id: int):
+    """보고서×그룹 열람 권한 부여/해제. body: {can_view: bool}"""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    require_admin(user)
+    body = await request.json()
+    can_view = bool(body.get("can_view", False))
+    try:
+        await asyncio.to_thread(db_set_report_group_access, report_id, group_id, can_view, user["id"])
+    except psycopg2.errors.ForeignKeyViolation:
+        raise AppError.GROUP_NOT_FOUND.http()
+    logger.info(
+        "ADMIN GROUP ACCESS | admin=%s | report_id=%s | group_id=%s | can_view=%s",
+        user["username"], report_id, group_id, can_view,
+    )
+    return {"report_id": report_id, "group_id": group_id, "can_view": can_view}
 
 
 # 설정 키별 허용 범위 — 관리자 실수로 서비스를 마비시키는 값(0 한도, 폴링 폭주 등)을 차단한다.
