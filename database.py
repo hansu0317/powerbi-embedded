@@ -440,8 +440,10 @@ def db_register_report(
     pbi_display_name: str | None = None,
     category: str | None = None,
 ):
-    """업로드된 보고서를 등록하고 소유자와 관리자에게 열람 권한을 부여한다.
+    """업로드된 보고서를 등록하고 소유자에게 열람 권한을 부여한다.
 
+    관리자는 권한 확인을 우회(is_admin)하므로 user_reports 행을 만들지 않는다 —
+    만들면 '열람권한' 수만 부풀린다.
     category는 Fabric 폴더 경로(개인 보고서는 업로더 username)로 전달하면 사이드바 폴더 트리에 반영된다.
     """
     with db_conn() as conn:
@@ -494,12 +496,6 @@ def db_register_report(
                    VALUES (%s, %s, TRUE, TRUE, TRUE, %s)
                    ON CONFLICT (user_id, report_id) DO UPDATE SET can_view=TRUE, can_edit=TRUE, can_manage=TRUE""",
                 (owner_id, report_id, owner_id),
-            )
-            cur.execute(
-                """INSERT INTO user_reports (user_id, report_id, can_view, can_edit, can_manage, granted_by)
-                   SELECT id, %s, TRUE, TRUE, TRUE, %s FROM users WHERE is_admin=TRUE AND id<>%s
-                   ON CONFLICT (user_id, report_id) DO UPDATE SET can_view=TRUE, can_edit=TRUE, can_manage=TRUE""",
-                (report_id, owner_id, owner_id),
             )
             cur.execute(
                 """INSERT INTO report_audit_log (report_id, actor_user_id, action, details)
@@ -656,11 +652,12 @@ def db_admin_get_reports() -> list:
                           u.username AS owner_username,
                           m.pbi_report_id, m.pbi_display_name, m.pbi_dataset_id,
                           COALESCE(m.pbi_workspace_id, %s) AS pbi_workspace_id,
-                          COUNT(ur.user_id) AS viewer_count
+                          COUNT(ur.user_id) FILTER (WHERE NOT vu.is_admin) AS viewer_count
                    FROM reports r
                    LEFT JOIN users u ON u.id = r.owner_id
                    LEFT JOIN report_meta m ON m.report_id = r.id
                    LEFT JOIN user_reports ur ON ur.report_id = r.id AND ur.can_view = TRUE
+                   LEFT JOIN users vu ON vu.id = ur.user_id
                    WHERE r.status <> 'deleted'
                    GROUP BY r.id, u.username, m.pbi_report_id, m.pbi_display_name, m.pbi_dataset_id, m.pbi_workspace_id
                    ORDER BY r.id""",
