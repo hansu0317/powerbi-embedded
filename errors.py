@@ -48,6 +48,7 @@ class AppError(Enum):
     PASSWORD_TOO_SHORT   = (400, "PASSWORD_TOO_SHORT",    "비밀번호는 {min}자 이상이어야 합니다.")
     CONFIG_VALUE_INVALID = (400, "CONFIG_VALUE_INVALID",  "설정 값은 정수여야 합니다: '{value}'")
     CONFIG_KEY_UNKNOWN   = (400, "CONFIG_KEY_UNKNOWN",    "알 수 없는 설정 키입니다: '{key}'")
+    CONFIG_VALUE_OUT_OF_RANGE = (400, "CONFIG_VALUE_OUT_OF_RANGE", "'{key}' 값은 {min}~{max} 범위여야 합니다.")
 
     # ── 외부 서비스 오류 ──────────────────────────────────────────────────────
     TOKEN_FAILED         = (500, "TOKEN_FAILED",          "Azure AD 토큰 발급 실패: {detail}")

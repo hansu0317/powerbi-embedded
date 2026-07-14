@@ -7,7 +7,8 @@ from pathlib import Path
 
 import httpx
 import psycopg2
-from fastapi import APIRouter, File, Form, UploadFile
+import psycopg2.errors
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.requests import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -19,6 +20,7 @@ from database import (
     db_reserve_upload, db_update_upload_job, db_get_upload_job, db_register_report,
     db_health_check,
     db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
+    db_fail_stuck_upload_job,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError
@@ -51,6 +53,17 @@ async def index(request: Request):
     })
 
 
+async def _require_viewable_report(user: dict, report_id: int):
+    """열람 권한이 없거나 존재하지 않는 보고서 ID를 걸러낸다 (임베드와 동일 정책).
+
+    권한 없음과 존재하지 않음을 같은 404로 응답해 보고서 존재 여부를 노출하지 않는다.
+    관리자는 권한 확인을 건너뛰지만 없는 ID는 FK 위반을 404로 변환해 걸러진다."""
+    if not user.get("is_admin") and not await asyncio.to_thread(
+        db_can_view_report, user["username"], report_id
+    ):
+        raise AppError.REPORT_NOT_FOUND.http()
+
+
 @router.post("/api/favorites/{report_id}")
 async def api_set_favorite(request: Request, report_id: int):
     """즐겨찾기 추가/해제. body: {"favorite": true|false}"""
@@ -58,9 +71,13 @@ async def api_set_favorite(request: Request, report_id: int):
     user = await current_user(request)
     if not user:
         raise AppError.NOT_AUTHENTICATED.http()
+    await _require_viewable_report(user, report_id)
     body = await request.json()
     on = bool(body.get("favorite", False))
-    await asyncio.to_thread(db_set_favorite, user["id"], report_id, on)
+    try:
+        await asyncio.to_thread(db_set_favorite, user["id"], report_id, on)
+    except psycopg2.errors.ForeignKeyViolation:
+        raise AppError.REPORT_NOT_FOUND.http()
     return {"report_id": report_id, "favorite": on}
 
 
@@ -71,7 +88,11 @@ async def api_add_recent(request: Request, report_id: int):
     user = await current_user(request)
     if not user:
         raise AppError.NOT_AUTHENTICATED.http()
-    await asyncio.to_thread(db_add_recent, user["id"], report_id)
+    await _require_viewable_report(user, report_id)
+    try:
+        await asyncio.to_thread(db_add_recent, user["id"], report_id)
+    except psycopg2.errors.ForeignKeyViolation:
+        raise AppError.REPORT_NOT_FOUND.http()
     return {"report_id": report_id, "status": "ok"}
 
 
@@ -195,7 +216,27 @@ async def _rename_with_retry(
 
 
 async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str):
-    """백그라운드 태스크: 파일 검증·예약은 호출자(api_upload)에서 완료된 상태로 진입."""
+    """백그라운드 태스크 진입점 — 어떤 예외도 잡을 '진행 중' 상태로 남기지 않는다.
+
+    알려진 실패는 _run_upload 각 지점이 잡 상태(failed/conflict/unknown 등)를 기록한 뒤
+    HTTPException으로 탈출한다. 그 밖의 예상 밖 예외가 새면 잡이 publishing/accepted로
+    남아 서버 재시작 전까지 같은 이름 재업로드가 409로 막히므로, 여기서 failed 처리한다."""
+    try:
+        await _run_upload(user, name, pbix_bytes, file_size, job_id, ip)
+    except HTTPException:
+        pass  # 알려진 실패 — 잡 상태는 발생 지점에서 이미 기록됨
+    except Exception:
+        logger.exception("UPLOAD UNEXPECTED | user=%s | report=%s | job_id=%s", user["username"], name, job_id)
+        try:
+            marked = await asyncio.to_thread(db_fail_stuck_upload_job, job_id)
+            if marked:
+                logger.warning("UPLOAD STUCK→FAILED | job_id=%s", job_id)
+        except Exception:
+            logger.exception("UPLOAD STUCK MARK FAIL | job_id=%s", job_id)
+
+
+async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str):
+    """실제 게시 파이프라인: 파일 검증·예약은 호출자(api_upload)에서 완료된 상태로 진입."""
     logger.info("UPLOAD START | user=%-12s | ip=%s | report=%s | bytes=%s", user["username"], ip, name, file_size)
 
     try:

@@ -58,6 +58,25 @@ async def admin_page(request: Request):
     })
 
 
+# 설정 키별 허용 범위 — 관리자 실수로 서비스를 마비시키는 값(0 한도, 폴링 폭주 등)을 차단한다.
+# 키 추가 시 여기와 마이그레이션 시드에 함께 등록할 것.
+CONFIG_LIMITS = {
+    "max_pbix_size_mb":           (1, 1024),   # PBI Import API 자체 한도 1GB
+    "max_uploads_per_day":        (1, 100),
+    "max_personal_reports":       (1, 200),
+    "report_name_max_len":        (10, 100),
+    "password_min_len":           (4, 64),
+    "pbi_sync_interval":          (0, 86400),  # 0 = 자동 동기화 끔
+    "login_block_max_fail":       (1, 100),
+    "login_block_minutes":        (1, 1440),
+    "import_poll_max":            (10, 1000),
+    "import_poll_interval_sec":   (1, 60),
+    "embed_token_lifetime_min":   (5, 60),
+    "pbi_token_cache_margin_sec": (0, 3600),
+    "max_embed_rls_roles":        (1, 50),
+}
+
+
 @router.get("/api/admin/config")
 async def api_admin_get_config(request: Request):
     """런타임 설정(app_config) 목록."""
@@ -77,10 +96,15 @@ async def api_admin_set_config(request: Request):
     require_admin(user)
     body = await request.json()
     key, value = str(body.get("key", "")), str(body.get("value", "")).strip()
+    if key not in CONFIG_LIMITS:
+        raise AppError.CONFIG_KEY_UNKNOWN.http(key=key)
     try:
-        int(value)
+        num = int(value)
     except ValueError:
         raise AppError.CONFIG_VALUE_INVALID.http(value=value)
+    lo, hi = CONFIG_LIMITS[key]
+    if not (lo <= num <= hi):
+        raise AppError.CONFIG_VALUE_OUT_OF_RANGE.http(key=key, min=lo, max=hi)
     updated = await asyncio.to_thread(db_update_app_config, key, value)
     if not updated:
         raise AppError.CONFIG_KEY_UNKNOWN.http(key=key)

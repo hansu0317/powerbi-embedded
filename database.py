@@ -366,6 +366,25 @@ def db_count_other_reports_using_dataset(pbi_dataset_id: str, exclude_report_id:
             return cur.fetchone()["count"]
 
 
+def db_fail_stuck_upload_job(job_id: int) -> bool:
+    """예상 밖 예외로 중단된 업로드 잡을 실패 처리한다 (업로드 태스크의 최후 방어선).
+
+    publishing·accepted만 대상 — 그 외 상태(failed/conflict/unknown/pbi_succeeded/
+    db_failed)는 각 실패 지점에서 이미 기록됐거나 재시작 복구 대상이므로 덮지 않는다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE upload_jobs
+                   SET status = 'failed', updated_at = NOW(),
+                       error_message = '예상치 못한 오류로 업로드가 중단되었습니다. 다시 시도해 주세요.'
+                   WHERE id = %s AND status IN ('publishing', 'accepted')""",
+                (job_id,),
+            )
+            updated = cur.rowcount > 0
+        conn.commit()
+    return updated
+
+
 def db_fail_stale_publishing_jobs() -> int:
     """서버 시작 시 고아가 된 'publishing' 잡을 실패 처리한다.
 
