@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import type { ReportData, ReportItem } from "../bootstrap";
-import { fetchEmbed, fetchUploadStatus } from "../api";
+import { fetchEmbed, fetchUploadStatus, logout } from "../api";
 import { useFavorites } from "../useFavorites";
 import { useRecents } from "../useRecents";
 import { Pager, useFitRows } from "../Pager";
@@ -147,13 +147,16 @@ export default function ReportPage({ data }: { data: ReportData }) {
               관리자 포털
             </a>
           )}
-          <a
-            href="/logout"
+          <button
             className="topbar-btn primary"
-            onClick={() => sessionStorage.clear()}
+            onClick={async () => {
+              sessionStorage.clear();
+              await logout(csrf_token);
+              window.location.href = "/login";
+            }}
           >
             로그아웃
-          </a>
+          </button>
         </div>
       </header>
 

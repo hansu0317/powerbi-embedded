@@ -769,7 +769,7 @@ openTabs[name].panelEl.remove();
         <tr><td><span class="badge badge-blue">GET</span></td><td><code>/</code></td><td>메인 SPA 화면 (보고서 뷰어)</td><td>필요 → /login 리디렉션</td></tr>
         <tr><td><span class="badge badge-blue">GET</span></td><td><code>/login</code></td><td>로그인 페이지</td><td>불필요</td></tr>
         <tr><td><span class="badge badge-ok">POST</span></td><td><code>/login</code></td><td>로그인 처리 (form: username, password)</td><td>불필요</td></tr>
-        <tr><td><span class="badge badge-blue">GET</span></td><td><code>/logout</code></td><td>로그아웃 → /login 이동</td><td>불필요</td></tr>
+        <tr><td><span class="badge badge-ok">POST</span></td><td><code>/logout</code></td><td>로그아웃 → /login 이동 (CSRF 필요)</td><td>불필요</td></tr>
         <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/embed/{name}</code></td><td>Embed Token JSON 발급 (AJAX 전용)</td><td>필요 + 보고서 권한</td></tr>
         <tr><td><span class="badge badge-blue">GET</span></td><td><code>/docs</code></td><td>이 문서 페이지</td><td>불필요</td></tr>
       </tbody>

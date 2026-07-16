@@ -60,8 +60,9 @@ async def login(request: Request, username: str = Form(), password: str = Form()
     return RedirectResponse("/", status_code=303)
 
 
-@router.get("/logout")
+@router.post("/logout")
 async def logout(request: Request):
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     user = await current_user(request)
     if user:
         logger.info("LOGOUT     | user=%-12s | ip=%s", user["username"], get_client_ip(request))

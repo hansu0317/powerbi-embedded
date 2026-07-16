@@ -45,6 +45,7 @@ import {
   adminSetGroupMember,
   adminSyncStatus,
   adminToggleUser,
+  logout,
 } from "../api";
 import { Pager, usePaged, useFitRows } from "../Pager";
 
@@ -137,9 +138,15 @@ export default function AdminPage({ data }: { data: AdminData }) {
           <a href="/" className="topbar-btn">
             보고서 뷰어
           </a>
-          <a href="/logout" className="topbar-btn primary">
+          <button
+            className="topbar-btn primary"
+            onClick={async () => {
+              await logout(csrf_token);
+              window.location.href = "/login";
+            }}
+          >
             로그아웃
-          </a>
+          </button>
         </div>
       </header>
 

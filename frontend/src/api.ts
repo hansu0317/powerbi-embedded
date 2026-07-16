@@ -83,6 +83,15 @@ export async function recordRecent(reportId: number, csrf: string) {
   });
 }
 
+// ── 인증 ──────────────────────────────────────────────────────────────────────
+
+export async function logout(csrf: string) {
+  await fetch("/logout", {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf },
+  });
+}
+
 // ── 관리자 API ────────────────────────────────────────────────────────────────
 
 export interface SyncStatus {

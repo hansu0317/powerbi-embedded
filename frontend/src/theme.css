@@ -181,6 +181,7 @@ body {
   padding: 7px 15px;
   border-radius: 7px;
   cursor: pointer;
+  font-family: inherit;
   font-size: 0.82rem;
   font-weight: 600;
   text-decoration: none;
