@@ -470,6 +470,36 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** 모달 공통 뼈대: 오버레이(바깥 클릭 닫기) + 헤더(제목·× 버튼). 본문·푸터는 children으로 받는다. */
+function Modal({
+  title,
+  wide,
+  onClose,
+  children,
+}: {
+  title: React.ReactNode;
+  wide?: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="ad-modal-overlay" onClick={onClose}>
+      <div
+        className={`ad-modal${wide ? " ad-modal-wide" : ""}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="ad-modal-header">
+          <h3>{title}</h3>
+          <button className="ad-modal-close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function AddUserModal({
   csrf,
   onClose,
@@ -495,18 +525,8 @@ function AddUserModal({
   };
 
   return (
-    <div className="ad-modal-overlay" onClick={onClose}>
-      <div
-        className="ad-modal ad-modal-wide"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="ad-modal-header">
-          <h3>새 사용자 추가</h3>
-          <button className="ad-modal-close" onClick={onClose}>
-            ×
-          </button>
-        </div>
-        <form onSubmit={submit}>
+    <Modal title="새 사용자 추가" wide onClose={onClose}>
+      <form onSubmit={submit}>
           <div className="ad-modal-body">
             <input type="hidden" name="csrf" value={csrf} />
             <div className="ad-form-grid">
@@ -542,8 +562,7 @@ function AddUserModal({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -934,14 +953,7 @@ function AccessModal({
   };
 
   return (
-    <div className="ad-modal-overlay" onClick={onClose}>
-      <div className="ad-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="ad-modal-header">
-          <h3>열람 권한 — {report.name}</h3>
-          <button className="ad-modal-close" onClick={onClose}>
-            ×
-          </button>
-        </div>
+    <Modal title={<>열람 권한 — {report.name}</>} onClose={onClose}>
         <div className="ad-modal-tabs">
           <button
             className={`btn btn-sm ${tab === "users" ? "btn-primary" : ""}`}
@@ -1008,8 +1020,7 @@ function AccessModal({
               </div>
             ))}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1030,17 +1041,15 @@ function UserReportsModal({
   }, [user.id]);
 
   return (
-    <div className="ad-modal-overlay" onClick={onClose}>
-      <div className="ad-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="ad-modal-header">
-          <h3>
-            열람 가능 보고서 — {user.display_name}{" "}
-            <span className="ad-access-id">{user.username}</span>
-          </h3>
-          <button className="ad-modal-close" onClick={onClose}>
-            ×
-          </button>
-        </div>
+    <Modal
+      title={
+        <>
+          열람 가능 보고서 — {user.display_name}{" "}
+          <span className="ad-access-id">{user.username}</span>
+        </>
+      }
+      onClose={onClose}
+    >
         <div className="ad-modal-body">
           {error && <div className="ad-modal-err">{error}</div>}
           {!error && !rows && <div className="ad-modal-loading">불러오는 중...</div>}
@@ -1064,8 +1073,7 @@ function UserReportsModal({
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1249,14 +1257,7 @@ function GroupMembersModal({
   };
 
   return (
-    <div className="ad-modal-overlay" onClick={onClose}>
-      <div className="ad-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="ad-modal-header">
-          <h3>멤버 관리 — {group.name}</h3>
-          <button className="ad-modal-close" onClick={onClose}>
-            ×
-          </button>
-        </div>
+    <Modal title={<>멤버 관리 — {group.name}</>} onClose={onClose}>
         <div className="ad-modal-body">
           {error && <div className="ad-modal-err">{error}</div>}
           {!error && !members && <div className="ad-modal-loading">불러오는 중...</div>}
@@ -1276,7 +1277,6 @@ function GroupMembersModal({
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

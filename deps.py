@@ -37,6 +37,21 @@ def require_admin(user):
         raise AppError.FORBIDDEN_ADMIN.http()
 
 
+async def require_admin_user(request: Request) -> dict:
+    """관리자 세션 확인. `Depends(require_admin_user)`로 라우트에 주입해 보일러플레이트를 줄인다."""
+    user = await current_user(request)
+    require_admin(user)
+    return user
+
+
+async def require_admin_csrf(request: Request) -> dict:
+    """CSRF(X-CSRF-Token 헤더) 검증 + 관리자 세션 확인을 함께 처리하는 Depends용 함수."""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    require_admin(user)
+    return user
+
+
 def get_client_ip(request: Request) -> str:
     """실제 클라이언트 IP 반환. 리버스 프록시 뒤에서는 X-Forwarded-For 첫 번째 값 사용."""
     forwarded = request.headers.get("X-Forwarded-For")

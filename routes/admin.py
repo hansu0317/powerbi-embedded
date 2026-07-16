@@ -4,7 +4,7 @@ import logging
 
 import bcrypt
 import psycopg2.errors
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Depends, Form
 from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -24,7 +24,7 @@ from database import (
     db_get_report_group_access, db_set_report_group_access,
     db_get_user_report_list,
 )
-from deps import current_user, csrf_token, verify_csrf, require_admin
+from deps import csrf_token, verify_csrf, require_admin_user, require_admin_csrf
 from errors import AppError
 from services.fabric import sync_pbi_reports, fetch_pbi_folders_and_reports
 from services.powerbi import (
@@ -37,20 +37,15 @@ logger = logging.getLogger("powerbi-gateway")
 
 
 @router.post("/api/admin/sync-pbi")
-async def api_sync_pbi(request: Request):
+async def api_sync_pbi(user: dict = Depends(require_admin_csrf)):
     """관리자 수동 동기화: PBI에서 지운 보고서를 즉시 DB에 반영한다."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
     summary = await sync_pbi_reports()
     logger.info("PBI SYNC (manual) | user=%s | %s", user["username"], summary)
     return summary
 
 
 @router.get("/admin", response_class=HTMLResponse)
-async def admin_page(request: Request):
-    user = await current_user(request)
-    require_admin(user)
+async def admin_page(request: Request, user: dict = Depends(require_admin_user)):
     stats   = await asyncio.to_thread(db_admin_get_stats)
     users   = await asyncio.to_thread(db_admin_get_users)
     reports = await asyncio.to_thread(db_admin_get_reports)
@@ -63,10 +58,8 @@ async def admin_page(request: Request):
 
 
 @router.get("/api/admin/users/{user_id}/reports")
-async def api_admin_get_user_reports(request: Request, user_id: int):
+async def api_admin_get_user_reports(user_id: int, user: dict = Depends(require_admin_user)):
     """사용자가 열람 가능한 보고서 목록 (직접/그룹 경로 포함) — '보고서 N' 클릭 팝업."""
-    user = await current_user(request)
-    require_admin(user)
     reports = await asyncio.to_thread(db_get_user_report_list, user_id)
     return {"reports": reports}
 
@@ -74,19 +67,14 @@ async def api_admin_get_user_reports(request: Request, user_id: int):
 # ── 그룹 (팀/부서 단위 권한) ─────────────────────────────────────────────────
 
 @router.get("/api/admin/groups")
-async def api_admin_get_groups(request: Request):
+async def api_admin_get_groups(user: dict = Depends(require_admin_user)):
     """그룹 목록 (멤버 수·부여 보고서 수 포함)."""
-    user = await current_user(request)
-    require_admin(user)
     return {"groups": await asyncio.to_thread(db_admin_get_groups)}
 
 
 @router.post("/api/admin/groups")
-async def api_admin_create_group(request: Request):
+async def api_admin_create_group(request: Request, user: dict = Depends(require_admin_csrf)):
     """그룹 생성. body: {name, description?}"""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
     body = await request.json()
     name = str(body.get("name", "")).strip()
     if not name or len(name) > 50:
@@ -102,11 +90,8 @@ async def api_admin_create_group(request: Request):
 
 
 @router.post("/api/admin/groups/{group_id}/delete")
-async def api_admin_delete_group(request: Request, group_id: int):
+async def api_admin_delete_group(group_id: int, user: dict = Depends(require_admin_csrf)):
     """그룹 삭제 — 멤버·보고서 부여도 함께 제거(개별 부여는 영향 없음)."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
     deleted = await asyncio.to_thread(db_admin_delete_group, group_id)
     if not deleted:
         raise AppError.GROUP_NOT_FOUND.http()
@@ -115,19 +100,16 @@ async def api_admin_delete_group(request: Request, group_id: int):
 
 
 @router.get("/api/admin/groups/{group_id}/members")
-async def api_admin_get_group_members(request: Request, group_id: int):
+async def api_admin_get_group_members(group_id: int, user: dict = Depends(require_admin_user)):
     """활성 사용자 전체 + 소속 여부 (멤버 편집 모달)."""
-    user = await current_user(request)
-    require_admin(user)
     return {"members": await asyncio.to_thread(db_get_group_members, group_id)}
 
 
 @router.post("/api/admin/groups/{group_id}/members/{user_id}")
-async def api_admin_set_group_member(request: Request, group_id: int, user_id: int):
+async def api_admin_set_group_member(
+    request: Request, group_id: int, user_id: int, user: dict = Depends(require_admin_csrf),
+):
     """그룹 멤버 추가/제거. body: {member: bool}"""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
     body = await request.json()
     member = bool(body.get("member", False))
     try:
@@ -138,19 +120,16 @@ async def api_admin_set_group_member(request: Request, group_id: int, user_id: i
 
 
 @router.get("/api/admin/reports/{report_id}/group-access")
-async def api_admin_get_group_access(request: Request, report_id: int):
+async def api_admin_get_group_access(report_id: int, user: dict = Depends(require_admin_user)):
     """보고서에 부여된 그룹 현황 (권한 모달 '그룹' 탭)."""
-    user = await current_user(request)
-    require_admin(user)
     return {"groups": await asyncio.to_thread(db_get_report_group_access, report_id)}
 
 
 @router.post("/api/admin/reports/{report_id}/group-access/{group_id}")
-async def api_admin_set_group_access(request: Request, report_id: int, group_id: int):
+async def api_admin_set_group_access(
+    request: Request, report_id: int, group_id: int, user: dict = Depends(require_admin_csrf),
+):
     """보고서×그룹 열람 권한 부여/해제. body: {can_view: bool}"""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
     body = await request.json()
     can_view = bool(body.get("can_view", False))
     try:
@@ -184,22 +163,17 @@ CONFIG_LIMITS = {
 
 
 @router.get("/api/admin/config")
-async def api_admin_get_config(request: Request):
+async def api_admin_get_config(user: dict = Depends(require_admin_user)):
     """런타임 설정(app_config) 목록."""
-    user = await current_user(request)
-    require_admin(user)
     rows = await asyncio.to_thread(db_get_app_config)
     return {"config": rows}
 
 
 @router.post("/api/admin/config")
-async def api_admin_set_config(request: Request):
+async def api_admin_set_config(request: Request, user: dict = Depends(require_admin_csrf)):
     """런타임 설정 변경 — 저장 즉시 재시작 없이 반영된다.
 
     키는 마이그레이션이 시드한 것만 허용하고, 값은 정수만 받는다(현재 키 전부 정수)."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
     body = await request.json()
     key, value = str(body.get("key", "")), str(body.get("value", "")).strip()
     if key not in CONFIG_LIMITS:
@@ -220,14 +194,12 @@ async def api_admin_set_config(request: Request):
 
 
 @router.get("/api/admin/reports")
-async def api_admin_get_reports(request: Request):
+async def api_admin_get_reports(user: dict = Depends(require_admin_user)):
     """보고서 목록 재조회 — 관리자 포털을 새로고침 없이 최신 상태로 유지한다.
 
     새 보고서는 직원 업로드·가져오기로 페이지 로드 이후에도 생기므로,
     부트스트랩 데이터만으로는 권한부여 화면이 낡은 상태로 남는다.
     """
-    user = await current_user(request)
-    require_admin(user)
     reports = await asyncio.to_thread(db_admin_get_reports)
     return {"reports": reports}
 
@@ -242,10 +214,9 @@ async def api_admin_add_user(
     roles: str = Form("도메인"),
     is_admin: bool = Form(False),
     csrf: str = Form(),
+    user: dict = Depends(require_admin_user),
 ):
     verify_csrf(request, csrf)
-    user = await current_user(request)
-    require_admin(user)
     if len(password) < config.PASSWORD_MIN_LEN:
         raise AppError.PASSWORD_TOO_SHORT.http(min=config.PASSWORD_MIN_LEN)
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
@@ -263,10 +234,7 @@ async def api_admin_add_user(
 
 
 @router.post("/api/admin/users/{user_id}/toggle-active")
-async def api_admin_toggle_user(request: Request, user_id: int):
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
+async def api_admin_toggle_user(user_id: int, user: dict = Depends(require_admin_csrf)):
     is_active = await asyncio.to_thread(db_admin_toggle_user_active, user_id)
     if is_active is None:
         raise AppError.USER_NOT_FOUND.http()
@@ -274,17 +242,13 @@ async def api_admin_toggle_user(request: Request, user_id: int):
 
 
 @router.post("/api/admin/reports/{report_id}/delete")
-async def api_admin_delete_report(request: Request, report_id: int):
+async def api_admin_delete_report(report_id: int, user: dict = Depends(require_admin_csrf)):
     """PBI 워크스페이스에서 실제 삭제 후 DB 소프트 삭제."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
-
     report = await asyncio.to_thread(db_get_report, report_id)
 
     pbi_warning = None
     if report and report.get("pbi_report_id"):
-        ws_id = report.get("pbi_workspace_id") or WORKSPACE_ID
+        ws_id = config.resolve_workspace_id(report.get("pbi_workspace_id"))
         try:
             await pbi_delete_report(ws_id, report["pbi_report_id"])
         except Exception as exc:
@@ -319,29 +283,31 @@ async def api_admin_delete_report(request: Request, report_id: int):
 
 
 @router.post("/api/admin/import-pbi")
-async def api_admin_import_pbi(request: Request):
+async def api_admin_import_pbi(user: dict = Depends(require_admin_csrf)):
     """Fabric 폴더 구조를 읽어 새 공용 보고서를 DB에 등록한다.
 
     이미 등록된 보고서는 건너뛴다(pbi_report_id 중복 체크).
     권한은 부여하지 않으므로 등록 후 보고서 관리에서 별도 설정이 필요하다.
     """
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
-
     reports = await fetch_pbi_folders_and_reports()
     fabric_ids = {r["pbi_report_id"] for r in reports}
 
     registered = skipped = deleted = 0
+    # DB 커넥션 풀(기본 20개)을 다 쓰지 않도록 동시 실행 수를 제한한다.
+    sem = asyncio.Semaphore(8)
 
-    # 신규 등록 + 기존 보고서 category 업데이트
-    for r in reports:
-        is_new = await asyncio.to_thread(
-            db_import_managed_report,
-            r["pbi_report_id"], r["name"], r["dataset_id"],
-            WORKSPACE_ID, r["folder_id"], r["folder_name"],
-            user["id"],
-        )
+    # 신규 등록 + 기존 보고서 category 업데이트 (동시 실행)
+    async def _import_one(r):
+        async with sem:
+            return await asyncio.to_thread(
+                db_import_managed_report,
+                r["pbi_report_id"], r["name"], r["dataset_id"],
+                WORKSPACE_ID, r["folder_id"], r["folder_name"],
+                user["id"],
+            )
+
+    import_results = await asyncio.gather(*(_import_one(r) for r in reports))
+    for r, is_new in zip(reports, import_results):
         if is_new:
             registered += 1
             logger.info("ADMIN IMPORT PBI | admin=%s | report=%s | category=%s",
@@ -349,15 +315,19 @@ async def api_admin_import_pbi(request: Request):
         else:
             skipped += 1
 
-    # Fabric에 없는 보고서는 DB에서 완전 삭제
+    # Fabric에 없는 보고서는 DB에서 완전 삭제 (동시 실행)
+    async def _delete_one(row):
+        async with sem:
+            return await asyncio.to_thread(db_hard_delete_report, row["id"])
+
     db_reports = await asyncio.to_thread(db_get_synced_reports)
-    for row in db_reports:
-        if row["pbi_report_id"] not in fabric_ids:
-            did_delete = await asyncio.to_thread(db_hard_delete_report, row["id"])
-            if did_delete:
-                deleted += 1
-                logger.info("ADMIN IMPORT PBI DELETE | admin=%s | report=%s",
-                            user["username"], row["name"])
+    to_delete = [row for row in db_reports if row["pbi_report_id"] not in fabric_ids]
+    delete_results = await asyncio.gather(*(_delete_one(row) for row in to_delete))
+    for row, did_delete in zip(to_delete, delete_results):
+        if did_delete:
+            deleted += 1
+            logger.info("ADMIN IMPORT PBI DELETE | admin=%s | report=%s",
+                        user["username"], row["name"])
 
     logger.info("ADMIN IMPORT PBI DONE | admin=%s | registered=%d | skipped=%d | deleted=%d",
                 user["username"], registered, skipped, deleted)
@@ -365,14 +335,12 @@ async def api_admin_import_pbi(request: Request):
 
 
 @router.get("/api/admin/sync-status")
-async def api_admin_sync_status(request: Request):
+async def api_admin_sync_status(user: dict = Depends(require_admin_user)):
     """Fabric 현재 상태와 DB를 대조해 '가져오기 필요' 여부를 반환한다.
 
     신규(폴더 추가/직접 게시), 폴더 이동·이름변경(category 불일치),
     Fabric에서 사라진 보고서(삭제 대상)를 감지한다. import-pbi 실행 시 모두 정리된다.
     """
-    user = await current_user(request)
-    require_admin(user)
     try:
         fabric = await fetch_pbi_folders_and_reports()
         db_map = await asyncio.to_thread(db_get_pbi_report_map)
@@ -404,16 +372,13 @@ async def api_admin_sync_status(request: Request):
 
 
 @router.post("/api/admin/reports/{report_id}/refresh")
-async def api_admin_refresh_dataset(request: Request, report_id: int):
+async def api_admin_refresh_dataset(report_id: int, user: dict = Depends(require_admin_csrf)):
     """보고서의 데이터셋 새로고침을 PBI에 요청한다."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
     report = await asyncio.to_thread(db_get_report, report_id)
     if not report:
         raise AppError.REPORT_NOT_FOUND.http()
     dataset_id   = report.get("pbi_dataset_id")
-    workspace_id = report.get("pbi_workspace_id") or WORKSPACE_ID
+    workspace_id = config.resolve_workspace_id(report.get("pbi_workspace_id"))
     if not dataset_id:
         raise AppError.REPORT_NOT_FOUND.http()
     try:
@@ -426,20 +391,17 @@ async def api_admin_refresh_dataset(request: Request, report_id: int):
 
 
 @router.get("/api/admin/reports/{report_id}/access")
-async def api_admin_get_access(request: Request, report_id: int):
+async def api_admin_get_access(report_id: int, user: dict = Depends(require_admin_user)):
     """보고서의 사용자별 열람 권한 현황 조회."""
-    user = await current_user(request)
-    require_admin(user)
     access = await asyncio.to_thread(db_get_report_access, report_id)
     return {"users": [dict(row) for row in access]}
 
 
 @router.post("/api/admin/reports/{report_id}/access/{user_id}")
-async def api_admin_set_access(request: Request, report_id: int, user_id: int):
+async def api_admin_set_access(
+    request: Request, report_id: int, user_id: int, user: dict = Depends(require_admin_csrf),
+):
     """보고서에 대한 특정 사용자의 열람 권한을 설정한다."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    require_admin(user)
     body = await request.json()
     can_view = bool(body.get("can_view", False))
     await asyncio.to_thread(db_set_report_access, report_id, user_id, can_view, user["id"])

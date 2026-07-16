@@ -139,12 +139,23 @@ def db_get_user(username: str):
 
 # ── 보고서 ────────────────────────────────────────────────────────────────────
 
+# 열람 가능 판정: 직접 부여(user_reports) OR 소속 그룹에 부여(group_reports).
+# 아래 3곳(db_get_reports, db_can_view_report, db_admin_get_users)에서 동일하게 쓰이며,
+# 모두 사용자 별칭 u, 보고서 별칭 r을 전제로 한다.
+_CAN_VIEW_REPORT_SQL = """(
+                       EXISTS (SELECT 1 FROM user_reports ur
+                               WHERE ur.user_id = u.id AND ur.report_id = r.id AND ur.can_view)
+                    OR EXISTS (SELECT 1 FROM user_groups ug
+                               JOIN group_reports gr ON gr.group_id = ug.group_id
+                               WHERE ug.user_id = u.id AND gr.report_id = r.id AND gr.can_view))"""
+
+
 def db_get_reports(username: str) -> list:
     """사용자가 열람 가능한 보고서 목록 — 직접 부여 + 그룹 부여 합집합."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT r.id, r.name, r.report_type, r.owner_id, r.category,
+                f"""SELECT r.id, r.name, r.report_type, r.owner_id, r.category,
                           owner.username AS owner_username,
                           s.preview_image_url, s.tab_type
                    FROM reports r
@@ -152,12 +163,7 @@ def db_get_reports(username: str) -> list:
                    LEFT JOIN report_settings s ON s.report_id = r.id
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    JOIN users u ON u.username = %s
-                   WHERE r.status = 'active' AND (
-                       EXISTS (SELECT 1 FROM user_reports ur
-                               WHERE ur.user_id = u.id AND ur.report_id = r.id AND ur.can_view)
-                    OR EXISTS (SELECT 1 FROM user_groups ug
-                               JOIN group_reports gr ON gr.group_id = ug.group_id
-                               WHERE ug.user_id = u.id AND gr.report_id = r.id AND gr.can_view))
+                   WHERE r.status = 'active' AND {_CAN_VIEW_REPORT_SQL}
                    ORDER BY r.category NULLS LAST, r.name""",
                 (username,),
             )
@@ -281,14 +287,9 @@ def db_can_view_report(username: str, report_id: int) -> bool:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT 1 FROM users u
+                f"""SELECT 1 FROM users u
                    JOIN reports r ON r.id = %s AND r.status = 'active'
-                   WHERE u.username = %s AND (
-                       EXISTS (SELECT 1 FROM user_reports ur
-                               WHERE ur.user_id = u.id AND ur.report_id = r.id AND ur.can_view)
-                    OR EXISTS (SELECT 1 FROM user_groups ug
-                               JOIN group_reports gr ON gr.group_id = ug.group_id
-                               WHERE ug.user_id = u.id AND gr.report_id = r.id AND gr.can_view))""",
+                   WHERE u.username = %s AND {_CAN_VIEW_REPORT_SQL}""",
                 (report_id, username),
             )
             return cur.fetchone() is not None
@@ -496,7 +497,7 @@ def db_register_report(
                        pbi_dataset_id   = EXCLUDED.pbi_dataset_id,
                        pbi_display_name = EXCLUDED.pbi_display_name,
                        updated_at       = NOW()""",
-                (report_id, pbi_report_id, pbi_workspace_id or WORKSPACE_ID,
+                (report_id, pbi_report_id, config.resolve_workspace_id(pbi_workspace_id),
                  pbi_dataset_id, pbi_display_name),
             )
             cur.execute("INSERT INTO report_settings (report_id) VALUES (%s) ON CONFLICT DO NOTHING", (report_id,))
@@ -618,15 +619,10 @@ def db_admin_get_users() -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT u.id, u.username, u.display_name, u.pbi_username, u.roles,
+                f"""SELECT u.id, u.username, u.display_name, u.pbi_username, u.roles,
                           u.is_admin, u.is_active, u.last_login_at, u.created_at,
                           (SELECT COUNT(*) FROM reports r
-                           WHERE r.status = 'active' AND (
-                               EXISTS (SELECT 1 FROM user_reports ur
-                                       WHERE ur.user_id = u.id AND ur.report_id = r.id AND ur.can_view)
-                            OR EXISTS (SELECT 1 FROM user_groups ug
-                                       JOIN group_reports gr ON gr.group_id = ug.group_id
-                                       WHERE ug.user_id = u.id AND gr.report_id = r.id AND gr.can_view))
+                           WHERE r.status = 'active' AND {_CAN_VIEW_REPORT_SQL}
                           ) AS report_count
                    FROM users u ORDER BY u.id"""
             )

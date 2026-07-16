@@ -36,6 +36,11 @@ PBI_API    = f"https://api.powerbi.com/v1.0/myorg/groups/{WORKSPACE_ID}"
 PBI_GROUPS = "https://api.powerbi.com/v1.0/myorg/groups"
 
 
+def resolve_workspace_id(workspace_id: str | None) -> str:
+    """보고서별 워크스페이스(pbi_workspace_id)가 없으면 기본 워크스페이스를 쓴다."""
+    return workspace_id or WORKSPACE_ID
+
+
 # ── app_config 로더 ───────────────────────────────────────────────────────────
 def _load_app_config() -> dict:
     """DB app_config 테이블에서 런타임 설정을 읽는다."""
@@ -76,6 +81,7 @@ def reload_app_config():
     g["IMPORT_POLL_INTERVAL"] = _int(cfg, "import_poll_interval_sec",     3)
     g["EMBED_TOKEN_LIFETIME"] = _int(cfg, "embed_token_lifetime_min",    60)
     g["MAX_EMBED_RLS_ROLES"]  = _int(cfg, "max_embed_rls_roles",         10)
+    g["PBI_TOKEN_CACHE_MARGIN_SEC"] = _int(cfg, "pbi_token_cache_margin_sec", 300)
 
 
 reload_app_config()

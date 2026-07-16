@@ -36,9 +36,10 @@ export interface UploadAccepted {
   status: string;
 }
 
-export async function uploadPbix(file: File, csrf: string): Promise<UploadAccepted> {
+export async function uploadPbix(file: File, csrf: string, reportName?: string): Promise<UploadAccepted> {
   const fd = new FormData();
   fd.append("file", file);
+  if (reportName) fd.append("report_name", reportName);
   const res = await fetch("/api/upload", {
     method: "POST",
     body: fd,

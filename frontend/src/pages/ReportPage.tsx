@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import type { ReportData, ReportItem } from "../bootstrap";
-import { fetchEmbed, fetchUploadStatus, logout } from "../api";
+import { fetchEmbed, fetchUploadStatus, logout, uploadPbix } from "../api";
 import { useFavorites } from "../useFavorites";
 import { useRecents } from "../useRecents";
 import { Pager, useFitRows } from "../Pager";
@@ -1009,7 +1009,7 @@ function UploadView({ csrf }: { csrf: string }) {
     setBusy(true);
     setStatus({ msg: `'${file.name}' 전송 중...`, tone: "" });
     try {
-      const accepted = await uploadWithName(file, reportName.trim(), csrf);
+      const accepted = await uploadPbix(file, csrf, reportName.trim());
       const jobId = accepted.job_id;
       const name = accepted.report_name;
       setStatus({ msg: `'${name}' PBI 게시 중... (보통 30초~2분)`, tone: "" });
@@ -1096,24 +1096,4 @@ function UploadView({ csrf }: { csrf: string }) {
       </div>
     </div>
   );
-}
-
-// report_name 을 함께 전송하는 업로드 (api.uploadPbix 는 file 만 전송)
-async function uploadWithName(file: File, reportName: string, csrf: string) {
-  const fd = new FormData();
-  fd.append("file", file);
-  if (reportName) fd.append("report_name", reportName);
-  const res = await fetch("/api/upload", {
-    method: "POST",
-    body: fd,
-    headers: { "X-CSRF-Token": csrf },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const detail = (data as any).detail;
-    const msg =
-      (typeof detail === "object" ? detail?.message : detail) || res.statusText;
-    throw new Error(msg);
-  }
-  return data as { job_id: number; report_name: string; status: string };
 }

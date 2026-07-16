@@ -12,6 +12,7 @@ from database import (
     db_update_upload_job, db_register_report, db_fail_stale_publishing_jobs,
 )
 from services.azure import get_access_token, get_fabric_token
+from services.powerbi import rename_with_retry
 
 logger = logging.getLogger("powerbi-gateway")
 
@@ -26,7 +27,6 @@ async def sync_pbi_reports() -> dict:
     token = await asyncio.to_thread(get_access_token)
     headers = {"Authorization": f"Bearer {token}"}
 
-    from config import PBI_GROUPS
     workspace_reports: dict[str, set[str] | None] = {}
     async with httpx.AsyncClient(timeout=60) as client:
         for ws_id in {row["pbi_workspace_id"] for row in rows}:
@@ -212,15 +212,14 @@ async def recover_pending_imports():
                 pbi_report_id = result["reports"][0]["id"]
                 dataset_ids = [d["id"] for d in result.get("datasets", [])]
                 pbi_display_name = f"{job['username']}__{job['report_name']}"
-                from services.powerbi import pbi_rename_report, pbi_rename_dataset
-                from config import WORKSPACE_ID
-                try:
-                    await pbi_rename_report(WORKSPACE_ID, pbi_report_id, pbi_display_name)
-                    for ds_id in dataset_ids:
-                        await pbi_rename_dataset(WORKSPACE_ID, ds_id, pbi_display_name)
-                except Exception as exc:
-                    logger.warning("IMPORT RECOVERY RENAME WARN | job_id=%s | error=%s", job["id"], exc)
-                await asyncio.to_thread(db_update_upload_job, job["id"], "pbi_succeeded", pbi_report_id=pbi_report_id)
+                # 정상 업로드 경로와 동일하게 최대 5회 재시도(복구 상황일수록 PBI가
+                # 아직 안정화 전일 가능성이 높음). 최종 실패해도 접수된 이름 그대로 진행.
+                pbi_display_name, rename_warning = await rename_with_retry(
+                    WORKSPACE_ID, pbi_report_id, dataset_ids,
+                    pbi_display_name, job["report_name"], job["username"],
+                    initial_delay=0,
+                )
+                await asyncio.to_thread(db_update_upload_job, job["id"], "pbi_succeeded", pbi_report_id=pbi_report_id, error_message=rename_warning)
                 await asyncio.to_thread(
                     db_register_report, job["report_name"], pbi_report_id, job["user_id"],
                     dataset_ids[0] if dataset_ids else None, None, pbi_display_name,

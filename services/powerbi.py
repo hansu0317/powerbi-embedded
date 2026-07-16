@@ -1,5 +1,6 @@
 """Power BI Embed Token 발급 + 표준 PBI REST API 헬퍼."""
 import asyncio
+import logging
 import threading
 import time
 from datetime import datetime
@@ -7,10 +8,11 @@ from datetime import datetime
 import httpx
 
 import config
-from config import WORKSPACE_ID
 from database import db_get_report, db_mark_report_deleted
 from errors import AppError
 from services.azure import get_access_token
+
+logger = logging.getLogger("powerbi-gateway")
 
 # ── Embed Token 인메모리 캐시 ─────────────────────────────────────────────────
 # 보고서를 열 때마다 PBI API를 3번(GET report → GET dataset → POST GenerateToken)
@@ -73,6 +75,25 @@ def invalidate_embed_cache(report_id: int) -> int:
     return len(keys)
 
 
+def _build_embed_response(
+    report_row: dict, pbi_report_id: str, embed_token: str, embed_url: str, expires_at: float,
+) -> dict:
+    return {
+        "embed_token": embed_token,
+        "embed_url":   embed_url,
+        "expires_at":  expires_at,
+        "report_id":   pbi_report_id,
+        "report_name": report_row["name"],
+        "settings": {
+            "default_page":    report_row["default_page"],
+            "enable_filter":   report_row["enable_filter"],
+            "enable_page_nav": report_row["enable_page_nav"],
+            "use_data_bot":    report_row["use_data_bot"],
+            "tab_type":        report_row["tab_type"],
+        },
+    }
+
+
 def _parse_token_expiry(expiration_str: str) -> float:
     """PBI GenerateToken 응답의 expiration 문자열을 Unix timestamp로 변환."""
     try:
@@ -94,20 +115,10 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
     # 1차 캐시 체크 (락 없이) — 대부분의 요청은 여기서 즉시 반환
     cached = _get_cached_token(report_id, pbi_username, roles_key)
     if cached:
-        return {
-            "embed_token": cached["embed_token"],
-            "embed_url":   cached["embed_url"],
-            "expires_at":  cached["expires_at"],
-            "report_id":   report_row["pbi_report_id"],
-            "report_name": report_row["name"],
-            "settings": {
-                "default_page":    report_row["default_page"],
-                "enable_filter":   report_row["enable_filter"],
-                "enable_page_nav": report_row["enable_page_nav"],
-                "use_data_bot":    report_row["use_data_bot"],
-                "tab_type":        report_row["tab_type"],
-            },
-        }
+        return _build_embed_response(
+            report_row, report_row["pbi_report_id"],
+            cached["embed_token"], cached["embed_url"], cached["expires_at"],
+        )
 
     # 2차: 키별 Lock 안에서 캐시 재확인 + PBI API 호출 (stampede 방지)
     # 동일 키 만료 시 첫 번째 요청만 PBI API를 호출하고, 대기하던 요청들은 락 해제 후 캐시를 재사용한다.
@@ -115,22 +126,13 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
     async with _get_fetch_lock(key):
         cached = _get_cached_token(report_id, pbi_username, roles_key)
         if cached:
-            return {
-                "embed_token": cached["embed_token"],
-                "embed_url":   cached["embed_url"],
-                "report_id":   report_row["pbi_report_id"],
-                "report_name": report_row["name"],
-                "settings": {
-                    "default_page":    report_row["default_page"],
-                    "enable_filter":   report_row["enable_filter"],
-                    "enable_page_nav": report_row["enable_page_nav"],
-                    "use_data_bot":    report_row["use_data_bot"],
-                    "tab_type":        report_row["tab_type"],
-                },
-            }
+            return _build_embed_response(
+                report_row, report_row["pbi_report_id"],
+                cached["embed_token"], cached["embed_url"], cached["expires_at"],
+            )
 
         pbi_report_id = report_row["pbi_report_id"]
-        workspace_id  = report_row["pbi_workspace_id"] or WORKSPACE_ID
+        workspace_id  = config.resolve_workspace_id(report_row["pbi_workspace_id"])
         report_api    = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
 
         access_token = await asyncio.to_thread(get_access_token)
@@ -178,30 +180,24 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
         expires_at = _parse_token_expiry(token_data.get("expiration", ""))
         _set_cached_token(report_id, pbi_username, roles_key, token_data["token"], report_info["embedUrl"], expires_at)
 
-        return {
-            "embed_token": token_data["token"],
-            "embed_url":   report_info["embedUrl"],
-            "expires_at":  expires_at,
-            "report_id":   pbi_report_id,
-            "report_name": report_row["name"],
-            "settings": {
-                "default_page":    report_row["default_page"],
-                "enable_filter":   report_row["enable_filter"],
-                "enable_page_nav": report_row["enable_page_nav"],
-                "use_data_bot":    report_row["use_data_bot"],
-                "tab_type":        report_row["tab_type"],
-            },
-        }
+        return _build_embed_response(
+            report_row, pbi_report_id, token_data["token"], report_info["embedUrl"], expires_at,
+        )
 
 
 # ── 표준 PBI API — 이름 변경 / 삭제 ─────────────────────────────────────────
 
-async def _pbi_patch_name(resource_url: str, new_name: str) -> None:
-    """PBI REST API PATCH로 이름을 변경한다. 409 시 ValueError('name_conflict:...') 발생."""
+async def _pbi_request(method: str, url: str, json: dict | None = None) -> httpx.Response:
+    """토큰 발급 + 표준 헤더로 PBI REST API를 호출하는 공통 헬퍼."""
     token = await asyncio.to_thread(get_access_token)
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.patch(resource_url, headers=headers, json={"name": new_name})
+        return await client.request(method, url, headers=headers, json=json)
+
+
+async def _pbi_patch_name(resource_url: str, new_name: str) -> None:
+    """PBI REST API PATCH로 이름을 변경한다. 409 시 ValueError('name_conflict:...') 발생."""
+    resp = await _pbi_request("PATCH", resource_url, json={"name": new_name})
     if resp.status_code == 409:
         raise ValueError(f"name_conflict:{new_name}")
     if resp.status_code not in (200, 204):
@@ -222,27 +218,20 @@ async def pbi_rename_dataset(workspace_id: str, dataset_id: str, new_name: str) 
 
 async def pbi_refresh_dataset(workspace_id: str, dataset_id: str) -> None:
     """데이터셋 새로고침 요청. 202 Accepted 이면 성공(비동기 처리)."""
-    token = await asyncio.to_thread(get_access_token)
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}/refreshes",
-            headers=headers,
-            json={"notifyOption": "NoNotification"},
-        )
+    resp = await _pbi_request(
+        "POST",
+        f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}/refreshes",
+        json={"notifyOption": "NoNotification"},
+    )
     if resp.status_code not in (200, 202):
         raise RuntimeError(f"refresh HTTP {resp.status_code}: {resp.text}")
 
 
 async def pbi_delete_report(workspace_id: str, report_id: str) -> None:
     """Power BI 워크스페이스에서 보고서를 삭제한다. 이미 없으면(404) 조용히 무시한다."""
-    token = await asyncio.to_thread(get_access_token)
-    headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.delete(
-            f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/reports/{report_id}",
-            headers=headers,
-        )
+    resp = await _pbi_request(
+        "DELETE", f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/reports/{report_id}",
+    )
     if resp.status_code == 404:
         return
     resp.raise_for_status()
@@ -250,13 +239,37 @@ async def pbi_delete_report(workspace_id: str, report_id: str) -> None:
 
 async def pbi_delete_dataset(workspace_id: str, dataset_id: str) -> None:
     """Power BI 워크스페이스에서 데이터셋을 삭제한다(용량 누수 방지). 404는 무시."""
-    token = await asyncio.to_thread(get_access_token)
-    headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.delete(
-            f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}",
-            headers=headers,
-        )
+    resp = await _pbi_request(
+        "DELETE", f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}",
+    )
     if resp.status_code == 404:
         return
     resp.raise_for_status()
+
+
+async def rename_with_retry(
+    workspace_id: str, pbi_report_id: str, dataset_ids: list[str],
+    display_name: str, fallback_name: str, username: str, initial_delay: float = 8,
+) -> tuple[str, str | None]:
+    """보고서·데이터셋 이름 변경. 최대 5회 시도, 최종 실패 시 (fallback_name, warning) 반환.
+
+    정상 업로드 경로와 서버 재시작 후 복구 경로(recover_pending_imports) 모두에서 쓰인다.
+    initial_delay: PBI가 import 직후 보고서를 활성화하는 데 걸리는 유예 시간(기본 8초).
+    복구 경로는 이미 "Succeeded" 판정 이후 시간이 지났으므로 0으로 넘겨 서버 기동을
+    (recover_pending_imports는 lifespan에서 await되어 기동을 막는다) 지연시키지 않는다.
+    """
+    if initial_delay:
+        await asyncio.sleep(initial_delay)
+    for attempt in range(5):
+        if attempt > 0:
+            await asyncio.sleep(5)
+        try:
+            await pbi_rename_report(workspace_id, pbi_report_id, display_name)
+            for ds_id in dataset_ids:
+                await pbi_rename_dataset(workspace_id, ds_id, display_name)
+            logger.info("PBI RENAME OK | user=%-12s | display=%s (attempt=%s)", username, display_name, attempt + 1)
+            return display_name, None
+        except Exception as exc:
+            if attempt == 4:
+                logger.warning("PBI RENAME WARN | user=%s | display=%s | error=%s", username, display_name, exc)
+                return fallback_name, f"rename failed after 5 attempts: {exc}"
