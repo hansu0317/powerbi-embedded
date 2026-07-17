@@ -13,6 +13,8 @@ export interface EmbedResponse {
   embed_url: string;
   embed_token: string;
   expires_at: number; // 토큰 만료 (Unix 초) — 프론트가 만료 전 재발급에 사용
+  data_as_of?: string | null; // 데이터 기준 시각 (마지막 refresh 성공, ISO)
+  refresh_status?: string | null; // Completed | Failed | NotRefreshable | ...
 
   settings?: {
     enable_page_nav?: boolean;
@@ -413,4 +415,78 @@ export async function adminGetLogs(
   const res = await fetch(`/api/admin/logs?${logQueryString(type, filters)}`);
   if (!res.ok) throw new Error("로그 조회 실패");
   return (await res.json()).rows as LogRow[];
+}
+
+/* ── v4: RLS 설정 ─────────────────────────────────────── */
+
+export interface RlsConfig {
+  enabled: boolean;
+  role_names: string[];
+}
+
+export async function adminGetRls(reportId: number): Promise<RlsConfig> {
+  const res = await fetch(`/api/admin/reports/${reportId}/rls`);
+  if (!res.ok) throw new Error("RLS 조회 실패");
+  return res.json();
+}
+
+export async function adminSetRls(
+  reportId: number, enabled: boolean, roleNames: string[], csrf: string,
+): Promise<RlsConfig> {
+  const res = await fetch(`/api/admin/reports/${reportId}/rls`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled, role_names: roleNames }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(data, "RLS 저장 실패"));
+  return data;
+}
+
+export async function adminSetUserRls(
+  userId: number, pbiUsername: string, roles: string[], csrf: string,
+): Promise<{ pbi_username: string; roles: string[] }> {
+  const res = await fetch(`/api/admin/users/${userId}/rls`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+    body: JSON.stringify({ pbi_username: pbiUsername, roles }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(data, "저장 실패"));
+  return data;
+}
+
+/* ── v4: 신선도·자가진단 ──────────────────────────────── */
+
+export interface FreshnessRow {
+  pbi_dataset_id: string;
+  last_status: string | null;
+  last_success_at: string | null;
+  last_attempt_at: string | null;
+  failure_reason: string | null;
+  consecutive_failures: number;
+  auto_retries_today: number;
+  report_names: string[];
+}
+
+export async function adminGetFreshness(): Promise<FreshnessRow[]> {
+  const res = await fetch("/api/admin/freshness");
+  if (!res.ok) throw new Error("신선도 조회 실패");
+  return (await res.json()).datasets as FreshnessRow[];
+}
+
+export interface SystemStatus {
+  db_latency_ms: number;
+  loop_seconds_ago: Record<string, number>;
+  sync_interval_sec: number;
+  failed_jobs_7d: number;
+  failing_datasets: number;
+  activity_rows: number;
+  active_reports: number;
+}
+
+export async function adminGetSystemStatus(): Promise<SystemStatus> {
+  const res = await fetch("/api/admin/system-status");
+  if (!res.ok) throw new Error("시스템 상태 조회 실패");
+  return res.json();
 }

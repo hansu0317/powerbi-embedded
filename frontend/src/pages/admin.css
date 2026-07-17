@@ -415,3 +415,32 @@
   box-shadow: 0 0 0 3px #9ccc6538;
   background: #fff;
 }
+
+/* ── v4: RLS 모달 ─────────────────────────────────────── */
+.rls-note {
+  background: var(--sage-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 14px;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+.rls-note code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.9em;
+  background: #eef2e6;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.rls-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+}
+.rls-toggle input { width: 16px; height: 16px; accent-color: var(--sage-deep); }

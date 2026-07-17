@@ -21,7 +21,7 @@ from database import (
     db_health_check,
     db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
     db_fail_stuck_upload_job,
-    db_log_activity, db_get_popular_report_ids, db_set_default_report,
+    db_log_activity, db_get_popular_report_ids, db_set_default_report, db_get_data_as_of,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError
@@ -163,6 +163,10 @@ async def api_embed(request: Request, report_id: int):
         raise
     logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
     result = await get_embed_token(report_id, user["pbi_username"], user["roles"])
+    # 데이터 기준 시각(마지막 refresh 성공) — 뷰어 신선도 배지용. 캐시된 토큰이어도 항상 최신을 읽는다
+    fresh = await asyncio.to_thread(db_get_data_as_of, result.get("dataset_id"))
+    result["data_as_of"] = fresh["last_success_at"].isoformat() if fresh and fresh["last_success_at"] else None
+    result["refresh_status"] = fresh["last_status"] if fresh else None
     # 30분 dedupe: 토큰 자동 재발급·새로고침 탭 복원이 조회수를 부풀리지 않게 한다
     await asyncio.to_thread(
         db_log_activity, user["id"], user["username"], "report_view",

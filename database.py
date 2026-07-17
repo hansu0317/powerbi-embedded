@@ -1170,3 +1170,170 @@ def db_get_access_matrix() -> dict:
             )
             reports = cur.fetchall()
     return {"groups": groups, "reports": reports}
+
+
+# ── v4: 데이터 신선도 관제 ────────────────────────────────────────────────────
+
+def db_get_freshness_targets() -> list:
+    """신선도 수집 대상: active 보고서가 쓰는 데이터셋(중복 제거) + 워크스페이스."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT DISTINCT m.pbi_dataset_id,
+                          COALESCE(m.pbi_workspace_id, %s) AS pbi_workspace_id
+                   FROM report_meta m
+                   JOIN reports r ON r.id = m.report_id
+                   WHERE r.status = 'active' AND m.pbi_dataset_id IS NOT NULL""",
+                (WORKSPACE_ID,),
+            )
+            return cur.fetchall()
+
+
+def db_upsert_refresh_status(
+    dataset_id: str, workspace_id: str, status: str,
+    success_at=None, attempt_at=None, failure_reason: str | None = None,
+) -> None:
+    """refresh 이력 1건을 반영한다. 연속 실패 카운트는 상태에 따라 증감."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO dataset_refresh_status AS s
+                       (pbi_dataset_id, pbi_workspace_id, last_status,
+                        last_success_at, last_attempt_at, failure_reason,
+                        consecutive_failures, updated_at)
+                   VALUES (%s, %s, %s, %s, %s, %s,
+                           CASE WHEN %s = 'Failed' THEN 1 ELSE 0 END, NOW())
+                   ON CONFLICT (pbi_dataset_id) DO UPDATE SET
+                       pbi_workspace_id = EXCLUDED.pbi_workspace_id,
+                       last_status      = EXCLUDED.last_status,
+                       last_success_at  = COALESCE(EXCLUDED.last_success_at, s.last_success_at),
+                       last_attempt_at  = COALESCE(EXCLUDED.last_attempt_at, s.last_attempt_at),
+                       failure_reason   = EXCLUDED.failure_reason,
+                       consecutive_failures = CASE WHEN EXCLUDED.last_status = 'Failed'
+                                                   THEN s.consecutive_failures + 1 ELSE 0 END,
+                       updated_at = NOW()""",
+                (dataset_id, workspace_id, status, success_at, attempt_at, failure_reason, status),
+            )
+        conn.commit()
+
+
+def db_mark_refresh_retry(dataset_id: str) -> bool:
+    """자동 재시도 1회를 기록한다. 오늘 한도(config.REFRESH_AUTO_RETRY_MAX) 초과면 False."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE dataset_refresh_status SET
+                       auto_retries_today = CASE WHEN retry_date = CURRENT_DATE
+                                                 THEN auto_retries_today + 1 ELSE 1 END,
+                       retry_date = CURRENT_DATE,
+                       updated_at = NOW()
+                   WHERE pbi_dataset_id = %s
+                     AND (retry_date IS DISTINCT FROM CURRENT_DATE
+                          OR auto_retries_today < %s)
+                   RETURNING auto_retries_today""",
+                (dataset_id, config.REFRESH_AUTO_RETRY_MAX),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return row is not None
+
+
+def db_get_data_as_of(dataset_id: str | None):
+    """보고서 데이터 기준 시각(마지막 refresh 성공)과 상태. 뷰어 배지용."""
+    if not dataset_id:
+        return None
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT last_status, last_success_at FROM dataset_refresh_status "
+                "WHERE pbi_dataset_id = %s",
+                (dataset_id,),
+            )
+            return cur.fetchone()
+
+
+def db_get_freshness_overview() -> list:
+    """관리자용 신선도 현황: 보고서명과 조인해 실패·미갱신 순으로 반환."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT s.pbi_dataset_id, s.last_status, s.last_success_at,
+                          s.last_attempt_at, s.failure_reason, s.consecutive_failures,
+                          s.auto_retries_today,
+                          COALESCE(ARRAY_AGG(r.name ORDER BY r.name)
+                                   FILTER (WHERE r.name IS NOT NULL), '{}') AS report_names
+                   FROM dataset_refresh_status s
+                   LEFT JOIN report_meta m ON m.pbi_dataset_id = s.pbi_dataset_id
+                   LEFT JOIN reports r ON r.id = m.report_id AND r.status = 'active'
+                   GROUP BY s.pbi_dataset_id
+                   ORDER BY (s.last_status = 'Failed') DESC, s.last_success_at ASC NULLS FIRST"""
+            )
+            return cur.fetchall()
+
+
+# ── v4: 동적 RLS 설정 ────────────────────────────────────────────────────────
+
+def db_set_report_rls(report_id: int, enabled: bool, role_names: list[str], actor_id: int) -> bool:
+    """보고서 RLS 설정 변경 + 감사 기록. 반환: 대상 보고서 존재 여부.
+
+    role_names는 PBIX에 정의된 역할 이름 목록. 비우면 사용자별 users.roles가 쓰인다
+    (services/powerbi.py identity 구성 로직 참조)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE report_rls SET enabled = %s, role_names = %s, updated_at = NOW()
+                   WHERE report_id = %s""",
+                (enabled, role_names, report_id),
+            )
+            updated = cur.rowcount > 0
+            if updated:
+                cur.execute(
+                    "INSERT INTO report_audit_log (report_id, actor_user_id, action, details) "
+                    "VALUES (%s, %s, 'rls_changed', jsonb_build_object('enabled', %s, 'roles', %s::text[]))",
+                    (report_id, actor_id, enabled, role_names),
+                )
+        conn.commit()
+    return updated
+
+
+def db_set_user_rls(user_id: int, pbi_username: str, roles: list[str]) -> bool:
+    """사용자 RLS 식별자(pbi_username)·역할 목록 변경. 반환: 대상 존재 여부."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET pbi_username = %s, roles = %s, updated_at = NOW() WHERE id = %s",
+                (pbi_username, roles, user_id),
+            )
+            updated = cur.rowcount > 0
+        conn.commit()
+    return updated
+
+
+def db_get_report_rls(report_id: int):
+    """보고서 RLS 현황 (편집 모달 초기값)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT enabled, role_names FROM report_rls WHERE report_id = %s",
+                (report_id,),
+            )
+            return cur.fetchone()
+
+
+# ── v4: 시스템 자가진단 ──────────────────────────────────────────────────────
+
+def db_system_stats() -> dict:
+    """자가진단 수치: 실패 잡·신선도 실패·로그 적재량을 한 쿼리로."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT
+                    (SELECT COUNT(*) FROM upload_jobs
+                     WHERE status IN ('failed','unknown','db_failed')
+                       AND created_at >= NOW() - INTERVAL '7 days')     AS failed_jobs_7d,
+                    (SELECT COUNT(*) FROM dataset_refresh_status
+                     WHERE last_status = 'Failed')                       AS failing_datasets,
+                    (SELECT COUNT(*) FROM activity_log)                  AS activity_rows,
+                    (SELECT COUNT(*) FROM reports WHERE status='active') AS active_reports"""
+            )
+            return dict(cur.fetchone())

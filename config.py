@@ -83,6 +83,7 @@ def reload_app_config():
     g["MAX_EMBED_RLS_ROLES"]  = _int(cfg, "max_embed_rls_roles",         10)
     g["PBI_TOKEN_CACHE_MARGIN_SEC"] = _int(cfg, "pbi_token_cache_margin_sec", 300)
     g["ACTIVITY_LOG_RETENTION_DAYS"] = _int(cfg, "activity_log_retention_days", 90)
+    g["REFRESH_AUTO_RETRY_MAX"] = _int(cfg, "refresh_auto_retry_max", 2)
 
 
 reload_app_config()

@@ -14,6 +14,8 @@ from fastapi.templating import Jinja2Templates
 import config
 from config import WORKSPACE_ID
 from database import (
+    db_get_report_rls, db_set_report_rls, db_set_user_rls,
+    db_get_freshness_overview, db_system_stats,
     db_admin_get_stats, db_admin_get_users, db_admin_add_user,
     db_admin_toggle_user_active, db_admin_get_reports,
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
@@ -30,7 +32,7 @@ from database import (
 )
 from deps import csrf_token, verify_csrf, require_admin_user, require_admin_csrf
 from errors import AppError
-from services.fabric import sync_pbi_reports, fetch_pbi_folders_and_reports
+from services.fabric import sync_pbi_reports, fetch_pbi_folders_and_reports, LOOP_HEARTBEAT
 from services.powerbi import (
     pbi_delete_report, pbi_delete_dataset, pbi_refresh_dataset, invalidate_embed_cache,
 )
@@ -164,6 +166,7 @@ CONFIG_LIMITS = {
     "pbi_token_cache_margin_sec": (0, 3600),
     "max_embed_rls_roles":        (1, 50),
     "activity_log_retention_days": (7, 3650),
+    "refresh_auto_retry_max":     (0, 8),      # Pro refresh 한도 8회/일 이내
 }
 
 
@@ -495,3 +498,87 @@ async def api_admin_logs_export(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={type}_log.csv"},
     )
+
+
+# ── v4: 동적 RLS 설정 ────────────────────────────────────────────────────────
+
+@router.get("/api/admin/reports/{report_id}/rls")
+async def api_admin_get_rls(report_id: int, user: dict = Depends(require_admin_user)):
+    """보고서 RLS 현황 (편집 모달 초기값)."""
+    row = await asyncio.to_thread(db_get_report_rls, report_id)
+    if not row:
+        raise AppError.REPORT_NOT_FOUND.http()
+    return {"enabled": row["enabled"], "role_names": row["role_names"]}
+
+
+@router.post("/api/admin/reports/{report_id}/rls")
+async def api_admin_set_rls(
+    request: Request, report_id: int, user: dict = Depends(require_admin_csrf),
+):
+    """보고서 RLS on/off + 역할 목록 변경. body: {enabled: bool, role_names: [..]}
+
+    role_names는 PBIX에 정의된 역할 이름. 비우면 임베드 시 사용자별 users.roles가 쓰인다.
+    변경 즉시 임베드 캐시를 퇴거해 다음 열람부터 새 identity로 토큰이 발급된다."""
+    body = await request.json()
+    enabled = bool(body.get("enabled", False))
+    role_names = [str(r).strip() for r in body.get("role_names", []) if str(r).strip()]
+    if len(role_names) > config.MAX_EMBED_RLS_ROLES:
+        raise AppError.RLS_TOO_MANY_ROLES.http(max=config.MAX_EMBED_RLS_ROLES)
+    updated = await asyncio.to_thread(db_set_report_rls, report_id, enabled, role_names, user["id"])
+    if not updated:
+        raise AppError.REPORT_NOT_FOUND.http()
+    invalidate_embed_cache(report_id)
+    logger.info("ADMIN RLS | admin=%s | report_id=%s | enabled=%s | roles=%s",
+                user["username"], report_id, enabled, role_names)
+    return {"enabled": enabled, "role_names": role_names}
+
+
+@router.post("/api/admin/users/{user_id}/rls")
+async def api_admin_set_user_rls(
+    request: Request, user_id: int, user: dict = Depends(require_admin_csrf),
+):
+    """사용자 RLS 식별자(pbi_username)·역할 변경. body: {pbi_username, roles: [..]}
+
+    임베드 캐시 키에 pbi_username·roles가 포함되므로 별도 퇴거 없이
+    다음 열람부터 새 identity가 적용된다 (기존 토큰은 만료까지 유효 — 최대 1h)."""
+    body = await request.json()
+    pbi_username = str(body.get("pbi_username", "")).strip()
+    roles = [str(r).strip() for r in body.get("roles", []) if str(r).strip()] or ["도메인"]
+    if not pbi_username:
+        raise AppError.RLS_IDENTIFIER_REQUIRED.http()
+    if len(roles) > config.MAX_EMBED_RLS_ROLES:
+        raise AppError.RLS_TOO_MANY_ROLES.http(max=config.MAX_EMBED_RLS_ROLES)
+    updated = await asyncio.to_thread(db_set_user_rls, user_id, pbi_username, roles)
+    if not updated:
+        raise AppError.USER_NOT_FOUND.http()
+    logger.info("ADMIN USER RLS | admin=%s | user_id=%s | pbi=%s | roles=%s",
+                user["username"], user_id, pbi_username, roles)
+    return {"pbi_username": pbi_username, "roles": roles}
+
+
+# ── v4: 신선도·자가진단 ──────────────────────────────────────────────────────
+
+@router.get("/api/admin/freshness")
+async def api_admin_freshness(user: dict = Depends(require_admin_user)):
+    """데이터셋 신선도 현황 (실패·미갱신 우선 정렬)."""
+    rows = await asyncio.to_thread(db_get_freshness_overview)
+    return {"datasets": [dict(r) for r in rows]}
+
+
+@router.get("/api/admin/system-status")
+async def api_admin_system_status(user: dict = Depends(require_admin_user)):
+    """자가진단: DB 응답시간·백그라운드 루프 하트비트·실패 잡·신선도 실패 수."""
+    import time as _time
+    t0 = _time.perf_counter()
+    stats = await asyncio.to_thread(db_system_stats)
+    db_ms = round((_time.perf_counter() - t0) * 1000)
+    now = _time.time()
+    heartbeats = {
+        k: round(now - v) for k, v in LOOP_HEARTBEAT.items()  # 초 단위 경과
+    }
+    return {
+        "db_latency_ms": db_ms,
+        "loop_seconds_ago": heartbeats,      # {"pbi_sync": 132, "freshness": 132}
+        "sync_interval_sec": config.PBI_SYNC_INTERVAL,
+        **stats,
+    }

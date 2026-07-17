@@ -51,10 +51,17 @@ import {
   adminSetDescription,
   adminGetAccessMatrix,
   adminGetLogs,
+  adminGetRls,
+  adminSetRls,
+  adminSetUserRls,
+  adminGetSystemStatus,
+  adminGetFreshness,
   logQueryString,
   MatrixGroup,
   MatrixReport,
   LogRow,
+  SystemStatus,
+  FreshnessRow,
   logout,
 } from "../api";
 import { Pager, usePaged, useFitRows } from "../Pager";
@@ -220,6 +227,13 @@ export default function AdminPage({ data }: { data: AdminData }) {
             {section === "users" && (
               <UsersSection
                 users={users}
+                csrf={csrf_token}
+                showToast={showToast}
+                onUserRls={(id, pbi_username, roles) =>
+                  setUsers((prev) =>
+                    prev.map((u) => (u.id === id ? { ...u, pbi_username, roles } : u)),
+                  )
+                }
                 onAdd={() => setShowAddUser(true)}
                 onToggle={async (id) => {
                   try {
@@ -324,6 +338,15 @@ function OverviewSection({
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
   const fit = useFitRows(tableRef, 40, 38);
+  // v4 자가진단·신선도 — 페이지 로드 후 비동기 (실패해도 기존 현황은 그대로)
+  const [sys, setSys] = useState<SystemStatus | null>(null);
+  const [failing, setFailing] = useState<FreshnessRow[]>([]);
+  useEffect(() => {
+    adminGetSystemStatus().then(setSys).catch(() => {});
+    adminGetFreshness()
+      .then((rows) => setFailing(rows.filter((r) => r.last_status === "Failed")))
+      .catch(() => {});
+  }, []);
   return (
     <section>
       <h2>현황</h2>
@@ -335,7 +358,62 @@ function OverviewSection({
           value={stats.today_uploads}
           sub={`성공 ${stats.today_success}건`}
         />
+        {sys && (
+          <>
+            <StatCard
+              label="DB 응답"
+              value={sys.db_latency_ms}
+              sub={`ms · 동기화 ${
+                sys.loop_seconds_ago.pbi_sync != null
+                  ? Math.round(sys.loop_seconds_ago.pbi_sync / 60) + "분 전"
+                  : "대기 중"
+              }`}
+            />
+            <StatCard
+              label="갱신 실패 데이터셋"
+              value={sys.failing_datasets}
+              sub={sys.failing_datasets > 0 ? "아래 목록 확인" : "모두 정상"}
+            />
+            <StatCard
+              label="실패 업로드 (7일)"
+              value={sys.failed_jobs_7d}
+              sub="failed·unknown·db_failed"
+            />
+          </>
+        )}
       </div>
+
+      {failing.length > 0 && (
+        <>
+          <h2>⚠ 데이터 갱신 실패</h2>
+          <div className="card-table" style={{ marginBottom: 20 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>보고서</th>
+                  <th>마지막 성공</th>
+                  <th>연속 실패</th>
+                  <th>오늘 자동 재시도</th>
+                  <th>사유</th>
+                </tr>
+              </thead>
+              <tbody>
+                {failing.map((f) => (
+                  <tr key={f.pbi_dataset_id}>
+                    <td>{f.report_names.join(", ") || f.pbi_dataset_id}</td>
+                    <td>{f.last_success_at ? String(f.last_success_at).replace("T", " ").slice(0, 16) : "없음"}</td>
+                    <td>{f.consecutive_failures}회</td>
+                    <td>{f.auto_retries_today}회</td>
+                    <td className="ad-err-cell">
+                      <span className="ad-err-text">{f.failure_reason || "-"}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       <h2>최근 업로드</h2>
       <div className="card-table" ref={tableRef}>
@@ -395,19 +473,26 @@ function StatCard({
 
 function UsersSection({
   users,
+  csrf,
+  showToast,
   onAdd,
   onToggle,
   onToggleUpload,
+  onUserRls,
 }: {
   users: AdminUser[];
+  csrf: string;
+  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
   onAdd: () => void;
   onToggle: (id: number) => void;
   onToggleUpload: (id: number) => void;
+  onUserRls: (id: number, pbiUsername: string, roles: string[]) => void;
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
   const pageSize = useFitRows(tableRef, 40, 38);
   const { pageItems, page, totalPages, total, setPage } = usePaged(users, pageSize);
   const [reportsUser, setReportsUser] = useState<AdminUser | null>(null);
+  const [rlsUser, setRlsUser] = useState<AdminUser | null>(null);
   return (
     <section>
       <div className="ad-section-head">
@@ -492,7 +577,14 @@ function UsersSection({
                     {u.is_active ? "활성" : "비활성"}
                   </span>
                 </td>
-                <td>
+                <td className="ad-actions-cell">
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    title="PBI 사용자명(RLS 식별자)·역할 편집"
+                    onClick={() => setRlsUser(u)}
+                  >
+                    역할
+                  </button>
                   {u.username !== "admin" && (
                     <button
                       className="btn btn-warn btn-sm"
@@ -511,7 +603,83 @@ function UsersSection({
       {reportsUser && (
         <UserReportsModal user={reportsUser} onClose={() => setReportsUser(null)} />
       )}
+      {rlsUser && (
+        <UserRlsModal
+          user={rlsUser}
+          csrf={csrf}
+          showToast={showToast}
+          onSaved={onUserRls}
+          onClose={() => setRlsUser(null)}
+        />
+      )}
     </section>
+  );
+}
+
+/** 사용자 RLS 식별자·역할 편집 모달. */
+function UserRlsModal({
+  user,
+  csrf,
+  showToast,
+  onSaved,
+  onClose,
+}: {
+  user: AdminUser;
+  csrf: string;
+  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
+  onSaved: (id: number, pbiUsername: string, roles: string[]) => void;
+  onClose: () => void;
+}) {
+  const [pbiUsername, setPbiUsername] = useState(user.pbi_username);
+  const [rolesText, setRolesText] = useState(user.roles.join(", "));
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const roles = rolesText.split(",").map((s) => s.trim()).filter(Boolean);
+      const r = await adminSetUserRls(user.id, pbiUsername.trim(), roles, csrf);
+      onSaved(user.id, r.pbi_username, r.roles);
+      showToast(`'${user.display_name}' RLS 정보가 저장됐습니다.`, "ok");
+      onClose();
+    } catch (e) {
+      showToast("저장 실패: " + (e as Error).message, "err");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={<>RLS 식별자·역할 — {user.display_name}</>} onClose={onClose}>
+      <div className="ad-modal-body">
+        <div className="rls-note">
+          RLS가 켜진 보고서를 열 때 이 값이 identity로 전달됩니다.
+          PBI 사용자명은 PBIX 보안 테이블의 키(UPN)와 일치해야 합니다.
+        </div>
+        <Field label="PBI 사용자명 (UPN)">
+          <input
+            value={pbiUsername}
+            onChange={(e) => setPbiUsername(e.target.value)}
+            placeholder="user@company.com"
+          />
+        </Field>
+        <div style={{ height: 10 }} />
+        <Field label="역할 (콤마 구분)">
+          <input
+            value={rolesText}
+            onChange={(e) => setRolesText(e.target.value)}
+            placeholder="예: 도메인, 영업"
+          />
+        </Field>
+      </div>
+      <div className="ad-modal-footer">
+        <button className="btn btn-ghost" onClick={onClose}>
+          취소
+        </button>
+        <button className="btn btn-primary" disabled={busy || !pbiUsername.trim()} onClick={save}>
+          {busy ? "저장 중..." : "저장"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -643,6 +811,7 @@ function ReportsSection({
 }) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState("");
+  const [rlsReport, setRlsReport] = useState<AdminReport | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const pageSize = useFitRows(tableRef, 40, 38);
   const { pageItems, page, totalPages, total, setPage } = usePaged(reports, pageSize);
@@ -798,6 +967,13 @@ function ReportsSection({
                   >
                     설명
                   </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    title="행 수준 보안(RLS) 설정 — PBIX에 역할이 정의돼 있어야 동작"
+                    onClick={() => setRlsReport(r)}
+                  >
+                    RLS
+                  </button>
                   {r.pbi_dataset_id && (
                     <button className="btn btn-primary btn-sm" onClick={() => doRefresh(r)}>
                       새로고침
@@ -815,7 +991,105 @@ function ReportsSection({
         </table>
       </div>
       <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
+      {rlsReport && (
+        <RlsModal
+          report={rlsReport}
+          csrf={csrf}
+          showToast={showToast}
+          onClose={() => setRlsReport(null)}
+        />
+      )}
     </section>
+  );
+}
+
+/** 보고서 RLS 설정 모달 — enabled 토글 + PBIX 역할 이름 목록(콤마 구분). */
+function RlsModal({
+  report,
+  csrf,
+  showToast,
+  onClose,
+}: {
+  report: AdminReport;
+  csrf: string;
+  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
+  onClose: () => void;
+}) {
+  const [enabled, setEnabled] = useState(false);
+  const [rolesText, setRolesText] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    adminGetRls(report.id)
+      .then((r) => {
+        setEnabled(r.enabled);
+        setRolesText(r.role_names.join(", "));
+        setLoaded(true);
+      })
+      .catch(() => setError("RLS 설정 조회 실패"));
+  }, [report.id]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const roles = rolesText.split(",").map((s) => s.trim()).filter(Boolean);
+      await adminSetRls(report.id, enabled, roles, csrf);
+      showToast(
+        enabled
+          ? `'${report.name}' RLS가 켜졌습니다. 다음 열람부터 적용됩니다.`
+          : `'${report.name}' RLS가 꺼졌습니다.`,
+        "ok",
+      );
+      onClose();
+    } catch (e) {
+      showToast("RLS 저장 실패: " + (e as Error).message, "err");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={<>행 수준 보안(RLS) — {report.name}</>} onClose={onClose}>
+      <div className="ad-modal-body">
+        {error && <div className="ad-modal-err">{error}</div>}
+        {!error && !loaded && <div className="ad-modal-loading">불러오는 중...</div>}
+        {loaded && (
+          <>
+            <div className="rls-note">
+              PBIX 파일에 역할(DAX 예: <code>보안[upn] = USERNAME()</code>)이 정의돼
+              있어야 동작합니다. 켜면 임베드 토큰에 각 사용자의 PBI 사용자명이
+              identity로 전달돼 <b>사용자마다 자기 데이터만</b> 보게 됩니다.
+            </div>
+            <label className="rls-toggle">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+              />
+              이 보고서에 RLS 적용
+            </label>
+            <div className="ad-field" style={{ marginTop: 12 }}>
+              <label>역할 이름 (콤마 구분 — 비우면 사용자별 역할(users.roles) 사용)</label>
+              <input
+                value={rolesText}
+                onChange={(e) => setRolesText(e.target.value)}
+                placeholder="예: 도메인, 영업"
+                disabled={!enabled}
+              />
+            </div>
+          </>
+        )}
+      </div>
+      <div className="ad-modal-footer">
+        <button className="btn btn-ghost" onClick={onClose}>
+          취소
+        </button>
+        <button className="btn btn-primary" disabled={busy || !loaded} onClick={save}>
+          {busy ? "저장 중..." : "저장"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

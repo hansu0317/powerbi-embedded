@@ -53,6 +53,8 @@ class AppError(Enum):
     CONFIG_VALUE_INVALID = (400, "CONFIG_VALUE_INVALID",  "설정 값은 정수여야 합니다: '{value}'")
     CONFIG_KEY_UNKNOWN   = (400, "CONFIG_KEY_UNKNOWN",    "알 수 없는 설정 키입니다: '{key}'")
     CONFIG_VALUE_OUT_OF_RANGE = (400, "CONFIG_VALUE_OUT_OF_RANGE", "'{key}' 값은 {min}~{max} 범위여야 합니다.")
+    RLS_TOO_MANY_ROLES   = (400, "RLS_TOO_MANY_ROLES",    "RLS 역할은 최대 {max}개까지 지정할 수 있습니다.")
+    RLS_IDENTIFIER_REQUIRED = (400, "RLS_IDENTIFIER_REQUIRED", "PBI 사용자명(RLS 식별자)은 비울 수 없습니다.")
 
     # ── 외부 서비스 오류 ──────────────────────────────────────────────────────
     TOKEN_FAILED         = (500, "TOKEN_FAILED",          "Azure AD 토큰 발급 실패: {detail}")

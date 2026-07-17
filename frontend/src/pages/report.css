@@ -727,3 +727,26 @@
 
 /* 버튼 내부 아이콘 정렬 */
 .btn .icn { vertical-align: -3px; margin-right: 5px; }
+
+/* ── v4: 데이터 신선도 배지 (보고서 툴바) ─────────────── */
+.rp-fresh {
+  margin-left: auto;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--sage-deep);
+  background: var(--sage-soft);
+  border: 1px solid var(--sage-light);
+  border-radius: 999px;
+  padding: 3px 12px;
+  white-space: nowrap;
+}
+.rp-fresh.warn {
+  color: #8a6400;
+  background: #fff8e6;
+  border-color: #f0d27a;
+}
+.rp-fresh.danger {
+  color: #b3403c;
+  background: #fdecec;
+  border-color: #f3c2c0;
+}

@@ -83,6 +83,7 @@ def _build_embed_response(
         "embed_url":   embed_url,
         "expires_at":  expires_at,
         "report_id":   pbi_report_id,
+        "dataset_id":  report_row["pbi_dataset_id"],  # 신선도 배지 조회용
         "report_name": report_row["name"],
         "settings": {
             "default_page":    report_row["default_page"],

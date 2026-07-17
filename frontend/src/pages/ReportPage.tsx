@@ -691,10 +691,21 @@ function MyReportsView({
   onClose: (id: number) => void;
   onGoUpload: () => void;
 }) {
+  // 탭별 데이터 신선도(마지막 refresh 성공 시각) — ReportPanel이 임베드 응답에서 올려준다
+  const [freshMap, setFreshMap] = useState<
+    Record<number, { asOf: string | null; status: string | null }>
+  >({});
+  const onFreshness = useCallback(
+    (rid: number, asOf: string | null, status: string | null) =>
+      setFreshMap((prev) => ({ ...prev, [rid]: { asOf, status } })),
+    [],
+  );
+
   if (tabs.length === 0) {
     return <ReportLanding reports={reports} canUpload={canUpload} onGoUpload={onGoUpload} />;
   }
   const activeTab = tabs.find((t) => t.id === active);
+  const fresh = activeTab ? freshMap[activeTab.id] : undefined;
   return (
     <div className="rp-workarea">
       {activeTab && (
@@ -726,11 +737,12 @@ function MyReportsView({
               fill={defaultId === activeTab.id ? "currentColor" : "none"}
             />
           </button>
+          {fresh && <FreshnessBadge asOf={fresh.asOf} status={fresh.status} />}
         </div>
       )}
       <div className="rp-panels">
         {tabs.map((t) => (
-          <ReportPanel key={t.id} id={t.id} active={t.id === active} />
+          <ReportPanel key={t.id} id={t.id} active={t.id === active} onFreshness={onFreshness} />
         ))}
       </div>
       {/* 탭 바 — 하단 */}
@@ -795,7 +807,38 @@ function ReportLanding({
   );
 }
 
-function ReportPanel({ id, active }: { id: number; active: boolean }) {
+/** 데이터 기준(마지막 refresh 성공) 배지 — 26시간 넘으면 경고, refresh 실패면 위험. */
+function FreshnessBadge({ asOf, status }: { asOf: string | null; status: string | null }) {
+  if (status === "Failed") {
+    return (
+      <span className="rp-fresh danger" title="데이터셋 새로고침이 실패했습니다. 관리자에게 문의하세요.">
+        데이터 갱신 실패
+      </span>
+    );
+  }
+  if (!asOf) return null; // NotRefreshable(DirectQuery 등)·수집 전에는 표시하지 않는다
+  const d = new Date(asOf);
+  const ageHours = (Date.now() - d.getTime()) / 3_600_000;
+  const label = `${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return (
+    <span
+      className={`rp-fresh${ageHours > 26 ? " warn" : ""}`}
+      title={ageHours > 26 ? "데이터가 하루 이상 갱신되지 않았습니다" : "마지막 데이터 새로고침 성공 시각"}
+    >
+      데이터 기준 {label}
+    </span>
+  );
+}
+
+function ReportPanel({
+  id,
+  active,
+  onFreshness,
+}: {
+  id: number;
+  active: boolean;
+  onFreshness: (rid: number, asOf: string | null, status: string | null) => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -815,6 +858,7 @@ function ReportPanel({ id, active }: { id: number; active: boolean }) {
           const d = await fetchEmbed(id);
           if (cancelled) return;
           await report.setAccessToken(d.embed_token);
+          onFreshness(id, d.data_as_of ?? null, d.refresh_status ?? null);
           scheduleRenew(report, d.expires_at);
         } catch {
           if (!cancelled) scheduleRenew(report, Date.now() / 1000 + 6 * 60);
@@ -826,6 +870,7 @@ function ReportPanel({ id, active }: { id: number; active: boolean }) {
       try {
         const d = await fetchEmbed(id);
         if (cancelled || !el) return;
+        onFreshness(id, d.data_as_of ?? null, d.refresh_status ?? null);
         const s = d.settings || {};
         const config: pbi.IEmbedConfiguration = {
           type: "report",
@@ -867,7 +912,7 @@ function ReportPanel({ id, active }: { id: number; active: boolean }) {
       if (renewTimer) window.clearTimeout(renewTimer);
       if (el) powerbi.reset(el);
     };
-  }, [id]);
+  }, [id, onFreshness]);
 
   return (
     <div className={`rp-panel${active ? " active" : ""}`}>

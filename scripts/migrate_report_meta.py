@@ -476,10 +476,45 @@ def _v3_activity_and_convenience(cur):
 # 버전 레지스트리 — 새 스키마 변경은 여기에 (버전, 함수)로 추가한다
 # ═══════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════
+# v4 — 데이터 신선도 관제 (2026-07)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _v4_dataset_freshness(cur):
+    """데이터셋 새로고침(refresh) 상태 추적 테이블.
+
+    PBI refresh는 실패해도 아무에게도 알리지 않는다 — 10분 동기화 루프가
+    refresh 이력을 수집해 여기 저장하고, 뷰어는 '데이터 기준 시각' 배지를,
+    관리자는 실패 현황을 본다. 실패 시 하루 한도 내에서 자동 재시도한다.
+    (RLS 실전 적용은 스키마 변경 불필요 — v1의 report_rls·users.roles를 그대로 쓴다)
+    """
+    cur.execute(
+        """CREATE TABLE dataset_refresh_status (
+            pbi_dataset_id   VARCHAR(36) PRIMARY KEY,
+            pbi_workspace_id VARCHAR(36),
+            last_status      VARCHAR(24),        -- Completed|Failed|Unknown|Disabled|NotRefreshable
+            last_success_at  TIMESTAMPTZ,        -- 뷰어 '데이터 기준' 배지의 원천
+            last_attempt_at  TIMESTAMPTZ,
+            failure_reason   TEXT,
+            consecutive_failures INTEGER NOT NULL DEFAULT 0,
+            auto_retries_today   INTEGER NOT NULL DEFAULT 0,
+            retry_date       DATE,               -- auto_retries_today의 기준 날짜
+            updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"""
+    )
+    cur.execute(
+        """INSERT INTO app_config (key, value, description)
+           VALUES ('refresh_auto_retry_max', '2',
+                   'refresh 실패 시 데이터셋당 하루 자동 재시도 최대 횟수. 0=끔.')
+           ON CONFLICT (key) DO NOTHING"""
+    )
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
     (3, _v3_activity_and_convenience),
+    (4, _v4_dataset_freshness),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]
