@@ -21,6 +21,7 @@ from database import (
     db_health_check,
     db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
     db_fail_stuck_upload_job,
+    db_log_activity, db_get_popular_report_ids, db_set_default_report,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError
@@ -44,11 +45,22 @@ async def index(request: Request):
         report_list = await asyncio.to_thread(db_get_reports, user["username"])
     favorites = await asyncio.to_thread(db_get_user_favorites, user["id"])
     recents   = await asyncio.to_thread(db_get_user_recents, user["id"])
+
+    # 인기 보고서: 전체 순위를 뽑은 뒤 이 사용자가 볼 수 있는 것과 교집합 → 상위 5개.
+    # 권한 없는 보고서가 인기 목록으로 존재를 노출하지 않도록 필터링이 필수다.
+    visible_ids = {r["id"] for r in report_list}
+    ranking = await asyncio.to_thread(db_get_popular_report_ids, 30, 20)
+    popular = [
+        {"report_id": row["report_id"], "views": row["views"]}
+        for row in ranking if row["report_id"] in visible_ids
+    ][:5]
+
     return templates.TemplateResponse(request, "report.html", {
         "user":      user,
         "reports":   report_list,
         "favorites": favorites,
         "recents":   recents,
+        "popular":   popular,
         "csrf_token": csrf_token(request),
     })
 
@@ -97,6 +109,27 @@ async def api_add_recent(request: Request, report_id: int):
     return {"report_id": report_id, "status": "ok"}
 
 
+@router.post("/api/user/default-report")
+async def api_set_default_report(request: Request):
+    """기본 보고서 설정/해제. body: {"report_id": int|null}
+
+    설정된 보고서는 뷰어 진입 시 자동으로 열린다. null이면 해제."""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    body = await request.json()
+    report_id = body.get("report_id")
+    if report_id is not None:
+        report_id = int(report_id)
+        await _require_viewable_report(user, report_id)
+    try:
+        await asyncio.to_thread(db_set_default_report, user["id"], report_id)
+    except psycopg2.errors.ForeignKeyViolation:
+        raise AppError.REPORT_NOT_FOUND.http()
+    return {"default_report_id": report_id}
+
+
 @router.get("/health")
 async def health():
     try:
@@ -129,22 +162,38 @@ async def api_embed(request: Request, report_id: int):
         logger.warning("EMBED DENY | user=%-12s | ip=%s | report_id=%s (권한없음)", user["username"], ip, report_id)
         raise
     logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
-    return await get_embed_token(report_id, user["pbi_username"], user["roles"])
+    result = await get_embed_token(report_id, user["pbi_username"], user["roles"])
+    await asyncio.to_thread(
+        db_log_activity, user["id"], user["username"], "report_view",
+        report_id, result.get("report_name"), ip,
+    )
+    return result
 
 
 @router.post("/api/upload")
-async def api_upload(request: Request, file: UploadFile = File(...), report_name: str = Form("")):
+async def api_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    report_name: str = Form(""),
+    report_description: str = Form(""),
+):
     """파일 수신 후 즉시 job_id 반환. 실제 PBI 게시는 백그라운드에서 진행."""
     verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     user = await current_user(request)
     if not user:
         raise AppError.NOT_AUTHENTICATED.http()
+    if not user.get("can_upload"):
+        logger.warning("UPLOAD DENY | user=%-12s | 업로드 권한 없음", user["username"])
+        raise AppError.FORBIDDEN_UPLOAD.http()
 
     name, pbix_bytes, file_size = await _read_and_validate_pbix(file, report_name, user["id"])
     job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name)
     logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s", user["username"], name, job_id)
+    ip = get_client_ip(request)
+    await asyncio.to_thread(db_log_activity, user["id"], user["username"], "report_upload", None, name, ip)
 
-    asyncio.create_task(_process_upload(user, name, pbix_bytes, file_size, job_id, get_client_ip(request)))
+    asyncio.create_task(_process_upload(user, name, pbix_bytes, file_size, job_id, ip,
+                                        report_description.strip()[:500] or None))
     return {"job_id": job_id, "report_name": name, "status": "accepted"}
 
 
@@ -194,14 +243,15 @@ async def _read_and_validate_pbix(
     return name, await asyncio.to_thread(file.file.read), file_size
 
 
-async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str):
+async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str,
+                          description: str | None = None):
     """백그라운드 태스크 진입점 — 어떤 예외도 잡을 '진행 중' 상태로 남기지 않는다.
 
     알려진 실패는 _run_upload 각 지점이 잡 상태(failed/conflict/unknown 등)를 기록한 뒤
     HTTPException으로 탈출한다. 그 밖의 예상 밖 예외가 새면 잡이 publishing/accepted로
     남아 서버 재시작 전까지 같은 이름 재업로드가 409로 막히므로, 여기서 failed 처리한다."""
     try:
-        await _run_upload(user, name, pbix_bytes, file_size, job_id, ip)
+        await _run_upload(user, name, pbix_bytes, file_size, job_id, ip, description)
     except HTTPException:
         pass  # 알려진 실패 — 잡 상태는 발생 지점에서 이미 기록됨
     except Exception:
@@ -214,7 +264,8 @@ async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: i
             logger.exception("UPLOAD STUCK MARK FAIL | job_id=%s", job_id)
 
 
-async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str):
+async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str,
+                      description: str | None = None):
     """실제 게시 파이프라인 오케스트레이터: 파일 검증·예약은 호출자(api_upload)에서 완료된 상태로 진입.
 
     각 단계는 실패 시 잡 상태(failed/conflict/unknown 등)를 스스로 기록한 뒤 HTTPException으로 탈출한다.
@@ -244,7 +295,7 @@ async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, 
     await _move_to_user_folder(user, pbi_report_id, dataset_ids)
 
     # 5) 게이트웨이 DB 등록 + 완료 처리
-    await _register_uploaded_report(user, name, pbi_report_id, dataset_ids, pbi_display_name, job_id)
+    await _register_uploaded_report(user, name, pbi_report_id, dataset_ids, pbi_display_name, job_id, description)
     logger.info("UPLOAD OK  | user=%-12s | ip=%s | report=%s", user["username"], ip, name)
     return {"report_name": name, "pbi_display_name": pbi_display_name, "new": True}
 
@@ -319,7 +370,7 @@ async def _move_to_user_folder(user: dict, pbi_report_id: str, dataset_ids: list
 
 async def _register_uploaded_report(
     user: dict, name: str, pbi_report_id: str, dataset_ids: list[str],
-    pbi_display_name: str, job_id: int,
+    pbi_display_name: str, job_id: int, description: str | None = None,
 ):
     """게이트웨이 DB에 보고서를 등록하고 잡을 completed로 마감한다. DB 실패는 db_failed로 기록."""
     try:
@@ -328,6 +379,7 @@ async def _register_uploaded_report(
             dataset_ids[0] if dataset_ids else None,
             WORKSPACE_ID, pbi_display_name,
             user["username"],  # Fabric 폴더명 = username → 사이드바 폴더 트리에 반영
+            description,
         )
     except psycopg2.Error as exc:
         await asyncio.to_thread(db_update_upload_job, job_id, "db_failed", error_message=str(exc))

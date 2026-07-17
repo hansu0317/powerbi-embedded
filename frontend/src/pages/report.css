@@ -538,6 +538,19 @@
   white-space: nowrap;
 }
 .rp-all-name .icn { vertical-align: -2px; margin-right: 4px; }
+.rp-all-desc {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: var(--muted);
+  margin-top: 2px;
+  padding-left: 19px;
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-toolbar-pin.on { color: var(--sage-deep); }
 .rp-all-empty { text-align: center; color: var(--muted); padding: 40px; }
 .rp-total { text-align: center; margin-top: 16px; font-size: 0.82rem; color: var(--ink-soft); }
 

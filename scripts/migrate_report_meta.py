@@ -423,12 +423,63 @@ def _v2_groups(cur):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# v3 — 사용자 활동 로그 + 편의 기능 (2026-07)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _v3_activity_and_convenience(cur):
+    """사용자 활동 로그(activity_log) + 기본 보고서 + 업로드 권한 + 보고서 설명.
+
+    - activity_log: 사용자 행위 기록 (report_view 등). 인기 보고서 집계·관리자 로그
+      화면의 데이터 원천. 관리자 '행위' 감사는 기존 report_audit_log가 계속 담당한다.
+    - users.default_report_id: 뷰어 진입 시 자동으로 여는 보고서. 보고서가 삭제되면
+      SET NULL로 조용히 해제된다 (열람 오류 방지).
+    - users.can_upload: 업로드 권한 분리. 기존 사용자는 TRUE로 동작 유지.
+    - reports.description: 보고서 설명 (검색 대상).
+    - RLS 파이프라인(report_rls, users.pbi_username/roles)은 건드리지 않는다 —
+      추후 동적 RLS(v4+)와 충돌 지점 없음.
+    """
+    cur.execute(
+        """CREATE TABLE activity_log (
+            id BIGSERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            username VARCHAR(50) NOT NULL,           -- 사용자 삭제 후에도 로그 판독 가능하도록 보존
+            event VARCHAR(32) NOT NULL
+                CHECK (event IN ('report_view', 'report_upload')),
+            report_id INTEGER REFERENCES reports(id) ON DELETE SET NULL,
+            report_name VARCHAR(105),                -- 보고서 삭제 후에도 로그 판독 가능하도록 보존
+            ip VARCHAR(45),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"""
+    )
+    # 로그 화면 필터(기간·사용자·이벤트) + 인기 집계(report_id×기간)용 인덱스
+    cur.execute("CREATE INDEX activity_log_created_idx ON activity_log (created_at DESC)")
+    cur.execute("CREATE INDEX activity_log_user_idx ON activity_log (user_id, created_at DESC)")
+    cur.execute("CREATE INDEX activity_log_report_idx ON activity_log (report_id, created_at DESC)")
+
+    cur.execute(
+        "ALTER TABLE users ADD COLUMN default_report_id INTEGER "
+        "REFERENCES reports(id) ON DELETE SET NULL"
+    )
+    cur.execute("ALTER TABLE users ADD COLUMN can_upload BOOLEAN NOT NULL DEFAULT TRUE")
+    cur.execute("ALTER TABLE reports ADD COLUMN description TEXT")
+
+    # 로그 보존 기간 (일). 초과분은 일 1회 백그라운드에서 삭제된다.
+    cur.execute(
+        """INSERT INTO app_config (key, value, description)
+           VALUES ('activity_log_retention_days', '90',
+                   '사용자 활동 로그 보존 기간 (일). 초과분은 매일 자동 삭제.')
+           ON CONFLICT (key) DO NOTHING"""
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 버전 레지스트리 — 새 스키마 변경은 여기에 (버전, 함수)로 추가한다
 # ═══════════════════════════════════════════════════════════════════════════
 
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
+    (3, _v3_activity_and_convenience),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

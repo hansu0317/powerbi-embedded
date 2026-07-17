@@ -302,3 +302,116 @@
   text-align: right;
 }
 .cfg-row input:focus { outline: none; border-color: var(--sage-deep); }
+
+/* ── 권한 매트릭스 ─────────────────────────────────────── */
+.mx-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 240px);
+}
+.mx-table { border-collapse: separate; border-spacing: 0; }
+.mx-table th, .mx-table td { border-bottom: 1px solid #f0f3ec; }
+.mx-sticky {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 2;
+  box-shadow: 1px 0 0 var(--line);
+}
+.mx-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--sage-bg);
+  z-index: 3;
+}
+.mx-table thead th.mx-sticky { z-index: 4; }
+.mx-report-col { min-width: 240px; }
+.mx-group-col {
+  min-width: 96px;
+  text-align: center !important;
+  white-space: nowrap;
+}
+.mx-member {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+.mx-cat-row td {
+  background: var(--sage-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--sage-deep);
+  padding: 6px 12px;
+}
+.mx-cat-row .mx-member { display: inline; margin-left: 4px; }
+.mx-report {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 8px 12px 8px 22px;
+}
+.mx-cell {
+  text-align: center;
+  cursor: pointer;
+  font-weight: 700;
+  color: transparent;
+  transition: background 0.1s;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.mx-cell:hover { background: var(--sage-bg); color: var(--sage-light); }
+.mx-cell.on { color: var(--sage-deep); background: #f3f8ec; }
+.mx-cell.on:hover { background: #fdecec; color: var(--danger); }
+.mx-search {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  width: 220px;
+  outline: none;
+  background: #fbfdf8;
+  font-family: inherit;
+}
+.mx-search:focus { border-color: var(--sage); }
+.mx-hint { font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; }
+
+/* ── 로그 탭 ───────────────────────────────────────────── */
+.lg-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.lg-filters input, .lg-filters select {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.83rem;
+  background: #fbfdf8;
+  outline: none;
+  font-family: inherit;
+}
+.lg-filters input:focus, .lg-filters select:focus { border-color: var(--sage); }
+.lg-tilde { color: var(--muted); }
+
+/* ── 그룹 관리 폼 (2.1: 낡아 보이던 기본 input 정리) ──── */
+.ad-section-head > input {
+  padding: 9px 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.86rem;
+  background: #fbfdf8;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ad-section-head > input:focus {
+  border-color: var(--sage);
+  box-shadow: 0 0 0 3px #9ccc6538;
+  background: #fff;
+}

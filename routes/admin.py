@@ -1,12 +1,14 @@
 """관리자 포털 라우트: /admin, /api/admin/*"""
 import asyncio
+import csv
+import io
 import logging
 
 import bcrypt
 import psycopg2.errors
 from fastapi import APIRouter, Depends, Form
 from fastapi.requests import Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import config
@@ -23,6 +25,8 @@ from database import (
     db_get_group_members, db_set_group_member,
     db_get_report_group_access, db_set_report_group_access,
     db_get_user_report_list,
+    db_get_activity_log, db_get_audit_log, db_get_access_matrix,
+    db_admin_toggle_user_upload, db_update_report_description,
 )
 from deps import csrf_token, verify_csrf, require_admin_user, require_admin_csrf
 from errors import AppError
@@ -159,6 +163,7 @@ CONFIG_LIMITS = {
     "embed_token_lifetime_min":   (5, 60),
     "pbi_token_cache_margin_sec": (0, 3600),
     "max_embed_rls_roles":        (1, 50),
+    "activity_log_retention_days": (7, 3650),
 }
 
 
@@ -213,6 +218,7 @@ async def api_admin_add_user(
     pbi_username: str = Form(""),
     roles: str = Form("도메인"),
     is_admin: bool = Form(False),
+    can_upload: bool = Form(True),
     csrf: str = Form(),
     user: dict = Depends(require_admin_user),
 ):
@@ -225,7 +231,7 @@ async def api_admin_add_user(
     try:
         new_id = await asyncio.to_thread(
             db_admin_add_user, username, pw_hash, display_name,
-            pbi_username or username, role_list, is_admin,
+            pbi_username or username, role_list, is_admin, can_upload,
         )
     except psycopg2.errors.UniqueViolation:
         raise AppError.USER_ALREADY_EXISTS.http(username=username)
@@ -410,3 +416,82 @@ async def api_admin_set_access(
     logger.info("ADMIN ACCESS | admin=%s | report_id=%s | user_id=%s | can_view=%s",
                 user["username"], report_id, user_id, can_view)
     return {"can_view": can_view}
+
+
+# ── 권한 매트릭스 / 로그 / 편의 (v3) ─────────────────────────────────────────
+
+@router.get("/api/admin/access-matrix")
+async def api_admin_access_matrix(user: dict = Depends(require_admin_user)):
+    """권한 매트릭스 데이터: 그룹 전체 × active 보고서 전체 + 부여 현황."""
+    return await asyncio.to_thread(db_get_access_matrix)
+
+
+@router.post("/api/admin/users/{user_id}/toggle-upload")
+async def api_admin_toggle_upload(user_id: int, user: dict = Depends(require_admin_csrf)):
+    """사용자의 보고서 업로드 권한을 켜고 끈다."""
+    can_upload = await asyncio.to_thread(db_admin_toggle_user_upload, user_id)
+    if can_upload is None:
+        raise AppError.USER_NOT_FOUND.http()
+    logger.info("ADMIN UPLOAD PERM | admin=%s | user_id=%s | can_upload=%s",
+                user["username"], user_id, can_upload)
+    return {"can_upload": can_upload}
+
+
+@router.post("/api/admin/reports/{report_id}/description")
+async def api_admin_set_description(
+    request: Request, report_id: int, user: dict = Depends(require_admin_csrf),
+):
+    """보고서 설명 수정. body: {description: str} (빈 문자열 = 설명 제거)"""
+    body = await request.json()
+    description = str(body.get("description", ""))[:500]
+    updated = await asyncio.to_thread(db_update_report_description, report_id, description)
+    if not updated:
+        raise AppError.REPORT_NOT_FOUND.http()
+    return {"report_id": report_id, "description": description.strip() or None}
+
+
+def _fetch_logs(log_type: str, username: str, event: str, date_from: str, date_to: str):
+    """로그 화면·CSV가 공유하는 조회. log_type: activity(사용자 활동) | audit(관리 감사)."""
+    if log_type == "audit":
+        return db_get_audit_log(date_from or None, date_to or None)
+    return db_get_activity_log(username or None, event or None,
+                               date_from or None, date_to or None)
+
+
+@router.get("/api/admin/logs")
+async def api_admin_logs(
+    type: str = "activity", username: str = "", event: str = "",
+    date_from: str = "", date_to: str = "",
+    user: dict = Depends(require_admin_user),
+):
+    """활동/감사 로그 조회 (관리자 로그 탭)."""
+    rows = await asyncio.to_thread(_fetch_logs, type, username, event, date_from, date_to)
+    return {"rows": rows}
+
+
+@router.get("/api/admin/logs/export")
+async def api_admin_logs_export(
+    type: str = "activity", username: str = "", event: str = "",
+    date_from: str = "", date_to: str = "",
+    user: dict = Depends(require_admin_user),
+):
+    """로그 CSV 다운로드. BOM을 붙여 Excel에서 한글이 깨지지 않게 한다."""
+    rows = await asyncio.to_thread(_fetch_logs, type, username, event, date_from, date_to)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    if type == "audit":
+        writer.writerow(["일시", "행위자", "행위", "보고서", "상세"])
+        for r in rows:
+            writer.writerow([r["created_at"], r["actor"] or "", r["action"],
+                             r["report_name"] or "", str(r["details"])])
+    else:
+        writer.writerow(["일시", "사용자", "이벤트", "보고서", "IP"])
+        for r in rows:
+            writer.writerow([r["created_at"], r["username"], r["event"],
+                             r["report_name"] or "", r["ip"] or ""])
+    logger.info("ADMIN LOG EXPORT | admin=%s | type=%s | rows=%d", user["username"], type, len(rows))
+    return Response(
+        content="\ufeff" + buf.getvalue(),  # BOM: Excel 한글 인코딩 인식용
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={type}_log.csv"},
+    )

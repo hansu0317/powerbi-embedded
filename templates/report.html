@@ -14,7 +14,9 @@
         user: {
           username: {{ user.username | tojson }},
           display_name: {{ user.display_name | tojson }},
-          is_admin: {{ (user.is_admin or False) | tojson }}
+          is_admin: {{ (user.is_admin or False) | tojson }},
+          can_upload: {{ (user.can_upload or False) | tojson }},
+          default_report_id: {{ user.default_report_id | tojson }}
         },
         reports: [
           {%- for r in reports %}
@@ -23,12 +25,14 @@
             "name": {{ r['name'] | tojson }},
             "category": {{ r['category'] | tojson }},
             "owner_username": {{ r['owner_username'] | tojson }},
-            "report_type": {{ r['report_type'] | tojson }}
+            "report_type": {{ r['report_type'] | tojson }},
+            "description": {{ r['description'] | tojson }}
           }{{ "," if not loop.last else "" }}
           {%- endfor %}
         ],
         favorites: {{ favorites | tojson }},
         recents: {{ recents | tojson }},
+        popular: {{ popular | tojson }},
         csrf_token: {{ csrf_token | tojson }}
       }
     };

@@ -130,7 +130,8 @@ def db_get_user(username: str):
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, username, display_name, pbi_username, roles, is_admin "
+                "SELECT id, username, display_name, pbi_username, roles, is_admin, "
+                "       can_upload, default_report_id "
                 "FROM users WHERE username = %s AND is_active = TRUE",
                 (username,),
             )
@@ -155,7 +156,7 @@ def db_get_reports(username: str) -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"""SELECT r.id, r.name, r.report_type, r.owner_id, r.category,
+                f"""SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
                           owner.username AS owner_username,
                           s.preview_image_url, s.tab_type
                    FROM reports r
@@ -175,7 +176,7 @@ def db_get_all_active_reports() -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT r.id, r.name, r.report_type, r.owner_id, r.category,
+                """SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
                           owner.username AS owner_username,
                           s.preview_image_url, s.tab_type
                    FROM reports r
@@ -450,6 +451,7 @@ def db_register_report(
     pbi_workspace_id: str | None = None,
     pbi_display_name: str | None = None,
     category: str | None = None,
+    description: str | None = None,
 ):
     """업로드된 보고서를 등록하고 소유자에게 열람 권한을 부여한다.
 
@@ -476,14 +478,15 @@ def db_register_report(
                 report_id = existing["id"]
                 cur.execute(
                     "UPDATE reports SET status = 'active', deleted_at = NULL, updated_at = NOW(), "
-                    "updated_by = %s, category = COALESCE(category, %s) WHERE id = %s",
-                    (owner_id, category, report_id),
+                    "updated_by = %s, category = COALESCE(category, %s), "
+                    "description = COALESCE(%s, description) WHERE id = %s",
+                    (owner_id, category, description, report_id),
                 )
             else:
                 cur.execute(
-                    "INSERT INTO reports (name, report_type, owner_id, status, category, created_by, updated_by) "
-                    "VALUES (%s, 'personal', %s, 'active', %s, %s, %s) RETURNING id",
-                    (name, owner_id, category, owner_id, owner_id),
+                    "INSERT INTO reports (name, report_type, owner_id, status, category, description, created_by, updated_by) "
+                    "VALUES (%s, 'personal', %s, 'active', %s, %s, %s, %s) RETURNING id",
+                    (name, owner_id, category, description, owner_id, owner_id),
                 )
                 report_id = cur.fetchone()["id"]
             cur.execute(
@@ -620,7 +623,7 @@ def db_admin_get_users() -> list:
         with conn.cursor() as cur:
             cur.execute(
                 f"""SELECT u.id, u.username, u.display_name, u.pbi_username, u.roles,
-                          u.is_admin, u.is_active, u.last_login_at, u.created_at,
+                          u.is_admin, u.is_active, u.can_upload, u.last_login_at, u.created_at,
                           (SELECT COUNT(*) FROM reports r
                            WHERE r.status = 'active' AND {_CAN_VIEW_REPORT_SQL}
                           ) AS report_count
@@ -657,13 +660,14 @@ def db_get_user_report_list(user_id: int) -> list:
 
 
 def db_admin_add_user(username: str, pw_hash: str, display_name: str,
-                      pbi_username: str, roles: list[str], is_admin: bool) -> int:
+                      pbi_username: str, roles: list[str], is_admin: bool,
+                      can_upload: bool = True) -> int:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO users (username, password, display_name, pbi_username, roles, is_admin) "
-                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-                (username, pw_hash, display_name, pbi_username, roles, is_admin),
+                "INSERT INTO users (username, password, display_name, pbi_username, roles, is_admin, can_upload) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (username, pw_hash, display_name, pbi_username, roles, is_admin, can_upload),
             )
             row = cur.fetchone()
         conn.commit()
@@ -687,7 +691,7 @@ def db_admin_get_reports() -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT r.id, r.name, r.report_type, r.status, r.created_at, r.category,
+                """SELECT r.id, r.name, r.report_type, r.status, r.created_at, r.category, r.description,
                           u.username AS owner_username,
                           m.pbi_report_id, m.pbi_display_name, m.pbi_dataset_id,
                           COALESCE(m.pbi_workspace_id, %s) AS pbi_workspace_id,
@@ -802,9 +806,11 @@ def db_admin_get_upload_jobs(limit: int = 30) -> list:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT j.id, j.report_name, j.status, j.error_message,
-                          j.created_at, j.updated_at, u.username
+                          j.created_at, j.updated_at, u.username,
+                          r.category
                    FROM upload_jobs j
                    JOIN users u ON u.id = j.user_id
+                   LEFT JOIN reports r ON r.id = j.report_id
                    ORDER BY j.id DESC LIMIT %s""",
                 (limit,),
             )
@@ -973,3 +979,176 @@ def db_update_app_config(key: str, value: str) -> bool:
             updated = cur.rowcount > 0
         conn.commit()
     return updated
+
+
+# ── 활동 로그 (v3) ────────────────────────────────────────────────────────────
+
+def db_log_activity(user_id: int, username: str, event: str,
+                    report_id: int | None = None, report_name: str | None = None,
+                    ip: str | None = None) -> None:
+    """사용자 활동 1건 기록. username·report_name은 원본 삭제 후에도 판독 가능하도록 함께 보존."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO activity_log (user_id, username, event, report_id, report_name, ip) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (user_id, username, event, report_id, report_name, ip),
+            )
+        conn.commit()
+
+
+def db_get_activity_log(username: str | None = None, event: str | None = None,
+                        date_from: str | None = None, date_to: str | None = None,
+                        limit: int = 1000) -> list:
+    """활동 로그 조회 (관리자 로그 화면·CSV 내보내기용). 필터는 전부 선택."""
+    conds, params = [], []
+    if username:
+        conds.append("username ILIKE %s")
+        params.append(f"%{username}%")
+    if event:
+        conds.append("event = %s")
+        params.append(event)
+    if date_from:
+        conds.append("created_at >= %s::date")
+        params.append(date_from)
+    if date_to:
+        conds.append("created_at < %s::date + INTERVAL '1 day'")
+        params.append(date_to)
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    params.append(limit)
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""SELECT id, username, event, report_name, ip, created_at
+                   FROM activity_log {where}
+                   ORDER BY created_at DESC LIMIT %s""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def db_get_audit_log(date_from: str | None = None, date_to: str | None = None,
+                     limit: int = 1000) -> list:
+    """관리 행위 감사 로그 조회 (report_audit_log — 등록/삭제/권한변경)."""
+    conds, params = [], []
+    if date_from:
+        conds.append("a.created_at >= %s::date")
+        params.append(date_from)
+    if date_to:
+        conds.append("a.created_at < %s::date + INTERVAL '1 day'")
+        params.append(date_to)
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    params.append(limit)
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""SELECT a.id, a.action, a.details, a.created_at,
+                          u.username AS actor, r.name AS report_name
+                   FROM report_audit_log a
+                   LEFT JOIN users u ON u.id = a.actor_user_id
+                   LEFT JOIN reports r ON r.id = a.report_id
+                   {where}
+                   ORDER BY a.created_at DESC LIMIT %s""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def db_cleanup_activity_log() -> int:
+    """보존 기간(app_config: activity_log_retention_days) 초과분 삭제. 일 1회 백그라운드 실행."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM activity_log WHERE created_at < NOW() - %s * INTERVAL '1 day'",
+                (config.ACTIVITY_LOG_RETENTION_DAYS,),
+            )
+            deleted = cur.rowcount
+        conn.commit()
+    return deleted
+
+
+def db_get_popular_report_ids(days: int = 30, limit: int = 20) -> list:
+    """최근 N일 조회수 상위 보고서 [(report_id, views)]. active 보고서만.
+
+    호출자(홈 부트스트랩)가 사용자의 열람 가능 목록과 교집합을 내서 노출한다 —
+    권한 없는 보고서의 존재가 인기 목록으로 새는 것을 방지."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT a.report_id, COUNT(*) AS views
+                   FROM activity_log a
+                   JOIN reports r ON r.id = a.report_id AND r.status = 'active'
+                   WHERE a.event = 'report_view'
+                     AND a.created_at >= NOW() - %s * INTERVAL '1 day'
+                   GROUP BY a.report_id
+                   ORDER BY views DESC, a.report_id
+                   LIMIT %s""",
+                (days, limit),
+            )
+            return cur.fetchall()
+
+
+# ── 사용자 편의 (v3) ─────────────────────────────────────────────────────────
+
+def db_set_default_report(user_id: int, report_id: int | None) -> None:
+    """기본 보고서 설정/해제(None). FK가 잘못된 ID를 거른다(ForeignKeyViolation)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET default_report_id = %s, updated_at = NOW() WHERE id = %s",
+                (report_id, user_id),
+            )
+        conn.commit()
+
+
+def db_admin_toggle_user_upload(user_id: int):
+    """업로드 권한 토글. 반환: 변경 후 can_upload (없는 사용자는 None)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET can_upload = NOT can_upload, updated_at = NOW() "
+                "WHERE id = %s RETURNING can_upload",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return row["can_upload"] if row else None
+
+
+def db_update_report_description(report_id: int, description: str) -> bool:
+    """보고서 설명 수정 (관리자 보고서 탭). 빈 문자열은 NULL로 저장."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE reports SET description = NULLIF(%s, ''), updated_at = NOW() "
+                "WHERE id = %s AND status <> 'deleted'",
+                (description.strip(), report_id),
+            )
+            updated = cur.rowcount > 0
+        conn.commit()
+    return updated
+
+
+def db_get_access_matrix() -> dict:
+    """권한 매트릭스 데이터: 그룹 전체 + active 보고서 전체 + 부여 쌍.
+
+    반환: {"groups": [{id,name,member_count}], "reports": [{id,name,category,group_ids:[...]}]}"""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT g.id, g.name,
+                          (SELECT COUNT(*) FROM user_groups ug WHERE ug.group_id = g.id) AS member_count
+                   FROM groups g ORDER BY g.name"""
+            )
+            groups = cur.fetchall()
+            cur.execute(
+                """SELECT r.id, r.name, r.category,
+                          COALESCE(ARRAY_AGG(gr.group_id) FILTER (WHERE gr.can_view), '{}') AS group_ids
+                   FROM reports r
+                   LEFT JOIN group_reports gr ON gr.report_id = r.id
+                   WHERE r.status = 'active'
+                   GROUP BY r.id
+                   ORDER BY r.category NULLS LAST, r.name"""
+            )
+            reports = cur.fetchall()
+    return {"groups": groups, "reports": reports}

@@ -6,6 +6,8 @@ export interface SessionUser {
   username: string;
   display_name: string;
   is_admin: boolean;
+  can_upload?: boolean;
+  default_report_id?: number | null;
 }
 
 export interface ReportItem {
@@ -14,6 +16,12 @@ export interface ReportItem {
   category: string | null;
   owner_username: string | null;
   report_type: string;
+  description?: string | null;
+}
+
+export interface PopularItem {
+  report_id: number;
+  views: number;
 }
 
 export interface LoginData {
@@ -26,6 +34,7 @@ export interface ReportData {
   reports: ReportItem[];
   favorites: number[];
   recents: number[];
+  popular: PopularItem[];
   csrf_token: string;
 }
 
@@ -44,6 +53,7 @@ export interface AdminUser {
   roles: string[];
   is_admin: boolean;
   is_active: boolean;
+  can_upload: boolean;
   report_count: number;
   last_login_at: string | null;
 }
@@ -55,6 +65,7 @@ export interface AdminReport {
   status: string;
   owner_username: string | null;
   category: string | null;
+  description?: string | null;
   viewer_count: number;
   group_count: number;
   pbi_dataset_id: string | null;
@@ -65,6 +76,7 @@ export interface AdminJob {
   id: number;
   username: string;
   report_name: string;
+  category?: string | null;
   status: string;
   error_message: string | null;
   created_at: string | null;

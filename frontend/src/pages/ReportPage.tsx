@@ -8,13 +8,15 @@ import {
   Home as HomeIcon,
   Info,
   LayoutList,
+  Pin,
   Search,
   Star,
+  TrendingUp,
   Upload,
   X,
 } from "lucide-react";
 import type { ReportData, ReportItem } from "../bootstrap";
-import { fetchEmbed, fetchUploadStatus, logout, uploadPbix } from "../api";
+import { fetchEmbed, fetchUploadStatus, logout, setDefaultReport, uploadPbix } from "../api";
 import { useFavorites } from "../useFavorites";
 import { useRecents } from "../useRecents";
 import { Pager, useFitRows } from "../Pager";
@@ -49,9 +51,23 @@ const MODE_KEY = "rp-mode";
 
 export default function ReportPage({ data }: { data: ReportData }) {
   const { user, reports, csrf_token } = data;
+  const canUpload = user.can_upload !== false;
 
   const { isFav, toggle: toggleFav } = useFavorites(data.favorites, csrf_token);
   const { recents, push: pushRecent } = useRecents(data.recents, csrf_token);
+
+  // 기본 보고서: 서버 저장값을 초기값으로, 핀 토글 시 즉시 갱신 (낙관적 UI)
+  const [defaultId, setDefaultId] = useState<number | null>(
+    user.default_report_id ?? null,
+  );
+  const toggleDefault = useCallback(
+    (id: number) => {
+      const next = defaultId === id ? null : id;
+      setDefaultId(next);
+      setDefaultReport(next, csrf_token).catch(() => setDefaultId(defaultId));
+    },
+    [defaultId, csrf_token],
+  );
 
   // 열람 보고서 = 열람 가능한 보고서 전체(폴더 트리).
   //  - 관리자: 모든 보고서(권한과 무관하게 다 봄)
@@ -72,6 +88,18 @@ export default function ReportPage({ data }: { data: ReportData }) {
     sessionStorage.setItem(TABS_KEY, JSON.stringify(tabs));
     sessionStorage.setItem(ACTIVE_KEY, String(active ?? ""));
   }, [tabs, active]);
+
+  // 기본 보고서 자동 열기 — 새 세션(복원할 탭 없음)에서만. 기존 작업 흐름은 방해하지 않는다.
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (autoOpened.current || tabs.length > 0 || !defaultId) return;
+    const target = reports.find((r) => r.id === defaultId);
+    if (target) {
+      autoOpened.current = true;
+      openReport(target);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const goMode = useCallback((m: Mode) => {
     setMode(m);
@@ -166,6 +194,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
           displayName={user.display_name}
           isAdmin={Boolean(user.is_admin)}
           recentIds={recents}
+          popular={data.popular || []}
           isFav={isFav}
           onOpen={openReport}
           onSearch={runSearch}
@@ -183,6 +212,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
             view={view}
             activeId={active}
             isAdmin={Boolean(user.is_admin)}
+            canUpload={canUpload}
             isFav={isFav}
             onSelectView={setView}
             onOpen={openReport}
@@ -194,6 +224,9 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 tabs={tabs}
                 active={active}
                 isFav={isFav}
+                defaultId={defaultId}
+                onToggleDefault={toggleDefault}
+                canUpload={canUpload}
                 onToggleFav={toggleFav}
                 onActivate={setActive}
                 onClose={closeTab}
@@ -206,12 +239,13 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 query={allQuery}
                 onQuery={setAllQuery}
                 isFav={isFav}
+                canUpload={canUpload}
                 onToggleFav={toggleFav}
                 onOpen={openReport}
                 onGoUpload={() => setView("upload")}
               />
             )}
-            {view === "upload" && <UploadView csrf={csrf_token} />}
+            {view === "upload" && canUpload && <UploadView csrf={csrf_token} />}
           </main>
         </div>
       )}
@@ -225,6 +259,7 @@ function Home({
   displayName,
   isAdmin,
   recentIds,
+  popular,
   isFav,
   onOpen,
   onSearch,
@@ -234,6 +269,7 @@ function Home({
   displayName: string;
   isAdmin: boolean;
   recentIds: number[];
+  popular: { report_id: number; views: number }[];
   isFav: (id: number) => boolean;
   onOpen: (r: ReportItem) => void;
   onSearch: (q: string) => void;
@@ -247,6 +283,10 @@ function Home({
     .map((id) => byId.get(id))
     .filter((r): r is ReportItem => Boolean(r))
     .slice(0, 4);
+  const popularReports = popular
+    .map((p) => byId.get(p.report_id))
+    .filter((r): r is ReportItem => Boolean(r))
+    .slice(0, 4);
 
   const suggestions = useMemo(() => {
     const k = q.trim().toLowerCase();
@@ -255,7 +295,8 @@ function Home({
       .filter(
         (r) =>
           r.name.toLowerCase().includes(k) ||
-          (r.category || "").toLowerCase().includes(k),
+          (r.category || "").toLowerCase().includes(k) ||
+          (r.description || "").toLowerCase().includes(k),
       )
       .slice(0, 8);
   }, [q, reports]);
@@ -333,6 +374,14 @@ function Home({
           items={recentReports}
           onOpen={onOpen}
         />
+        <HomeCard
+          title="인기 보고서"
+          Icon={TrendingUp}
+          accent="#e0763c"
+          empty="최근 30일 조회 데이터가 쌓이면 표시됩니다"
+          items={popularReports}
+          onOpen={onOpen}
+        />
         {isAdmin && (
           <HomeCard
             title="전체 보고서"
@@ -401,6 +450,7 @@ function Sidebar({
   view,
   activeId,
   isAdmin,
+  canUpload,
   isFav,
   onSelectView,
   onOpen,
@@ -410,6 +460,7 @@ function Sidebar({
   view: View;
   activeId: number | null;
   isAdmin: boolean;
+  canUpload: boolean;
   isFav: (id: number) => boolean;
   onSelectView: (v: View) => void;
   onOpen: (r: ReportItem) => void;
@@ -517,12 +568,14 @@ function Sidebar({
             <LayoutList size={17} className="icn" /> 전체 보고서
           </div>
         )}
-        <div
-          className={`app-nav-item${view === "upload" ? " active" : ""}`}
-          onClick={() => onSelectView("upload")}
-        >
-          <Upload size={17} className="icn" /> 보고서 등록
-        </div>
+        {canUpload && (
+          <div
+            className={`app-nav-item${view === "upload" ? " active" : ""}`}
+            onClick={() => onSelectView("upload")}
+          >
+            <Upload size={17} className="icn" /> 보고서 등록
+          </div>
+        )}
       </div>
     </nav>
   );
@@ -618,6 +671,9 @@ function MyReportsView({
   tabs,
   active,
   isFav,
+  defaultId,
+  onToggleDefault,
+  canUpload,
   onToggleFav,
   onActivate,
   onClose,
@@ -627,13 +683,16 @@ function MyReportsView({
   tabs: OpenTab[];
   active: number | null;
   isFav: (id: number) => boolean;
+  defaultId: number | null;
+  onToggleDefault: (id: number) => void;
+  canUpload: boolean;
   onToggleFav: (id: number) => void;
   onActivate: (id: number) => void;
   onClose: (id: number) => void;
   onGoUpload: () => void;
 }) {
   if (tabs.length === 0) {
-    return <ReportLanding reports={reports} onGoUpload={onGoUpload} />;
+    return <ReportLanding reports={reports} canUpload={canUpload} onGoUpload={onGoUpload} />;
   }
   const activeTab = tabs.find((t) => t.id === active);
   return (
@@ -650,6 +709,21 @@ function MyReportsView({
               size={16}
               className="icn"
               fill={isFav(activeTab.id) ? "currentColor" : "none"}
+            />
+          </button>
+          <button
+            className={`rp-report-toolbar-fav rp-toolbar-pin${defaultId === activeTab.id ? " on" : ""}`}
+            title={
+              defaultId === activeTab.id
+                ? "기본 보고서 해제"
+                : "기본 보고서로 설정 (접속 시 자동으로 열림)"
+            }
+            onClick={() => onToggleDefault(activeTab.id)}
+          >
+            <Pin
+              size={16}
+              className="icn"
+              fill={defaultId === activeTab.id ? "currentColor" : "none"}
             />
           </button>
         </div>
@@ -688,9 +762,11 @@ function MyReportsView({
 
 function ReportLanding({
   reports,
+  canUpload,
   onGoUpload,
 }: {
   reports: ReportItem[];
+  canUpload: boolean;
   onGoUpload: () => void;
 }) {
   return (
@@ -700,9 +776,11 @@ function ReportLanding({
           <h1 className="rp-landing-hi">열람 보고서</h1>
           <p className="rp-landing-sub">권한이 있거나 내가 올린, 열람 가능한 보고서입니다</p>
         </div>
-        <button className="btn btn-ghost" onClick={onGoUpload}>
-          <Upload size={16} className="icn" /> 새 보고서 등록
-        </button>
+        {canUpload && (
+          <button className="btn btn-ghost" onClick={onGoUpload}>
+            <Upload size={16} className="icn" /> 새 보고서 등록
+          </button>
+        )}
       </div>
 
       <div className="rp-landing-empty">
@@ -808,6 +886,7 @@ function AllReportsView({
   query,
   onQuery,
   isFav,
+  canUpload,
   onToggleFav,
   onOpen,
   onGoUpload,
@@ -816,6 +895,7 @@ function AllReportsView({
   query: string;
   onQuery: (q: string) => void;
   isFav: (id: number) => boolean;
+  canUpload: boolean;
   onToggleFav: (id: number) => void;
   onOpen: (r: ReportItem) => void;
   onGoUpload: () => void;
@@ -826,7 +906,8 @@ function AllReportsView({
     return reports.filter(
       (r) =>
         r.name.toLowerCase().includes(k) ||
-        (r.category || "").toLowerCase().includes(k),
+        (r.category || "").toLowerCase().includes(k) ||
+        (r.description || "").toLowerCase().includes(k),
     );
   }, [query, reports]);
 
@@ -844,14 +925,16 @@ function AllReportsView({
     <div className="rp-page rp-page-fit">
       <div className="rp-page-head">
         <h1 className="rp-page-title">전체 보고서</h1>
-        <button className="btn btn-primary" onClick={onGoUpload}>
-          <Upload size={15} className="icn" /> 보고서 등록
-        </button>
+        {canUpload && (
+          <button className="btn btn-primary" onClick={onGoUpload}>
+            <Upload size={15} className="icn" /> 보고서 등록
+          </button>
+        )}
       </div>
       <div className="rp-search">
         <Search size={17} className="icn rp-search-icon" />
         <input
-          placeholder="검색어를 입력하세요"
+          placeholder="보고서 이름·카테고리·설명으로 검색"
           value={query}
           onChange={(e) => onQuery(e.target.value)}
         />
@@ -860,17 +943,15 @@ function AllReportsView({
       <div className="card-table rp-all-table rp-fit-table" ref={tableRef}>
         <table>
           <colgroup>
-            <col style={{ width: "46%" }} />
+            <col style={{ width: "52%" }} />
+            <col style={{ width: "26%" }} />
             <col style={{ width: "22%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "20%" }} />
           </colgroup>
           <thead>
             <tr>
               <th>보고서 명</th>
               <th>카테고리</th>
-              <th>유형</th>
-              <th>소유자명</th>
+              <th>구분</th>
             </tr>
           </thead>
           <tbody>
@@ -883,18 +964,25 @@ function AllReportsView({
               >
                 <td className="rp-all-name">
                   <BarChart3 size={15} className="icn" /> {r.name}
+                  {r.description && (
+                    <span className="rp-all-desc">{r.description}</span>
+                  )}
                 </td>
                 <td>{r.category || "-"}</td>
-                <td>{r.report_type === "managed" ? "공용" : "개인"}</td>
                 <td>
-                  {r.owner_username ||
-                    (r.report_type === "managed" ? "공용" : "-")}
+                  {r.report_type === "managed" ? (
+                    <span className="pill active">공용</span>
+                  ) : (
+                    <span className="pill pending">
+                      개인 · {r.owner_username || "-"}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={4} className="rp-all-empty">
+                <td colSpan={3} className="rp-all-empty">
                   표시할 보고서가 없습니다
                 </td>
               </tr>
@@ -955,16 +1043,19 @@ function ReportInfoModal({
             <dd>{report.category || "미분류"}</dd>
           </div>
           <div>
-            <dt>소유자</dt>
+            <dt>구분</dt>
             <dd>
-              {report.owner_username ||
-                (report.report_type === "managed" ? "공용" : "-")}
+              {report.report_type === "managed"
+                ? "공용 보고서"
+                : `개인 보고서 · ${report.owner_username || "-"}`}
             </dd>
           </div>
-          <div>
-            <dt>유형</dt>
-            <dd>{report.report_type === "managed" ? "공용 보고서" : "개인 보고서"}</dd>
-          </div>
+          {report.description && (
+            <div>
+              <dt>설명</dt>
+              <dd>{report.description}</dd>
+            </div>
+          )}
         </dl>
         <div className="rp-modal-actions">
           <button
@@ -995,6 +1086,7 @@ function UploadView({ csrf }: { csrf: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [reportName, setReportName] = useState("");
+  const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ msg: string; tone: "" | "ok" | "err" }>(
     { msg: "", tone: "" },
@@ -1009,7 +1101,7 @@ function UploadView({ csrf }: { csrf: string }) {
     setBusy(true);
     setStatus({ msg: `'${file.name}' 전송 중...`, tone: "" });
     try {
-      const accepted = await uploadPbix(file, csrf, reportName.trim());
+      const accepted = await uploadPbix(file, csrf, reportName.trim(), description.trim());
       const jobId = accepted.job_id;
       const name = accepted.report_name;
       setStatus({ msg: `'${name}' PBI 게시 중... (보통 30초~2분)`, tone: "" });
@@ -1051,6 +1143,17 @@ function UploadView({ csrf }: { csrf: string }) {
             placeholder="비워 두면 파일명이 보고서 이름이 됩니다"
             value={reportName}
             onChange={(e) => setReportName(e.target.value)}
+            disabled={busy}
+          />
+        </div>
+
+        <div className="rp-field">
+          <label>보고서 설명 (선택)</label>
+          <input
+            placeholder="어떤 데이터를 보여주는 보고서인지 적어두면 검색·발견이 쉬워집니다"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            maxLength={500}
             disabled={busy}
           />
         </div>

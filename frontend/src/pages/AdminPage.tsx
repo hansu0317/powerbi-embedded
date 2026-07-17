@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
   ClipboardList,
   Download,
+  History,
   LayoutDashboard,
+  LayoutGrid,
   Layers,
   Plus,
   RefreshCw,
@@ -45,11 +47,20 @@ import {
   adminSetGroupMember,
   adminSyncStatus,
   adminToggleUser,
+  adminToggleUpload,
+  adminSetDescription,
+  adminGetAccessMatrix,
+  adminGetLogs,
+  logQueryString,
+  MatrixGroup,
+  MatrixReport,
+  LogRow,
   logout,
 } from "../api";
 import { Pager, usePaged, useFitRows } from "../Pager";
 
-type SectionKey = "overview" | "users" | "groups" | "reports" | "jobs" | "config";
+type SectionKey =
+  | "overview" | "users" | "groups" | "reports" | "matrix" | "logs" | "jobs" | "config";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
 
 const SECTIONS: {
@@ -61,6 +72,8 @@ const SECTIONS: {
   { key: "users", Icon: UsersIcon, label: "사용자" },
   { key: "groups", Icon: Layers, label: "그룹" },
   { key: "reports", Icon: BarChart3, label: "보고서" },
+  { key: "matrix", Icon: LayoutGrid, label: "권한 매트릭스" },
+  { key: "logs", Icon: History, label: "로그" },
   { key: "config", Icon: SettingsIcon, label: "설정" },
   { key: "jobs", Icon: ClipboardList, label: "업로드 이력" },
 ];
@@ -222,6 +235,20 @@ export default function AdminPage({ data }: { data: AdminData }) {
                     showToast("오류: " + (e as Error).message, "err");
                   }
                 }}
+                onToggleUpload={async (id) => {
+                  try {
+                    const { can_upload } = await adminToggleUpload(id, csrf_token);
+                    setUsers((prev) =>
+                      prev.map((u) => (u.id === id ? { ...u, can_upload } : u)),
+                    );
+                    showToast(
+                      can_upload ? "업로드가 허용됐습니다." : "업로드가 차단됐습니다.",
+                      "ok",
+                    );
+                  } catch (e) {
+                    showToast("오류: " + (e as Error).message, "err");
+                  }
+                }}
               />
             )}
             {section === "reports" && (
@@ -236,9 +263,18 @@ export default function AdminPage({ data }: { data: AdminData }) {
                     ),
                   )
                 }
+                onDescription={(id, description) =>
+                  setReports((prev) =>
+                    prev.map((r) => (r.id === id ? { ...r, description } : r)),
+                  )
+                }
                 onManageAccess={setAccessReport}
               />
             )}
+            {section === "matrix" && (
+              <MatrixSection csrf={csrf_token} showToast={showToast} />
+            )}
+            {section === "logs" && <LogsSection />}
             {section === "groups" && (
               <GroupsSection csrf={csrf_token} showToast={showToast} />
             )}
@@ -325,7 +361,7 @@ function OverviewSection({
               <tr key={j.id}>
                 <td>{j.id}</td>
                 <td>{j.username}</td>
-                <td title={j.report_name}>{j.report_name}</td>
+                <td title={j.report_name}>{j.category ? `/${j.category}/${j.report_name}` : j.report_name}</td>
                 <td>
                   <JobStatus status={j.status} />
                 </td>
@@ -361,10 +397,12 @@ function UsersSection({
   users,
   onAdd,
   onToggle,
+  onToggleUpload,
 }: {
   users: AdminUser[];
   onAdd: () => void;
   onToggle: (id: number) => void;
+  onToggleUpload: (id: number) => void;
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
   const pageSize = useFitRows(tableRef, 40, 38);
@@ -381,15 +419,16 @@ function UsersSection({
       <div className="card-table" ref={tableRef}>
         <table>
           <colgroup>
-            <col style={{ width: "6%" }} />
+            <col style={{ width: "5%" }} />
             <col style={{ width: "12%" }} />
-            <col style={{ width: "11%" }} />
-            <col style={{ width: "16%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "15%" }} />
             <col style={{ width: "7%" }} />
             <col style={{ width: "6%" }} />
-            <col style={{ width: "14%" }} />
-            <col style={{ width: "11%" }} />
-            <col style={{ width: "17%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "13%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "15%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -399,6 +438,7 @@ function UsersSection({
               <th>PBI 사용자명</th>
               <th>역할</th>
               <th>보고서</th>
+              <th title="클릭하면 업로드 허용/차단이 바뀝니다">업로드</th>
               <th>마지막 로그인</th>
               <th>상태</th>
               <th>액션</th>
@@ -431,6 +471,16 @@ function UsersSection({
                       {u.report_count}
                     </button>
                   )}
+                </td>
+                <td>
+                  <button
+                    className={`pill ${u.can_upload ? "active" : "inactive"}`}
+                    style={{ border: "none", cursor: "pointer", font: "inherit" }}
+                    title="클릭하여 업로드 허용/차단 전환"
+                    onClick={() => onToggleUpload(u.id)}
+                  >
+                    {u.can_upload ? "허용" : "차단"}
+                  </button>
                 </td>
                 <td title={u.last_login_at || ""}>{u.last_login_at || "-"}</td>
                 <td>
@@ -551,6 +601,12 @@ function AddUserModal({
                   <option value="true">관리자</option>
                 </select>
               </Field>
+              <Field label="보고서 업로드">
+                <select name="can_upload" defaultValue="true">
+                  <option value="true">허용</option>
+                  <option value="false">차단 (열람만 가능)</option>
+                </select>
+              </Field>
             </div>
           </div>
           <div className="ad-modal-footer">
@@ -571,12 +627,14 @@ function ReportsSection({
   csrf,
   showToast,
   onDeleted,
+  onDescription,
   onManageAccess,
 }: {
   reports: AdminReport[];
   csrf: string;
   showToast: (msg: string, tone?: "ok" | "err" | "") => void;
   onDeleted: (id: number) => void;
+  onDescription: (id: number, description: string | null) => void;
   onManageAccess: (r: AdminReport) => void;
 }) {
   const [importing, setImporting] = useState(false);
@@ -637,6 +695,18 @@ function ReportsSection({
     }
   };
 
+  const doEditDescription = async (r: AdminReport) => {
+    const next = prompt(`'${r.name}' 보고서 설명 (비우면 삭제)`, r.description || "");
+    if (next === null) return; // 취소
+    try {
+      await adminSetDescription(r.id, next, csrf);
+      onDescription(r.id, next.trim() || null);
+      showToast("설명이 저장됐습니다.", "ok");
+    } catch (e) {
+      showToast("설명 저장 실패: " + (e as Error).message, "err");
+    }
+  };
+
   return (
     <section>
       <div className="ad-section-head">
@@ -652,21 +722,19 @@ function ReportsSection({
       <div className="card-table" ref={tableRef}>
         <table>
           <colgroup>
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "18%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "12%" }} />
+            <col style={{ width: "6%" }} />
+            <col style={{ width: "24%" }} />
+            <col style={{ width: "13%" }} />
             <col style={{ width: "13%" }} />
             <col style={{ width: "7%" }} />
-            <col style={{ width: "9%" }} />
-            <col style={{ width: "26%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "29%" }} />
           </colgroup>
           <thead>
             <tr>
               <th>ID</th>
               <th>보고서명</th>
-              <th>유형</th>
-              <th>소유자</th>
+              <th>구분</th>
               <th>카테고리</th>
               <th title="열람권한이 명시적으로 부여된 사용자 수 (관리자 우회 접근은 제외)">
                 열람권한
@@ -679,9 +747,23 @@ function ReportsSection({
             {pageItems.map((r) => (
               <tr key={r.id}>
                 <td>{r.id}</td>
-                <td title={r.name}>{r.name}</td>
-                <td>{r.report_type === "managed" ? "공용" : "개인"}</td>
-                <td title={r.owner_username || "-"}>{r.owner_username || "-"}</td>
+                <td title={r.description || r.name}>
+                  {r.name}
+                  {r.description && (
+                    <span className="ad-access-id" style={{ display: "block" }}>
+                      {r.description.length > 40
+                        ? r.description.slice(0, 40) + "…"
+                        : r.description}
+                    </span>
+                  )}
+                </td>
+                <td>
+                  {r.report_type === "managed" ? (
+                    <span className="pill active">공용</span>
+                  ) : (
+                    <span className="pill pending">개인 · {r.owner_username || "-"}</span>
+                  )}
+                </td>
                 <td>{r.category || "-"}</td>
                 <td>
                   {r.viewer_count}
@@ -704,6 +786,13 @@ function ReportsSection({
                     onClick={() => onManageAccess(r)}
                   >
                     권한
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    title="보고서 설명 수정 (뷰어 검색 대상)"
+                    onClick={() => doEditDescription(r)}
+                  >
+                    설명
                   </button>
                   {r.pbi_dataset_id && (
                     <button className="btn btn-primary btn-sm" onClick={() => doRefresh(r)}>
@@ -760,7 +849,7 @@ function JobsSection({ jobs }: { jobs: AdminJob[] }) {
               <tr key={j.id}>
                 <td>{j.id}</td>
                 <td>{j.username}</td>
-                <td title={j.report_name}>{j.report_name}</td>
+                <td title={j.report_name}>{j.category ? `/${j.category}/${j.report_name}` : j.report_name}</td>
                 <td>
                   <JobStatus status={j.status} />
                 </td>
@@ -1278,5 +1367,349 @@ function GroupMembersModal({
           ))}
         </div>
     </Modal>
+  );
+}
+
+/* ── 권한 매트릭스 (그룹 × 보고서 한눈에 보기/토글) ────── */
+
+function MatrixSection({
+  csrf,
+  showToast,
+}: {
+  csrf: string;
+  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
+}) {
+  const [groups, setGroups] = useState<MatrixGroup[] | null>(null);
+  const [reports, setReports] = useState<MatrixReport[]>([]);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const m = await adminGetAccessMatrix();
+      setGroups(m.groups);
+      setReports(m.reports);
+    } catch {
+      setError("권한 매트릭스 조회 실패");
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // 카테고리별 그룹핑 (사이드바 폴더 트리와 같은 축)
+  const grouped = useMemo(() => {
+    const k = query.trim().toLowerCase();
+    const filtered = k
+      ? reports.filter(
+          (r) =>
+            r.name.toLowerCase().includes(k) ||
+            (r.category || "").toLowerCase().includes(k),
+        )
+      : reports;
+    const map = new Map<string, MatrixReport[]>();
+    for (const r of filtered) {
+      const cat = r.category || "미분류";
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(r);
+    }
+    return [...map.entries()];
+  }, [reports, query]);
+
+  const toggle = async (report: MatrixReport, group: MatrixGroup) => {
+    const has = report.group_ids.includes(group.id);
+    // 낙관적 UI: 화면 먼저 바꾸고, 실패하면 되돌린다
+    setReports((prev) =>
+      prev.map((r) =>
+        r.id === report.id
+          ? {
+              ...r,
+              group_ids: has
+                ? r.group_ids.filter((g) => g !== group.id)
+                : [...r.group_ids, group.id],
+            }
+          : r,
+      ),
+    );
+    try {
+      await adminSetGroupAccess(report.id, group.id, !has, csrf);
+    } catch {
+      setReports((prev) =>
+        prev.map((r) => (r.id === report.id ? { ...r, group_ids: report.group_ids } : r)),
+      );
+      showToast("권한 변경 실패 — 다시 시도해 주세요.", "err");
+    }
+  };
+
+  if (error)
+    return (
+      <section>
+        <h2>권한 매트릭스</h2>
+        <div className="ad-modal-err">{error}</div>
+      </section>
+    );
+  if (!groups)
+    return (
+      <section>
+        <h2>권한 매트릭스</h2>
+        <div className="ad-modal-loading">불러오는 중...</div>
+      </section>
+    );
+
+  return (
+    <section>
+      <div className="ad-section-head">
+        <h2 style={{ marginBottom: 0 }}>권한 매트릭스</h2>
+        <div className="ad-section-actions">
+          <input
+            className="mx-search"
+            placeholder="보고서·카테고리 검색"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+      </div>
+      <p className="mx-hint">
+        셀을 클릭하면 해당 그룹의 열람 권한이 즉시 부여/해제됩니다. 개인별 예외 부여는
+        보고서 탭 → 권한에서 처리하세요.
+      </p>
+      {groups.length === 0 ? (
+        <div className="ad-modal-loading">
+          그룹이 없습니다. 그룹 탭에서 팀/부서 그룹을 먼저 만들어 주세요.
+        </div>
+      ) : (
+        <div className="mx-wrap card-table">
+          <table className="mx-table">
+            <thead>
+              <tr>
+                <th className="mx-sticky mx-report-col">보고서</th>
+                {groups.map((g) => (
+                  <th key={g.id} className="mx-group-col" title={`멤버 ${g.member_count}명`}>
+                    {g.name}
+                    <span className="mx-member">{g.member_count}명</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {grouped.map(([cat, rows]) => (
+                <Fragment key={cat}>
+                  <tr className="mx-cat-row">
+                    <td className="mx-sticky mx-cat" colSpan={1 + groups.length}>
+                      {cat} <span className="mx-member">({rows.length})</span>
+                    </td>
+                  </tr>
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td className="mx-sticky mx-report" title={r.name}>
+                        {r.name}
+                      </td>
+                      {groups.map((g) => {
+                        const on = r.group_ids.includes(g.id);
+                        return (
+                          <td
+                            key={g.id}
+                            className={`mx-cell${on ? " on" : ""}`}
+                            title={`${r.name} × ${g.name} — 클릭하여 ${on ? "해제" : "부여"}`}
+                            onClick={() => toggle(r, g)}
+                          >
+                            {on ? "✓" : ""}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+              {grouped.length === 0 && (
+                <tr>
+                  <td className="mx-report" colSpan={1 + groups.length}>
+                    검색 결과가 없습니다
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ── 로그 (사용자 활동 / 관리 감사) ────────────────────── */
+
+const EVENT_LABELS: Record<string, string> = {
+  report_view: "보고서 열람",
+  report_upload: "보고서 업로드",
+};
+
+function LogsSection() {
+  const [tab, setTab] = useState<"activity" | "audit">("activity");
+  const [username, setUsername] = useState("");
+  const [event, setEvent] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [rows, setRows] = useState<LogRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const filters = { username, event, date_from: dateFrom, date_to: dateTo };
+
+  const load = useCallback(
+    async (t: "activity" | "audit", f: typeof filters) => {
+      setRows(null);
+      setError(null);
+      try {
+        setRows(await adminGetLogs(t, f));
+      } catch {
+        setError("로그 조회 실패");
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    load(tab, { username: "", event: "", date_from: "", date_to: "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  return (
+    <section>
+      <div className="ad-section-head">
+        <h2 style={{ marginBottom: 0 }}>로그</h2>
+        <div className="ad-section-actions">
+          <button
+            className={`btn btn-sm ${tab === "activity" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => setTab("activity")}
+          >
+            사용자 활동
+          </button>
+          <button
+            className={`btn btn-sm ${tab === "audit" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => setTab("audit")}
+          >
+            관리 감사
+          </button>
+        </div>
+      </div>
+
+      <div className="lg-filters">
+        {tab === "activity" && (
+          <>
+            <input
+              placeholder="사용자 검색"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            <select value={event} onChange={(e) => setEvent(e.target.value)}>
+              <option value="">전체 이벤트</option>
+              <option value="report_view">보고서 열람</option>
+              <option value="report_upload">보고서 업로드</option>
+            </select>
+          </>
+        )}
+        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+        <span className="lg-tilde">~</span>
+        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        <button className="btn btn-primary btn-sm" onClick={() => load(tab, filters)}>
+          조회
+        </button>
+        <a
+          className="btn btn-ghost btn-sm"
+          href={`/api/admin/logs/export?${logQueryString(tab, filters)}`}
+          title="현재 필터 조건 그대로 CSV(Excel) 다운로드"
+        >
+          <Download size={13} className="icn" /> CSV
+        </a>
+      </div>
+
+      {error && <div className="ad-modal-err">{error}</div>}
+      {!error && !rows && <div className="ad-modal-loading">불러오는 중...</div>}
+      {rows && (
+        <div className="card-table">
+          <table>
+            {tab === "activity" ? (
+              <>
+                <colgroup>
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "34%" }} />
+                  <col style={{ width: "16%" }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>일시</th>
+                    <th>사용자</th>
+                    <th>이벤트</th>
+                    <th>보고서</th>
+                    <th>IP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td>{String(r.created_at).replace("T", " ").slice(0, 19)}</td>
+                      <td>{r.username}</td>
+                      <td>{EVENT_LABELS[r.event || ""] || r.event}</td>
+                      <td title={r.report_name || ""}>{r.report_name || "-"}</td>
+                      <td>{r.ip || "-"}</td>
+                    </tr>
+                  ))}
+                  {rows.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="rp-all-empty">
+                        조건에 맞는 로그가 없습니다
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </>
+            ) : (
+              <>
+                <colgroup>
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "26%" }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>일시</th>
+                    <th>행위자</th>
+                    <th>행위</th>
+                    <th>보고서</th>
+                    <th>상세</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td>{String(r.created_at).replace("T", " ").slice(0, 19)}</td>
+                      <td>{r.actor || "시스템"}</td>
+                      <td>{r.action}</td>
+                      <td title={r.report_name || ""}>{r.report_name || "-"}</td>
+                      <td className="ad-err-cell">
+                        <span className="ad-err-text" style={{ color: "inherit" }}>
+                          {JSON.stringify(r.details)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {rows.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="rp-all-empty">
+                        조건에 맞는 로그가 없습니다
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </>
+            )}
+          </table>
+        </div>
+      )}
+    </section>
   );
 }

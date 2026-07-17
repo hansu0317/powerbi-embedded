@@ -36,10 +36,13 @@ export interface UploadAccepted {
   status: string;
 }
 
-export async function uploadPbix(file: File, csrf: string, reportName?: string): Promise<UploadAccepted> {
+export async function uploadPbix(
+  file: File, csrf: string, reportName?: string, description?: string,
+): Promise<UploadAccepted> {
   const fd = new FormData();
   fd.append("file", file);
   if (reportName) fd.append("report_name", reportName);
+  if (description) fd.append("report_description", description);
   const res = await fetch("/api/upload", {
     method: "POST",
     body: fd,
@@ -91,6 +94,19 @@ export async function logout(csrf: string) {
     method: "POST",
     headers: { "X-CSRF-Token": csrf },
   });
+}
+
+// ── 사용자 편의 (v3) ─────────────────────────────────────────────────────────
+
+export async function setDefaultReport(reportId: number | null, csrf: string) {
+  const res = await fetch("/api/user/default-report", {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+    body: JSON.stringify({ report_id: reportId }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "기본 보고서 설정 실패"));
+  return j as { default_report_id: number | null };
 }
 
 // ── 관리자 API ────────────────────────────────────────────────────────────────
@@ -322,4 +338,79 @@ export async function adminSetAccess(
   });
   if (!res.ok) throw new Error("권한 변경 실패");
   return res.json();
+}
+
+// ── 권한 매트릭스 / 로그 / 편의 (v3) ─────────────────────────────────────────
+
+export interface MatrixGroup {
+  id: number;
+  name: string;
+  member_count: number;
+}
+
+export interface MatrixReport {
+  id: number;
+  name: string;
+  category: string | null;
+  group_ids: number[];
+}
+
+export async function adminGetAccessMatrix(): Promise<{ groups: MatrixGroup[]; reports: MatrixReport[] }> {
+  const res = await fetch("/api/admin/access-matrix");
+  if (!res.ok) throw new Error("권한 매트릭스 조회 실패");
+  return res.json();
+}
+
+export async function adminToggleUpload(userId: number, csrf: string) {
+  const res = await fetch(`/api/admin/users/${userId}/toggle-upload`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf },
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "업로드 권한 변경 실패"));
+  return j as { can_upload: boolean };
+}
+
+export async function adminSetDescription(reportId: number, description: string, csrf: string) {
+  const res = await fetch(`/api/admin/reports/${reportId}/description`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+    body: JSON.stringify({ description }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "설명 저장 실패"));
+  return j as { report_id: number; description: string | null };
+}
+
+export interface LogRow {
+  id: number;
+  username?: string;
+  event?: string;
+  actor?: string | null;
+  action?: string;
+  details?: unknown;
+  report_name: string | null;
+  ip?: string | null;
+  created_at: string;
+}
+
+export function logQueryString(
+  type: "activity" | "audit",
+  filters: { username?: string; event?: string; date_from?: string; date_to?: string },
+): string {
+  const params = new URLSearchParams({ type });
+  if (filters.username) params.set("username", filters.username);
+  if (filters.event) params.set("event", filters.event);
+  if (filters.date_from) params.set("date_from", filters.date_from);
+  if (filters.date_to) params.set("date_to", filters.date_to);
+  return params.toString();
+}
+
+export async function adminGetLogs(
+  type: "activity" | "audit",
+  filters: { username?: string; event?: string; date_from?: string; date_to?: string },
+): Promise<LogRow[]> {
+  const res = await fetch(`/api/admin/logs?${logQueryString(type, filters)}`);
+  if (!res.ok) throw new Error("로그 조회 실패");
+  return (await res.json()).rows as LogRow[];
 }
