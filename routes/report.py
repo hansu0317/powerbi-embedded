@@ -163,9 +163,10 @@ async def api_embed(request: Request, report_id: int):
         raise
     logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
     result = await get_embed_token(report_id, user["pbi_username"], user["roles"])
+    # 30분 dedupe: 토큰 자동 재발급·새로고침 탭 복원이 조회수를 부풀리지 않게 한다
     await asyncio.to_thread(
         db_log_activity, user["id"], user["username"], "report_view",
-        report_id, result.get("report_name"), ip,
+        report_id, result.get("report_name"), ip, 30,
     )
     return result
 
@@ -182,7 +183,7 @@ async def api_upload(
     user = await current_user(request)
     if not user:
         raise AppError.NOT_AUTHENTICATED.http()
-    if not user.get("can_upload"):
+    if not user.get("is_admin") and not user.get("can_upload"):
         logger.warning("UPLOAD DENY | user=%-12s | 업로드 권한 없음", user["username"])
         raise AppError.FORBIDDEN_UPLOAD.http()
 
@@ -190,7 +191,6 @@ async def api_upload(
     job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name)
     logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s", user["username"], name, job_id)
     ip = get_client_ip(request)
-    await asyncio.to_thread(db_log_activity, user["id"], user["username"], "report_upload", None, name, ip)
 
     asyncio.create_task(_process_upload(user, name, pbix_bytes, file_size, job_id, ip,
                                         report_description.strip()[:500] or None))
@@ -296,6 +296,8 @@ async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, 
 
     # 5) 게이트웨이 DB 등록 + 완료 처리
     await _register_uploaded_report(user, name, pbi_report_id, dataset_ids, pbi_display_name, job_id, description)
+    # 활동 기록은 실패한 업로드가 "업로드"로 남지 않도록 완료 시점에만 남긴다
+    await asyncio.to_thread(db_log_activity, user["id"], user["username"], "report_upload", None, name, ip)
     logger.info("UPLOAD OK  | user=%-12s | ip=%s | report=%s", user["username"], ip, name)
     return {"report_name": name, "pbi_display_name": pbi_display_name, "new": True}
 

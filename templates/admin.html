@@ -48,6 +48,7 @@
             "category": {{ r.category | tojson }},
             "description": {{ r.description | tojson }},
             "viewer_count": {{ r.viewer_count | tojson }},
+            "group_count": {{ r.group_count | tojson }},
             "pbi_dataset_id": {{ r.pbi_dataset_id | tojson }},
             "created_at": {{ (r.created_at.strftime('%Y-%m-%d') if r.created_at else None) | tojson }}
           }{{ "," if not loop.last else "" }}

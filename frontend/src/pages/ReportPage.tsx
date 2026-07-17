@@ -942,16 +942,16 @@ function AllReportsView({
 
       <div className="card-table rp-all-table rp-fit-table" ref={tableRef}>
         <table>
+          {/* 유형·소유자 컬럼은 뺐다 — 공용 보고서가 대부분이라 정보량이 없고,
+              개인/소유자 구분이 필요하면 행 클릭 → 미리보기 모달에서 보인다 */}
           <colgroup>
-            <col style={{ width: "52%" }} />
-            <col style={{ width: "26%" }} />
-            <col style={{ width: "22%" }} />
+            <col style={{ width: "62%" }} />
+            <col style={{ width: "38%" }} />
           </colgroup>
           <thead>
             <tr>
               <th>보고서 명</th>
               <th>카테고리</th>
-              <th>구분</th>
             </tr>
           </thead>
           <tbody>
@@ -964,25 +964,21 @@ function AllReportsView({
               >
                 <td className="rp-all-name">
                   <BarChart3 size={15} className="icn" /> {r.name}
+                  {r.report_type === "personal" && (
+                    <span className="pill pending" style={{ marginLeft: 6 }}>
+                      개인
+                    </span>
+                  )}
                   {r.description && (
                     <span className="rp-all-desc">{r.description}</span>
                   )}
                 </td>
                 <td>{r.category || "-"}</td>
-                <td>
-                  {r.report_type === "managed" ? (
-                    <span className="pill active">공용</span>
-                  ) : (
-                    <span className="pill pending">
-                      개인 · {r.owner_username || "-"}
-                    </span>
-                  )}
-                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={3} className="rp-all-empty">
+                <td colSpan={2} className="rp-all-empty">
                   표시할 보고서가 없습니다
                 </td>
               </tr>

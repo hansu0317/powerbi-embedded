@@ -473,14 +473,18 @@ function UsersSection({
                   )}
                 </td>
                 <td>
-                  <button
-                    className={`pill ${u.can_upload ? "active" : "inactive"}`}
-                    style={{ border: "none", cursor: "pointer", font: "inherit" }}
-                    title="클릭하여 업로드 허용/차단 전환"
-                    onClick={() => onToggleUpload(u.id)}
-                  >
-                    {u.can_upload ? "허용" : "차단"}
-                  </button>
+                  {u.is_admin ? (
+                    <span title="관리자는 항상 업로드 가능">—</span>
+                  ) : (
+                    <button
+                      className={`pill ${u.can_upload ? "active" : "inactive"}`}
+                      style={{ border: "none", cursor: "pointer", font: "inherit" }}
+                      title="클릭하여 업로드 허용/차단 전환"
+                      onClick={() => onToggleUpload(u.id)}
+                    >
+                      {u.can_upload ? "허용" : "차단"}
+                    </button>
+                  )}
                 </td>
                 <td title={u.last_login_at || ""}>{u.last_login_at || "-"}</td>
                 <td>
@@ -1553,6 +1557,10 @@ function LogsSection() {
   const [rows, setRows] = useState<LogRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const tableRef = useRef<HTMLDivElement>(null);
+  const pageSize = useFitRows(tableRef, 40, 38);
+  const { pageItems, page, totalPages, total, setPage } = usePaged(rows || [], pageSize);
+
   const filters = { username, event, date_from: dateFrom, date_to: dateTo };
 
   const load = useCallback(
@@ -1625,8 +1633,13 @@ function LogsSection() {
 
       {error && <div className="ad-modal-err">{error}</div>}
       {!error && !rows && <div className="ad-modal-loading">불러오는 중...</div>}
+      {rows && rows.length >= 1000 && (
+        <div className="mx-hint" style={{ marginBottom: 8 }}>
+          최근 1,000건까지만 표시합니다 — 전체가 필요하면 기간을 좁히거나 CSV로 받으세요.
+        </div>
+      )}
       {rows && (
-        <div className="card-table">
+        <div className="card-table" ref={tableRef}>
           <table>
             {tab === "activity" ? (
               <>
@@ -1647,7 +1660,7 @@ function LogsSection() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {pageItems.map((r) => (
                     <tr key={r.id}>
                       <td>{String(r.created_at).replace("T", " ").slice(0, 19)}</td>
                       <td>{r.username}</td>
@@ -1684,7 +1697,7 @@ function LogsSection() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {pageItems.map((r) => (
                     <tr key={r.id}>
                       <td>{String(r.created_at).replace("T", " ").slice(0, 19)}</td>
                       <td>{r.actor || "시스템"}</td>
@@ -1710,6 +1723,7 @@ function LogsSection() {
           </table>
         </div>
       )}
+      {rows && <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />}
     </section>
   );
 }

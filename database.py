@@ -985,15 +985,31 @@ def db_update_app_config(key: str, value: str) -> bool:
 
 def db_log_activity(user_id: int, username: str, event: str,
                     report_id: int | None = None, report_name: str | None = None,
-                    ip: str | None = None) -> None:
-    """사용자 활동 1건 기록. username·report_name은 원본 삭제 후에도 판독 가능하도록 함께 보존."""
+                    ip: str | None = None, dedupe_minutes: int = 0) -> None:
+    """사용자 활동 1건 기록. username·report_name은 원본 삭제 후에도 판독 가능하도록 함께 보존.
+
+    dedupe_minutes > 0이면 같은 사용자×보고서×이벤트가 그 시간 안에 이미 있으면 기록하지
+    않는다 — 토큰 자동 재발급(1시간마다)·새로고침 탭 복원이 조회수를 부풀리는 것을 막는다
+    (과거 report_views 테이블을 폐기했던 바로 그 문제의 재발 방지)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO activity_log (user_id, username, event, report_id, report_name, ip) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
-                (user_id, username, event, report_id, report_name, ip),
-            )
+            if dedupe_minutes > 0:
+                cur.execute(
+                    """INSERT INTO activity_log (user_id, username, event, report_id, report_name, ip)
+                       SELECT %s, %s, %s, %s, %s, %s
+                       WHERE NOT EXISTS (
+                           SELECT 1 FROM activity_log
+                           WHERE user_id = %s AND report_id = %s AND event = %s
+                             AND created_at > NOW() - %s * INTERVAL '1 minute')""",
+                    (user_id, username, event, report_id, report_name, ip,
+                     user_id, report_id, event, dedupe_minutes),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO activity_log (user_id, username, event, report_id, report_name, ip) "
+                    "VALUES (%s, %s, %s, %s, %s, %s)",
+                    (user_id, username, event, report_id, report_name, ip),
+                )
         conn.commit()
 
 
@@ -1102,12 +1118,14 @@ def db_set_default_report(user_id: int, report_id: int | None) -> None:
 
 
 def db_admin_toggle_user_upload(user_id: int):
-    """업로드 권한 토글. 반환: 변경 후 can_upload (없는 사용자는 None)."""
+    """업로드 권한 토글. 반환: 변경 후 can_upload (없는 사용자·관리자는 None).
+
+    관리자 계정은 차단 대상에서 제외한다 — toggle_active의 admin 보호와 같은 원칙."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE users SET can_upload = NOT can_upload, updated_at = NOW() "
-                "WHERE id = %s RETURNING can_upload",
+                "WHERE id = %s AND NOT is_admin RETURNING can_upload",
                 (user_id,),
             )
             row = cur.fetchone()
