@@ -490,3 +490,22 @@ export async function adminGetSystemStatus(): Promise<SystemStatus> {
   if (!res.ok) throw new Error("시스템 상태 조회 실패");
   return res.json();
 }
+
+/* ── v5: 서버 오류 추적 ───────────────────────────────── */
+
+export interface ErrorLogRow {
+  id: number;
+  error_code: string;
+  http_status: number;
+  message: string | null;
+  username: string | null;
+  path: string | null;
+  detail: string | null;
+  created_at: string;
+}
+
+export async function adminGetRecentErrors(): Promise<ErrorLogRow[]> {
+  const res = await fetch("/api/admin/errors");
+  if (!res.ok) throw new Error("오류 로그 조회 실패");
+  return (await res.json()).errors as ErrorLogRow[];
+}

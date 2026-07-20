@@ -14,17 +14,22 @@
 """
 import asyncio
 import logging
+import traceback
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
 from fastapi.requests import Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from contextlib import asynccontextmanager
 
 import config
 from config import SECRET_KEY, COOKIE_SECURE
-from database import db_cleanup_login_attempts, db_cleanup_activity_log
+from database import (
+    db_cleanup_login_attempts, db_cleanup_activity_log,
+    db_cleanup_error_log, db_log_error,
+)
 from errors import AppError
 from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
 from routes import auth, report, admin
@@ -38,21 +43,22 @@ logger = logging.getLogger("powerbi-gateway")
 
 
 def _daily_cleanup():
-    """일 1회 정리 묶음: login_attempts 30일 초과 + activity_log 보존기간 초과."""
+    """일 1회 정리 묶음: login_attempts 30일 초과 + activity_log·error_log 보존기간 초과."""
     db_cleanup_login_attempts()
     deleted = db_cleanup_activity_log()
+    deleted += db_cleanup_error_log()
     return deleted
 
 
 async def _login_cleanup_loop():
-    """오래된 기록(login_attempts, activity_log)을 하루 1회 정리한다.
+    """오래된 기록(login_attempts, activity_log, error_log)을 하루 1회 정리한다.
 
     기존에는 db_record_login() 안에서 매 로그인마다 실행했다.
     로그인 응답 경로에서 분리해 서버 시작 시 1회 + 이후 24시간마다 실행한다.
     """
     try:
         deleted = await asyncio.to_thread(_daily_cleanup)
-        logger.info("DAILY CLEANUP: 로그인 기록 + 활동 로그 %d건 정리 완료", deleted)
+        logger.info("DAILY CLEANUP: 로그인 기록 + 활동/오류 로그 %d건 정리 완료", deleted)
     except Exception:
         logger.exception("DAILY CLEANUP FAIL (startup)")
     while True:
@@ -61,6 +67,22 @@ async def _login_cleanup_loop():
             await asyncio.to_thread(_daily_cleanup)
         except Exception:
             logger.exception("DAILY CLEANUP FAIL")
+
+
+def _log_error_sync(error_code: str, http_status: int, message, request: Request, detail: str | None = None):
+    """error_log INSERT — 동기 함수라 to_thread로 감싸 호출한다. 실패해도 응답에 영향 없음."""
+    try:
+        username = request.session.get("username")
+    except Exception:
+        username = None
+    try:
+        db_log_error(
+            error_code, http_status,
+            str(message)[:2000] if message else None,
+            username, request.url.path, detail[:2000] if detail else None,
+        )
+    except Exception:
+        logger.exception("ERROR LOG WRITE FAIL")
 
 
 @asynccontextmanager
@@ -98,6 +120,34 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(report.router)
 app.include_router(admin.router)
+
+
+@app.exception_handler(HTTPException)
+async def http_error_logger(request: Request, exc: HTTPException):
+    """AppError.http()가 만든 5xx만 error_log에 남긴다 (v5).
+
+    4xx는 정상적인 사용자 흐름의 일부(권한 없음·중복 등)라 노이즈만 쌓이므로 제외.
+    응답 자체는 FastAPI 기본 핸들러에 그대로 위임 — 로깅 실패가 응답에 영향을 주지 않는다.
+    """
+    if exc.status_code >= 500:
+        detail = exc.detail
+        code, msg = "UNKNOWN", detail
+        if isinstance(detail, dict):
+            code, msg = detail.get("code", "UNKNOWN"), detail.get("message")
+        asyncio.create_task(asyncio.to_thread(_log_error_sync, code, exc.status_code, msg, request))
+    return await default_http_exception_handler(request, exc)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_logger(request: Request, exc: Exception):
+    """AppError로 감싸지 못한 예상 밖 예외 — 로깅 후 500 반환 (v5).
+
+    이게 없으면 이런 예외는 콘솔 로그에만 남고 관리자 화면에는 전혀 보이지 않는다.
+    """
+    tb = traceback.format_exc()
+    logger.exception("UNHANDLED EXCEPTION | path=%s", request.url.path)
+    asyncio.create_task(asyncio.to_thread(_log_error_sync, "UNHANDLED", 500, str(exc), request, tb))
+    return JSONResponse(status_code=500, content={"detail": "서버 오류가 발생했습니다."})
 
 
 @app.middleware("http")

@@ -510,11 +510,47 @@ def _v4_dataset_freshness(cur):
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# v5 — 서버 오류 추적 (2026-07)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _v5_error_log(cur):
+    """5xx(서버·외부 서비스) 오류를 자동 기록하는 error_log.
+
+    사용자 입력 실수(400/403/404/409 등)는 정상 흐름의 일부라 기록 대상이 아니다.
+    Azure/PBI 장애·DB 장애·예상 밖 예외처럼 '관리자가 몰라서는 안 되는' 실패만
+    main.py의 전역 예외 핸들러가 자동으로 여기 남긴다 (라우트별 코드 수정 불필요).
+    error_code는 errors.py AppError.code와 매칭되거나, 처리 못한 예외는 'UNHANDLED'.
+    """
+    cur.execute(
+        """CREATE TABLE error_log (
+            id BIGSERIAL PRIMARY KEY,
+            error_code VARCHAR(32) NOT NULL,
+            http_status SMALLINT NOT NULL,
+            message TEXT,
+            username VARCHAR(50),           -- 세션에서 바로 읽음(추가 DB 조회 없음), 비로그인 요청은 NULL
+            path VARCHAR(255),
+            detail TEXT,                    -- 예외 상세(traceback 요약) — 관리자 진단용
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"""
+    )
+    cur.execute("CREATE INDEX error_log_created_idx ON error_log (created_at DESC)")
+    cur.execute("CREATE INDEX error_log_code_idx ON error_log (error_code, created_at DESC)")
+
+    cur.execute(
+        """INSERT INTO app_config (key, value, description)
+           VALUES ('error_log_retention_days', '90',
+                   '서버 오류 로그 보존 기간 (일). 초과분은 매일 자동 삭제.')
+           ON CONFLICT (key) DO NOTHING"""
+    )
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
     (3, _v3_activity_and_convenience),
     (4, _v4_dataset_freshness),
+    (5, _v5_error_log),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

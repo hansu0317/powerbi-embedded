@@ -1337,3 +1337,45 @@ def db_system_stats() -> dict:
                     (SELECT COUNT(*) FROM reports WHERE status='active') AS active_reports"""
             )
             return dict(cur.fetchone())
+
+
+# ── v5: 서버 오류 추적 ────────────────────────────────────────────────────────
+
+def db_log_error(
+    error_code: str, http_status: int, message: str | None,
+    username: str | None, path: str | None, detail: str | None,
+) -> None:
+    """5xx 오류 1건 기록. main.py 전역 예외 핸들러에서만 호출된다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO error_log (error_code, http_status, message, username, path, detail) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (error_code, http_status, message, username, path, detail),
+            )
+        conn.commit()
+
+
+def db_get_recent_errors(limit: int = 20) -> list:
+    """관리자 현황용: 최근 서버 오류 목록 (최신순)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, error_code, http_status, message, username, path, detail, created_at "
+                "FROM error_log ORDER BY created_at DESC LIMIT %s",
+                (limit,),
+            )
+            return cur.fetchall()
+
+
+def db_cleanup_error_log() -> int:
+    """보존 기간(app_config: error_log_retention_days) 초과분 삭제. 일 1회 백그라운드 실행."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM error_log WHERE created_at < NOW() - %s * INTERVAL '1 day'",
+                (config.ERROR_LOG_RETENTION_DAYS,),
+            )
+            deleted = cur.rowcount
+        conn.commit()
+    return deleted

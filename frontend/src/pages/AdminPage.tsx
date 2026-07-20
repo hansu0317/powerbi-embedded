@@ -56,6 +56,8 @@ import {
   adminSetUserRls,
   adminGetSystemStatus,
   adminGetFreshness,
+  adminGetRecentErrors,
+  ErrorLogRow,
   logQueryString,
   MatrixGroup,
   MatrixReport,
@@ -338,14 +340,16 @@ function OverviewSection({
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
   const fit = useFitRows(tableRef, 40, 38);
-  // v4 자가진단·신선도 — 페이지 로드 후 비동기 (실패해도 기존 현황은 그대로)
+  // v4 자가진단·신선도, v5 서버 오류 — 페이지 로드 후 비동기 (실패해도 기존 현황은 그대로)
   const [sys, setSys] = useState<SystemStatus | null>(null);
   const [failing, setFailing] = useState<FreshnessRow[]>([]);
+  const [errors, setErrors] = useState<ErrorLogRow[]>([]);
   useEffect(() => {
     adminGetSystemStatus().then(setSys).catch(() => {});
     adminGetFreshness()
       .then((rows) => setFailing(rows.filter((r) => r.last_status === "Failed")))
       .catch(() => {});
+    adminGetRecentErrors().then(setErrors).catch(() => {});
   }, []);
   return (
     <section>
@@ -379,6 +383,11 @@ function OverviewSection({
               value={sys.failed_jobs_7d}
               sub="failed·unknown·db_failed"
             />
+            <StatCard
+              label="서버 오류 (최근)"
+              value={errors.length}
+              sub={errors.length > 0 ? "아래 목록 확인" : "이상 없음"}
+            />
           </>
         )}
       </div>
@@ -406,6 +415,44 @@ function OverviewSection({
                     <td>{f.auto_retries_today}회</td>
                     <td className="ad-err-cell">
                       <span className="ad-err-text">{f.failure_reason || "-"}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {errors.length > 0 && (
+        <>
+          <h2>⚠ 최근 서버 오류</h2>
+          <p className="ad-import-result" style={{ marginBottom: 10 }}>
+            로그인 실패·권한 없음 같은 정상적인 사용자 흐름은 여기 안 나온다.
+            Azure/PBI 장애나 예상 밖 예외(서버 5xx)만 자동 기록된다.
+          </p>
+          <div className="card-table" style={{ marginBottom: 20 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>일시</th>
+                  <th>코드</th>
+                  <th>상태</th>
+                  <th>사용자</th>
+                  <th>경로</th>
+                  <th>메시지</th>
+                </tr>
+              </thead>
+              <tbody>
+                {errors.map((e) => (
+                  <tr key={e.id}>
+                    <td>{String(e.created_at).replace("T", " ").slice(0, 19)}</td>
+                    <td><span className="pill fail">{e.error_code}</span></td>
+                    <td>{e.http_status}</td>
+                    <td>{e.username || "-"}</td>
+                    <td title={e.path || ""}>{e.path || "-"}</td>
+                    <td className="ad-err-cell">
+                      <span className="ad-err-text">{e.message || "-"}</span>
                     </td>
                   </tr>
                 ))}

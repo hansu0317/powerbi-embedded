@@ -15,7 +15,7 @@ import config
 from config import WORKSPACE_ID
 from database import (
     db_get_report_rls, db_set_report_rls, db_set_user_rls,
-    db_get_freshness_overview, db_system_stats,
+    db_get_freshness_overview, db_system_stats, db_get_recent_errors,
     db_admin_get_stats, db_admin_get_users, db_admin_add_user,
     db_admin_toggle_user_active, db_admin_get_reports,
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
@@ -167,6 +167,7 @@ CONFIG_LIMITS = {
     "max_embed_rls_roles":        (1, 50),
     "activity_log_retention_days": (7, 3650),
     "refresh_auto_retry_max":     (0, 8),      # Pro refresh 한도 8회/일 이내
+    "error_log_retention_days":  (7, 3650),
 }
 
 
@@ -582,3 +583,10 @@ async def api_admin_system_status(user: dict = Depends(require_admin_user)):
         "sync_interval_sec": config.PBI_SYNC_INTERVAL,
         **stats,
     }
+
+
+@router.get("/api/admin/errors")
+async def api_admin_recent_errors(user: dict = Depends(require_admin_user)):
+    """최근 서버 오류(5xx) 목록 — main.py 전역 예외 핸들러가 자동 기록한 것 (v5)."""
+    rows = await asyncio.to_thread(db_get_recent_errors, 20)
+    return {"errors": [dict(r) for r in rows]}
