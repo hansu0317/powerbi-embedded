@@ -2,6 +2,7 @@
 import asyncio
 import io
 import logging
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,9 +23,10 @@ from database import (
     db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
     db_fail_stuck_upload_job,
     db_log_activity, db_get_popular_report_ids, db_set_default_report, db_get_data_as_of,
+    db_log_error,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
-from errors import AppError
+from errors import AppError, extract_code_message
 from services.azure import get_access_token
 from services.fabric_folders import get_or_create_folder, move_item_to_folder
 from services.powerbi import get_embed_token, rename_with_retry
@@ -256,10 +258,24 @@ async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: i
     남아 서버 재시작 전까지 같은 이름 재업로드가 409로 막히므로, 여기서 failed 처리한다."""
     try:
         await _run_upload(user, name, pbix_bytes, file_size, job_id, ip, description)
-    except HTTPException:
-        pass  # 알려진 실패 — 잡 상태는 발생 지점에서 이미 기록됨
-    except Exception:
+    except HTTPException as exc:
+        # 잡 상태는 발생 지점에서 이미 기록됨. 이 태스크는 asyncio.create_task로 요청
+        # 컨텍스트 밖에서 도는 백그라운드라 main.py의 전역 예외 핸들러가 못 잡는다 —
+        # 5xx(Azure/PBI 장애·DB 등록 실패 등)만 여기서 직접 error_log에 남긴다.
+        if exc.status_code >= 500:
+            code, msg = extract_code_message(exc.detail)
+            try:
+                await asyncio.to_thread(db_log_error, code, exc.status_code, msg, user["username"], "/api/upload", None)
+            except Exception:
+                logger.exception("ERROR LOG WRITE FAIL (upload) | job_id=%s", job_id)
+    except Exception as exc:
         logger.exception("UPLOAD UNEXPECTED | user=%s | report=%s | job_id=%s", user["username"], name, job_id)
+        try:
+            await asyncio.to_thread(
+                db_log_error, "UNHANDLED", 500, str(exc), user["username"], "/api/upload", traceback.format_exc(),
+            )
+        except Exception:
+            logger.exception("ERROR LOG WRITE FAIL (upload) | job_id=%s", job_id)
         try:
             marked = await asyncio.to_thread(db_fail_stuck_upload_job, job_id)
             if marked:

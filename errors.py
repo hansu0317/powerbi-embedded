@@ -95,3 +95,13 @@ class AppError(Enum):
             status_code=self.status,
             detail={"code": self.code, "message": msg},
         )
+
+
+def extract_code_message(detail) -> tuple[str, str | None]:
+    """HTTPException.detail에서 (code, message)를 뽑는다.
+
+    AppError.http()가 만든 detail은 {"code", "message"} dict다. v5 오류 추적(main.py,
+    routes/report.py 업로드 파이프라인)에서 공통으로 쓴다 — 형식이 다르면 UNKNOWN."""
+    if isinstance(detail, dict):
+        return detail.get("code", "UNKNOWN"), detail.get("message")
+    return "UNKNOWN", detail

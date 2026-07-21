@@ -30,7 +30,7 @@ from database import (
     db_cleanup_login_attempts, db_cleanup_activity_log,
     db_cleanup_error_log, db_log_error,
 )
-from errors import AppError
+from errors import AppError, extract_code_message
 from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
 from routes import auth, report, admin
 
@@ -79,10 +79,22 @@ def _log_error_sync(error_code: str, http_status: int, message, request: Request
         db_log_error(
             error_code, http_status,
             str(message)[:2000] if message else None,
-            username, request.url.path, detail[:2000] if detail else None,
+            username, request.url.path[:255], detail[:2000] if detail else None,
         )
     except Exception:
         logger.exception("ERROR LOG WRITE FAIL")
+
+
+# fire-and-forget 로깅 태스크 참조 보관 — asyncio 공식 문서 권장 패턴.
+# create_task() 결과를 아무 데도 안 담으면 이벤트 루프가 약한 참조만 가져서
+# 실행 도중 GC될 수 있다(로그 유실). 완료되면 done_callback이 자동으로 치운다.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _fire_and_forget(coro) -> None:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 @asynccontextmanager
@@ -130,11 +142,8 @@ async def http_error_logger(request: Request, exc: HTTPException):
     응답 자체는 FastAPI 기본 핸들러에 그대로 위임 — 로깅 실패가 응답에 영향을 주지 않는다.
     """
     if exc.status_code >= 500:
-        detail = exc.detail
-        code, msg = "UNKNOWN", detail
-        if isinstance(detail, dict):
-            code, msg = detail.get("code", "UNKNOWN"), detail.get("message")
-        asyncio.create_task(asyncio.to_thread(_log_error_sync, code, exc.status_code, msg, request))
+        code, msg = extract_code_message(exc.detail)
+        _fire_and_forget(asyncio.to_thread(_log_error_sync, code, exc.status_code, msg, request))
     return await default_http_exception_handler(request, exc)
 
 
@@ -146,7 +155,7 @@ async def unhandled_error_logger(request: Request, exc: Exception):
     """
     tb = traceback.format_exc()
     logger.exception("UNHANDLED EXCEPTION | path=%s", request.url.path)
-    asyncio.create_task(asyncio.to_thread(_log_error_sync, "UNHANDLED", 500, str(exc), request, tb))
+    _fire_and_forget(asyncio.to_thread(_log_error_sync, "UNHANDLED", 500, str(exc), request, tb))
     return JSONResponse(status_code=500, content={"detail": "서버 오류가 발생했습니다."})
 
 
