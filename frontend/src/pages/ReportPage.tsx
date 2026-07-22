@@ -4,10 +4,14 @@ import {
   BarChart3,
   ChevronDown,
   Clock,
+  Download,
+  FileArchive,
   Folder,
   Home as HomeIcon,
   Info,
+  LayoutDashboard,
   LayoutList,
+  Maximize,
   Pin,
   Search,
   Star,
@@ -16,7 +20,11 @@ import {
   X,
 } from "lucide-react";
 import type { ReportData, ReportItem } from "../bootstrap";
-import { fetchEmbed, fetchUploadStatus, logout, setDefaultReport, uploadPbix } from "../api";
+import {
+  fetchEmbed, fetchUploadStatus, logout, setDefaultReport, uploadPbix,
+  downloadReportPbix, startPptxExport, pollPptxExport, downloadPptxExport,
+  fetchMyActivity, MyActivityRow,
+} from "../api";
 import { useFavorites } from "../useFavorites";
 import { useRecents } from "../useRecents";
 import { Pager, useFitRows } from "../Pager";
@@ -27,6 +35,18 @@ const powerbi = new pbi.service.Service(
   pbi.factories.wpmpFactory,
   pbi.factories.routerFactory,
 );
+
+/** Blob을 파일로 내려받게 한다 (PBIX/PPTX 다운로드 공통). */
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 type View = "my" | "all" | "upload";
 interface OpenTab {
@@ -78,6 +98,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
     () => (sessionStorage.getItem(MODE_KEY) as Mode) || "home",
   );
   const [view, setView] = useState<View>("my");
+  const [showActivity, setShowActivity] = useState(false);
   const [allQuery, setAllQuery] = useState("");
   const [tabs, setTabs] = useState<OpenTab[]>(() => loadTabs());
   const [active, setActive] = useState<number | null>(
@@ -170,6 +191,9 @@ export default function ReportPage({ data }: { data: ReportData }) {
         <div className="topbar-spacer" />
         <div className="topbar-right">
           <span className="topbar-user">{user.display_name}</span>
+          <button className="topbar-btn" onClick={() => setShowActivity(true)}>
+            내 활동
+          </button>
           {user.is_admin && (
             <a href="/admin" className="topbar-btn">
               관리자 포털
@@ -187,6 +211,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
           </button>
         </div>
       </header>
+      {showActivity && <MyActivityModal onClose={() => setShowActivity(false)} />}
 
       {mode === "home" ? (
         <Home
@@ -231,6 +256,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 onActivate={setActive}
                 onClose={closeTab}
                 onGoUpload={() => setView("upload")}
+                csrf={csrf_token}
               />
             )}
             {view === "all" && (
@@ -659,7 +685,9 @@ function TreeItem({
       onClick={() => onOpen(report)}
       title={report.name}
     >
-      <BarChart3 size={15} className="icn" />
+      {report.report_type === "dashboard"
+        ? <LayoutDashboard size={15} className="icn" />
+        : <BarChart3 size={15} className="icn" />}
       <span className="rp-tree-label">{report.name}</span>
     </div>
   );
@@ -678,6 +706,7 @@ function MyReportsView({
   onActivate,
   onClose,
   onGoUpload,
+  csrf,
 }: {
   reports: ReportItem[];
   tabs: OpenTab[];
@@ -690,6 +719,7 @@ function MyReportsView({
   onActivate: (id: number) => void;
   onClose: (id: number) => void;
   onGoUpload: () => void;
+  csrf: string;
 }) {
   // 탭별 데이터 신선도(마지막 refresh 성공 시각) — ReportPanel이 임베드 응답에서 올려준다
   const [freshMap, setFreshMap] = useState<
@@ -701,11 +731,72 @@ function MyReportsView({
     [],
   );
 
+  // 탭별 임베드 인스턴스 참조 — 전체화면·보기모드 버튼이 활성 탭의 인스턴스를 직접 조작한다.
+  // ref라 리렌더를 트리거하지 않고, 탭이 바뀌면 해당 탭의 것만 조회한다.
+  const reportRefs = useRef<Record<number, { report: pbi.Report; isDashboard: boolean }>>({});
+  const onReady = useCallback((rid: number, report: pbi.Report, isDashboard: boolean) => {
+    reportRefs.current[rid] = { report, isDashboard };
+  }, []);
+
+  // PPTX는 PBI가 백그라운드에서 변환하는 비동기 작업이라 exporting으로 진행 중 상태를 표시한다.
+  const [exporting, setExporting] = useState<number | null>(null);
+
+  const downloadPbix = async (reportId: number, name: string) => {
+    try {
+      const blob = await downloadReportPbix(reportId);
+      triggerDownload(blob, `${name}.pbix`);
+    } catch (e) {
+      alert("PBIX 다운로드 실패: " + (e as Error).message);
+    }
+  };
+
+  const exportPptx = async (reportId: number, name: string) => {
+    setExporting(reportId);
+    try {
+      const { export_id } = await startPptxExport(reportId, csrf);
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const s = await pollPptxExport(reportId, export_id);
+        if (s.status === "Succeeded") {
+          const blob = await downloadPptxExport(reportId, export_id);
+          triggerDownload(blob, `${name}.pptx`);
+          setExporting(null);
+          return;
+        }
+        if (s.status === "Failed") {
+          alert("PPTX 내보내기 실패");
+          setExporting(null);
+          return;
+        }
+      }
+      alert("PPTX 내보내기 시간 초과 — 잠시 후 다시 시도해 주세요.");
+    } catch (e) {
+      alert("PPTX 내보내기 실패: " + (e as Error).message);
+    } finally {
+      setExporting(null);
+    }
+  };
+
   if (tabs.length === 0) {
     return <ReportLanding reports={reports} canUpload={canUpload} onGoUpload={onGoUpload} />;
   }
   const activeTab = tabs.find((t) => t.id === active);
   const fresh = activeTab ? freshMap[activeTab.id] : undefined;
+  const activeEntry = activeTab ? reportRefs.current[activeTab.id] : undefined;
+
+  const setDisplay = (opt: keyof typeof pbi.models.DisplayOption) => {
+    activeEntry?.report.updateSettings({
+      layoutType: pbi.models.LayoutType.Custom,
+      customLayout: { displayOption: pbi.models.DisplayOption[opt] },
+    }).catch(() => {});
+  };
+  const goFullscreen = () => {
+    try {
+      activeEntry?.report.fullscreen();
+    } catch {
+      /* 대시보드 등 일부 타입은 fullscreen 미지원일 수 있음 — 무시 */
+    }
+  };
   return (
     <div className="rp-workarea">
       {activeTab && (
@@ -737,12 +828,47 @@ function MyReportsView({
               fill={defaultId === activeTab.id ? "currentColor" : "none"}
             />
           </button>
+          {!activeEntry?.isDashboard && (
+            <div className="rp-toolbar-fitgroup">
+              <button className="rp-toolbar-fitbtn" title="페이지에 맞춤" onClick={() => setDisplay("FitToPage")}>
+                맞춤
+              </button>
+              <button className="rp-toolbar-fitbtn" title="폭에 맞춤" onClick={() => setDisplay("FitToWidth")}>
+                폭맞춤
+              </button>
+              <button className="rp-toolbar-fitbtn" title="실제 크기" onClick={() => setDisplay("ActualSize")}>
+                실제크기
+              </button>
+            </div>
+          )}
+          <button className="rp-report-toolbar-fav" title="전체화면" onClick={goFullscreen}>
+            <Maximize size={16} className="icn" />
+          </button>
+          {!activeEntry?.isDashboard && (
+            <>
+              <button
+                className="rp-report-toolbar-fav"
+                title="PBIX로 다운로드"
+                onClick={() => downloadPbix(activeTab.id, activeTab.name)}
+              >
+                <Download size={16} className="icn" />
+              </button>
+              <button
+                className="rp-report-toolbar-fav"
+                title="PPTX로 내보내기"
+                onClick={() => exportPptx(activeTab.id, activeTab.name)}
+                disabled={exporting === activeTab.id}
+              >
+                <FileArchive size={16} className="icn" />
+              </button>
+            </>
+          )}
           {fresh && <FreshnessBadge asOf={fresh.asOf} status={fresh.status} />}
         </div>
       )}
       <div className="rp-panels">
         {tabs.map((t) => (
-          <ReportPanel key={t.id} id={t.id} active={t.id === active} onFreshness={onFreshness} />
+          <ReportPanel key={t.id} id={t.id} active={t.id === active} onFreshness={onFreshness} onReady={onReady} />
         ))}
       </div>
       {/* 탭 바 — 하단 */}
@@ -834,10 +960,12 @@ function ReportPanel({
   id,
   active,
   onFreshness,
+  onReady,
 }: {
   id: number;
   active: boolean;
   onFreshness: (rid: number, asOf: string | null, status: string | null) => void;
+  onReady: (rid: number, report: pbi.Report, isDashboard: boolean) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
@@ -872,28 +1000,40 @@ function ReportPanel({
         if (cancelled || !el) return;
         onFreshness(id, d.data_as_of ?? null, d.refresh_status ?? null);
         const s = d.settings || {};
-        const config: pbi.IEmbedConfiguration = {
-          type: "report",
-          id: d.report_id,
-          embedUrl: d.embed_url,
-          accessToken: d.embed_token,
-          tokenType: pbi.models.TokenType.Embed,
-          settings: {
-            navContentPaneEnabled: Boolean(s.enable_page_nav),
-            filterPaneEnabled: Boolean(s.enable_filter),
-            layoutType: pbi.models.LayoutType.Custom,
-            customLayout: {
-              displayOption: pbi.models.DisplayOption.FitToPage,
-            },
-            panes: {
-              pageNavigation: { visible: Boolean(s.enable_page_nav) },
-              filters: { visible: Boolean(s.enable_filter), expanded: false },
-            },
-          },
-        };
-        if (s.default_page) config.pageName = s.default_page;
+        const isDashboard = s.tab_type === "dashboard";
+        // 대시보드는 페이지·필터창 개념이 없어 report 전용 설정을 넣으면 SDK가
+        // 무시하거나 오류를 낼 수 있다 — 타입별로 별도 config를 만든다 (v6).
+        const config: pbi.IEmbedConfiguration = isDashboard
+          ? {
+              type: "dashboard",
+              id: d.report_id,
+              embedUrl: d.embed_url,
+              accessToken: d.embed_token,
+              tokenType: pbi.models.TokenType.Embed,
+            }
+          : {
+              type: "report",
+              id: d.report_id,
+              embedUrl: d.embed_url,
+              accessToken: d.embed_token,
+              tokenType: pbi.models.TokenType.Embed,
+              settings: {
+                navContentPaneEnabled: Boolean(s.enable_page_nav),
+                filterPaneEnabled: Boolean(s.enable_filter),
+                layoutType: pbi.models.LayoutType.Custom,
+                customLayout: {
+                  displayOption: pbi.models.DisplayOption.FitToPage,
+                },
+                panes: {
+                  pageNavigation: { visible: Boolean(s.enable_page_nav) },
+                  filters: { visible: Boolean(s.enable_filter), expanded: false },
+                },
+              },
+            };
+        if (!isDashboard && s.default_page) config.pageName = s.default_page;
         const report = powerbi.embed(el, config);
         scheduleRenew(report, d.expires_at);
+        onReady(id, report as pbi.Report, isDashboard);
         report.on("loaded", () => !cancelled && setLoading(false));
         report.on("error", (ev: any) => {
           if (cancelled) return;
@@ -912,7 +1052,7 @@ function ReportPanel({
       if (renewTimer) window.clearTimeout(renewTimer);
       if (el) powerbi.reset(el);
     };
-  }, [id, onFreshness]);
+  }, [id, onFreshness, onReady]);
 
   return (
     <div className={`rp-panel${active ? " active" : ""}`}>
@@ -1008,7 +1148,9 @@ function AllReportsView({
                 title="클릭하여 미리보기"
               >
                 <td className="rp-all-name">
-                  <BarChart3 size={15} className="icn" /> {r.name}
+                  {r.report_type === "dashboard"
+                    ? <LayoutDashboard size={15} className="icn" />
+                    : <BarChart3 size={15} className="icn" />} {r.name}
                   {r.report_type === "personal" && (
                     <span className="pill pending" style={{ marginLeft: 6 }}>
                       개인
@@ -1051,6 +1193,43 @@ function AllReportsView({
           onClose={() => setPreview(null)}
         />
       )}
+    </div>
+  );
+}
+
+/** 내 활동 로그 모달 (v6) — 관리자 로그 화면과 별개로, 일반 사용자가 자기 이력만 본다. */
+function MyActivityModal({ onClose }: { onClose: () => void }) {
+  const [rows, setRows] = useState<MyActivityRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchMyActivity()
+      .then(setRows)
+      .catch(() => setError("활동 로그 조회 실패"));
+  }, []);
+
+  return (
+    <div className="rp-modal-overlay" onClick={onClose}>
+      <div className="rp-modal rp-activity-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="rp-modal-x" onClick={onClose}>
+          <X size={18} />
+        </button>
+        <div className="rp-modal-name">내 활동</div>
+        <div className="rp-activity-list">
+          {error && <div className="rp-panel-error">{error}</div>}
+          {!error && !rows && <div className="rp-landing-sub">불러오는 중...</div>}
+          {rows && rows.length === 0 && <div className="rp-landing-sub">활동 기록이 없습니다.</div>}
+          {rows?.map((r) => (
+            <div key={r.id} className="rp-activity-row">
+              <span className={`pill ${r.event === "report_upload" ? "pending" : "active"}`}>
+                {r.event === "report_upload" ? "업로드" : "열람"}
+              </span>
+              <span className="rp-activity-name">{r.report_name || "-"}</span>
+              <span className="rp-activity-time">{String(r.created_at).replace("T", " ").slice(0, 16)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

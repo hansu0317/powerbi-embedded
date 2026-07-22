@@ -67,6 +67,12 @@ class AppError(Enum):
     IMPORT_FAILED        = (502, "IMPORT_FAILED",         "게시 실패: {detail}")
     IMPORT_NO_REPORT     = (502, "IMPORT_NO_REPORT",      "게시는 됐지만 보고서 정보를 받지 못했습니다.")
     IMPORT_TIMEOUT       = (504, "IMPORT_TIMEOUT",        "게시 처리 시간 초과. 잠시 후 워크스페이스를 확인하세요.")
+    PBIX_DOWNLOAD_FAILED = (502, "PBIX_DOWNLOAD_FAILED",  "PBIX 다운로드 실패: {detail}")
+    PPTX_CAPACITY_REQUIRED = (503, "PPTX_CAPACITY_REQUIRED",
+                              "PPTX 내보내기는 전용 용량(Premium/Embedded/Fabric)에서만 지원됩니다. "
+                              "현재 Pro 공유 용량에서는 사용할 수 없습니다.")
+    PPTX_EXPORT_FAILED   = (502, "PPTX_EXPORT_FAILED",    "PPTX 내보내기 실패: {detail}")
+    EXPORT_NOT_FOUND     = (404, "EXPORT_NOT_FOUND",      "내보내기 작업을 찾을 수 없습니다.")
 
     # ── 서버/DB ───────────────────────────────────────────────────────────────
     DB_UNAVAILABLE       = (503, "DB_UNAVAILABLE",        "데이터베이스를 사용할 수 없습니다.")

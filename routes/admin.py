@@ -19,7 +19,7 @@ from database import (
     db_admin_get_stats, db_admin_get_users, db_admin_add_user,
     db_admin_toggle_user_active, db_admin_get_reports,
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
-    db_import_managed_report,
+    db_import_managed_report, db_import_managed_dashboard,
     db_get_report, db_get_report_access, db_set_report_access,
     db_get_synced_reports, db_hard_delete_report, db_get_pbi_report_map,
     db_count_other_reports_using_dataset, db_get_app_config, db_update_app_config,
@@ -32,7 +32,9 @@ from database import (
 )
 from deps import csrf_token, verify_csrf, require_admin_user, require_admin_csrf
 from errors import AppError
-from services.fabric import sync_pbi_reports, fetch_pbi_folders_and_reports, LOOP_HEARTBEAT
+from services.fabric import (
+    sync_pbi_reports, fetch_pbi_folders_and_reports, fetch_pbi_folders_and_dashboards, LOOP_HEARTBEAT,
+)
 from services.powerbi import (
     pbi_delete_report, pbi_delete_dataset, pbi_refresh_dataset, invalidate_embed_cache,
 )
@@ -294,13 +296,16 @@ async def api_admin_delete_report(report_id: int, user: dict = Depends(require_a
 
 @router.post("/api/admin/import-pbi")
 async def api_admin_import_pbi(user: dict = Depends(require_admin_csrf)):
-    """Fabric 폴더 구조를 읽어 새 공용 보고서를 DB에 등록한다.
+    """Fabric 폴더 구조를 읽어 새 공용 보고서 + 대시보드(v6)를 DB에 등록한다.
 
-    이미 등록된 보고서는 건너뛴다(pbi_report_id 중복 체크).
+    이미 등록된 항목은 건너뛴다(pbi_report_id 중복 체크).
     권한은 부여하지 않으므로 등록 후 보고서 관리에서 별도 설정이 필요하다.
     """
     reports = await fetch_pbi_folders_and_reports()
-    fabric_ids = {r["pbi_report_id"] for r in reports}
+    dashboards = await fetch_pbi_folders_and_dashboards()
+    # 삭제 판정 기준 — 대시보드 ID도 반드시 포함해야 방금 등록한 대시보드가
+    # 아래 "Fabric에 없는 항목 삭제" 단계에서 즉시 지워지지 않는다.
+    fabric_ids = {r["pbi_report_id"] for r in reports} | {d["pbi_dashboard_id"] for d in dashboards}
 
     registered = skipped = deleted = 0
     # DB 커넥션 풀(기본 20개)을 다 쓰지 않도록 동시 실행 수를 제한한다.
@@ -316,6 +321,15 @@ async def api_admin_import_pbi(user: dict = Depends(require_admin_csrf)):
                 user["id"],
             )
 
+    async def _import_one_dashboard(d):
+        async with sem:
+            return await asyncio.to_thread(
+                db_import_managed_dashboard,
+                d["pbi_dashboard_id"], d["name"],
+                WORKSPACE_ID, d["folder_id"], d["folder_name"],
+                user["id"],
+            )
+
     import_results = await asyncio.gather(*(_import_one(r) for r in reports))
     for r, is_new in zip(reports, import_results):
         if is_new:
@@ -325,7 +339,16 @@ async def api_admin_import_pbi(user: dict = Depends(require_admin_csrf)):
         else:
             skipped += 1
 
-    # Fabric에 없는 보고서는 DB에서 완전 삭제 (동시 실행)
+    dash_results = await asyncio.gather(*(_import_one_dashboard(d) for d in dashboards))
+    for d, is_new in zip(dashboards, dash_results):
+        if is_new:
+            registered += 1
+            logger.info("ADMIN IMPORT PBI DASHBOARD | admin=%s | dashboard=%s | category=%s",
+                        user["username"], d["name"], d["folder_name"])
+        else:
+            skipped += 1
+
+    # Fabric에 없는 보고서/대시보드는 DB에서 완전 삭제 (동시 실행)
     async def _delete_one(row):
         async with sem:
             return await asyncio.to_thread(db_hard_delete_report, row["id"])
@@ -339,9 +362,10 @@ async def api_admin_import_pbi(user: dict = Depends(require_admin_csrf)):
             logger.info("ADMIN IMPORT PBI DELETE | admin=%s | report=%s",
                         user["username"], row["name"])
 
+    total = len(reports) + len(dashboards)
     logger.info("ADMIN IMPORT PBI DONE | admin=%s | registered=%d | skipped=%d | deleted=%d",
                 user["username"], registered, skipped, deleted)
-    return {"registered": registered, "skipped": skipped, "deleted": deleted, "total": len(reports)}
+    return {"registered": registered, "skipped": skipped, "deleted": deleted, "total": total}
 
 
 @router.get("/api/admin/sync-status")
@@ -352,11 +376,20 @@ async def api_admin_sync_status(user: dict = Depends(require_admin_user)):
     Fabric에서 사라진 보고서(삭제 대상)를 감지한다. import-pbi 실행 시 모두 정리된다.
     """
     try:
-        fabric = await fetch_pbi_folders_and_reports()
+        fabric_reports = await fetch_pbi_folders_and_reports()
+        fabric_dashboards = await fetch_pbi_folders_and_dashboards()
         db_map = await asyncio.to_thread(db_get_pbi_report_map)
     except Exception as exc:
         logger.warning("SYNC STATUS FAIL | admin=%s | error=%s", user["username"], exc)
         return {"available": False, "drift": False}
+
+    # db_get_pbi_report_map은 report_type 무관하게 반환하므로(v6 대시보드 포함),
+    # 대시보드를 report와 같은 모양으로 맞춰 합친다 — 안 그러면 대시보드가
+    # 매번 "Fabric에서 사라짐(removed)"으로 오탐된다.
+    fabric = fabric_reports + [
+        {"pbi_report_id": d["pbi_dashboard_id"], "name": d["name"], "folder_name": d["folder_name"]}
+        for d in fabric_dashboards
+    ]
 
     fabric_ids = {f["pbi_report_id"] for f in fabric}
     new, moved = [], []

@@ -132,6 +132,9 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
                 cached["embed_token"], cached["embed_url"], cached["expires_at"],
             )
 
+        if report_row["tab_type"] == "dashboard":
+            return await _fetch_dashboard_token(report_row, pbi_username, roles, report_id, roles_key)
+
         pbi_report_id = report_row["pbi_report_id"]
         workspace_id  = config.resolve_workspace_id(report_row["pbi_workspace_id"])
         report_api    = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
@@ -184,6 +187,53 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
         return _build_embed_response(
             report_row, pbi_report_id, token_data["token"], report_info["embedUrl"], expires_at,
         )
+
+
+async def _fetch_dashboard_token(
+    report_row: dict, pbi_username: str, roles: list[str], report_id: int, roles_key: str,
+) -> dict:
+    """대시보드(Dashboard) 임베드 토큰 발급.
+
+    Report와 별개의 GenerateToken 엔드포인트를 쓰고, 페이지·필터창·데이터셋 개념이
+    없다(report_settings의 해당 필드는 대시보드에 적용되지 않음 — 프론트는
+    settings.tab_type === "dashboard"로 분기해 페이지/필터 UI를 안 그린다).
+
+    한계: 대시보드는 여러 데이터셋의 타일을 모은 것이라 RLS에 필요한 정확한
+    datasets 목록을 얻으려면 타일을 순회해야 한다. 여기서는 report_rls가 켜져
+    있으면 역할(roles)만 담아 전달한다 — 타일별 데이터셋에 그 역할이 실제
+    정의돼 있어야 필터가 걸린다(보고서 RLS와 동일한 PBIX 준비 전제).
+    """
+    dashboard_id = report_row["pbi_report_id"]
+    workspace_id = config.resolve_workspace_id(report_row["pbi_workspace_id"])
+    dash_api     = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
+
+    access_token = await asyncio.to_thread(get_access_token)
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{dash_api}/dashboards/{dashboard_id}", headers=headers)
+        if resp.status_code == 404:
+            await asyncio.to_thread(db_mark_report_deleted, report_row["id"], dashboard_id, "embed 404 (dashboard)")
+            raise AppError.REPORT_DELETED.http()
+        if resp.status_code != 200:
+            raise AppError.REPORT_FETCH_FAILED.http(detail=resp.text)
+        dash_info = resp.json()
+
+        body = {"accessLevel": "view"}
+        if report_row["rls_enabled"]:
+            body["identities"] = [{
+                "username": pbi_username,
+                "roles": report_row["rls_role_names"] or list(roles or []),
+            }]
+
+        resp = await client.post(f"{dash_api}/dashboards/{dashboard_id}/GenerateToken", headers=headers, json=body)
+        if resp.status_code != 200:
+            raise AppError.EMBED_TOKEN_FAILED.http(detail=resp.text)
+        token_data = resp.json()
+
+    expires_at = _parse_token_expiry(token_data.get("expiration", ""))
+    _set_cached_token(report_id, pbi_username, roles_key, token_data["token"], dash_info["embedUrl"], expires_at)
+    return _build_embed_response(report_row, dashboard_id, token_data["token"], dash_info["embedUrl"], expires_at)
 
 
 # ── 표준 PBI API — 이름 변경 / 삭제 ─────────────────────────────────────────
@@ -274,3 +324,58 @@ async def rename_with_retry(
             if attempt == 4:
                 logger.warning("PBI RENAME WARN | user=%s | display=%s | error=%s", username, display_name, exc)
                 return fallback_name, f"rename failed after 5 attempts: {exc}"
+
+
+# ── v6: 뷰어 다운로드 / 내보내기 ─────────────────────────────────────────────
+
+async def pbi_download_pbix(workspace_id: str, pbi_report_id: str) -> bytes:
+    """원본 .pbix 바이너리를 그대로 받는다 (Export API).
+
+    .pbix Import로 게시된 보고서에서만 동작 확인됨(우리 업로드 파이프라인은
+    전부 이 방식) — 실제 워크스페이스 대상 테스트로 Pro 공유 용량에서도
+    200 + application/zip으로 정상 동작하는 것을 확인했다."""
+    resp = await _pbi_request(
+        "GET", f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/reports/{pbi_report_id}/Export",
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"PBIX export HTTP {resp.status_code}: {resp.text}")
+    return resp.content
+
+
+async def pbi_start_export(workspace_id: str, pbi_report_id: str, file_format: str = "PPTX") -> str:
+    """Export To File(PDF/PPTX/PNG/XLSX) 비동기 작업을 시작하고 export_id를 반환한다.
+
+    확인됨: 이 API는 전용 용량(Premium/Embedded/Fabric)에서만 동작한다 — 실제
+    워크스페이스(Pro 공유 용량)로 테스트하면 404 FeatureNotAvailableError가 난다.
+    ValueError('capacity_required')로 그 상황을 구분해 던진다."""
+    resp = await _pbi_request(
+        "POST", f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/reports/{pbi_report_id}/ExportTo",
+        json={"format": file_format},
+    )
+    if resp.status_code == 404:
+        raise ValueError("capacity_required")
+    if resp.status_code not in (200, 202):
+        raise RuntimeError(f"ExportTo HTTP {resp.status_code}: {resp.text}")
+    return resp.json()["id"]
+
+
+async def pbi_poll_export(workspace_id: str, pbi_report_id: str, export_id: str) -> dict:
+    """Export To File 작업 상태 조회. status: NotStarted|Running|Succeeded|Failed."""
+    resp = await _pbi_request(
+        "GET",
+        f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/reports/{pbi_report_id}/exports/{export_id}",
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"export poll HTTP {resp.status_code}: {resp.text}")
+    return resp.json()
+
+
+async def pbi_get_export_file(workspace_id: str, pbi_report_id: str, export_id: str) -> bytes:
+    """완료된 Export To File 결과물(PPTX 등) 바이너리를 받는다."""
+    resp = await _pbi_request(
+        "GET",
+        f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/reports/{pbi_report_id}/exports/{export_id}/file",
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"export file HTTP {resp.status_code}: {resp.text}")
+    return resp.content

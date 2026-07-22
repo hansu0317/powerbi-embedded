@@ -11,7 +11,7 @@ import psycopg2
 import psycopg2.errors
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.requests import Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import config
@@ -19,17 +19,20 @@ from config import PBI_API, WORKSPACE_ID
 from database import (
     db_get_reports, db_get_all_active_reports, db_can_view_report, db_find_report,
     db_reserve_upload, db_update_upload_job, db_get_upload_job, db_register_report,
-    db_health_check,
+    db_health_check, db_get_report,
     db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
     db_fail_stuck_upload_job,
     db_log_activity, db_get_popular_report_ids, db_set_default_report, db_get_data_as_of,
-    db_log_error,
+    db_log_error, db_get_user_activity_log,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError, extract_code_message
 from services.azure import get_access_token
 from services.fabric_folders import get_or_create_folder, move_item_to_folder
-from services.powerbi import get_embed_token, rename_with_retry
+from services.powerbi import (
+    get_embed_token, rename_with_retry,
+    pbi_download_pbix, pbi_start_export, pbi_poll_export, pbi_get_export_file,
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -175,6 +178,93 @@ async def api_embed(request: Request, report_id: int):
         report_id, result.get("report_name"), ip, 30,
     )
     return result
+
+
+async def _report_pbi_ids(user: dict, report_id: int) -> tuple[str, str]:
+    """다운로드/내보내기 공통: 열람 권한 확인 후 (workspace_id, pbi_report_id) 반환."""
+    await _require_viewable_report(user, report_id)
+    report_row = await asyncio.to_thread(db_get_report, report_id)
+    if not report_row or not report_row["pbi_report_id"]:
+        raise AppError.REPORT_NOT_FOUND.http()
+    workspace_id = config.resolve_workspace_id(report_row["pbi_workspace_id"])
+    return workspace_id, report_row["pbi_report_id"]
+
+
+@router.get("/api/reports/{report_id}/download/pbix")
+async def api_download_pbix(request: Request, report_id: int):
+    """원본 .pbix 다운로드 (v6). 대시보드는 지원하지 않는다."""
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    workspace_id, pbi_report_id = await _report_pbi_ids(user, report_id)
+    try:
+        content = await pbi_download_pbix(workspace_id, pbi_report_id)
+    except Exception as exc:
+        raise AppError.PBIX_DOWNLOAD_FAILED.http(detail=str(exc))
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="report.pbix"'},
+    )
+
+
+@router.post("/api/reports/{report_id}/export/pptx")
+async def api_export_pptx_start(request: Request, report_id: int):
+    """PPTX 내보내기 시작 (v6). 전용 용량(Premium/Embedded/Fabric) 필요 — Pro는 503."""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    workspace_id, pbi_report_id = await _report_pbi_ids(user, report_id)
+    try:
+        export_id = await pbi_start_export(workspace_id, pbi_report_id, "PPTX")
+    except ValueError:
+        raise AppError.PPTX_CAPACITY_REQUIRED.http()
+    except Exception as exc:
+        raise AppError.PPTX_EXPORT_FAILED.http(detail=str(exc))
+    return {"export_id": export_id}
+
+
+@router.get("/api/reports/{report_id}/export/pptx/{export_id}/status")
+async def api_export_pptx_status(request: Request, report_id: int, export_id: str):
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    workspace_id, pbi_report_id = await _report_pbi_ids(user, report_id)
+    try:
+        status = await pbi_poll_export(workspace_id, pbi_report_id, export_id)
+    except Exception as exc:
+        raise AppError.PPTX_EXPORT_FAILED.http(detail=str(exc))
+    return {"status": status.get("status", "Unknown")}
+
+
+@router.get("/api/reports/{report_id}/export/pptx/{export_id}/file")
+async def api_export_pptx_file(request: Request, report_id: int, export_id: str):
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    workspace_id, pbi_report_id = await _report_pbi_ids(user, report_id)
+    try:
+        content = await pbi_get_export_file(workspace_id, pbi_report_id, export_id)
+    except Exception as exc:
+        raise AppError.PPTX_EXPORT_FAILED.http(detail=str(exc))
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": 'attachment; filename="report.pptx"'},
+    )
+
+
+@router.get("/api/user/activity")
+async def api_user_activity(request: Request):
+    """내 활동 로그 (v6) — 일반 사용자가 본인이 열람·업로드한 이력을 직접 확인.
+
+    관리자 전용이던 활동 로그(v3)와 달리 인증만 요구하고 항상 본인 것만 반환한다."""
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    rows = await asyncio.to_thread(db_get_user_activity_log, user["id"], 200)
+    return {"activity": rows}
 
 
 @router.post("/api/upload")

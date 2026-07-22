@@ -545,12 +545,34 @@ def _v5_error_log(cur):
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# v6 — Power BI 대시보드 임베딩 지원 (2026-07)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _v6_dashboard_support(cur):
+    """Report 타입 외에 PBI Dashboard(여러 타일을 모은 것) 임베딩을 지원한다.
+
+    새 테이블 없이 기존 reports/report_meta/report_settings/user_reports/
+    group_reports를 그대로 재사용한다 — 대시보드도 'reports 행 하나'로 취급하고
+    report_type='dashboard'로 구분한다(권한·그룹·즐겨찾기·활동로그가 전부 그대로 동작).
+    report_settings.tab_type='dashboard'로 뷰어가 임베드 방식(type: dashboard)을 분기한다.
+    대시보드는 페이지·필터창 개념이 없어 enable_filter/enable_page_nav/default_page는
+    쓰지 않는다. pbi_dataset_id는 대시보드 자체엔 없어 NULL로 둔다.
+    """
+    cur.execute("ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_type_check")
+    cur.execute(
+        """ALTER TABLE reports ADD CONSTRAINT reports_type_check
+           CHECK (report_type IN ('managed', 'personal', 'dashboard'))"""
+    )
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
     (3, _v3_activity_and_convenience),
     (4, _v4_dataset_freshness),
     (5, _v5_error_log),
+    (6, _v6_dashboard_support),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

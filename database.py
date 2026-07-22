@@ -767,6 +767,58 @@ def db_import_managed_report(
     return True
 
 
+def db_import_managed_dashboard(
+    pbi_dashboard_id: str, name: str, pbi_workspace_id: str,
+    folder_id: str | None, category: str | None, actor_id: int,
+) -> bool:
+    """PBI 대시보드를 DB에 등록한다 (v6). db_import_managed_report와 구조는 같되:
+
+    - report_type='dashboard' (reports_type_check 제약이 v6에서 허용)
+    - report_settings.tab_type='dashboard' — 뷰어가 임베드 방식을 분기하는 신호
+    - pbi_dataset_id는 NULL (대시보드는 여러 데이터셋의 타일 모음이라 단일 ID가 없음)
+    """
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT r.id FROM report_meta rm JOIN reports r ON r.id = rm.report_id "
+                "WHERE rm.pbi_report_id = %s",
+                (pbi_dashboard_id,),
+            )
+            existing = cur.fetchone()
+            if existing:
+                if category:
+                    cur.execute(
+                        "UPDATE reports SET category = %s, updated_at = NOW() "
+                        "WHERE id = %s AND category IS DISTINCT FROM %s",
+                        (category, existing["id"], category),
+                    )
+                    conn.commit()
+                return False
+            cur.execute(
+                """INSERT INTO reports (name, report_type, owner_id, status, category, created_by, updated_by)
+                   VALUES (%s, 'dashboard', NULL, 'active', %s, %s, %s)
+                   RETURNING id""",
+                (name, category, actor_id, actor_id),
+            )
+            report_id = cur.fetchone()["id"]
+            cur.execute(
+                """INSERT INTO report_meta (report_id, pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id)
+                   VALUES (%s, %s, %s, NULL, %s)""",
+                (report_id, pbi_dashboard_id, pbi_workspace_id, folder_id),
+            )
+            cur.execute(
+                "INSERT INTO report_settings (report_id, tab_type) VALUES (%s, 'dashboard')", (report_id,))
+            cur.execute("INSERT INTO report_rls (report_id) VALUES (%s)", (report_id,))
+            cur.execute(
+                """INSERT INTO report_audit_log (report_id, actor_user_id, action, details)
+                   VALUES (%s, %s, 'dashboard_imported',
+                           jsonb_build_object('pbi_dashboard_id', %s, 'name', %s, 'category', %s))""",
+                (report_id, actor_id, pbi_dashboard_id, name, category),
+            )
+        conn.commit()
+    return True
+
+
 def db_admin_set_category(report_id: int, category: str | None, admin_user_id: int):
     with db_conn() as conn:
         with conn.cursor() as cur:
@@ -1039,6 +1091,20 @@ def db_get_activity_log(username: str | None = None, event: str | None = None,
                    FROM activity_log {where}
                    ORDER BY created_at DESC LIMIT %s""",
                 params,
+            )
+            return cur.fetchall()
+
+
+def db_get_user_activity_log(user_id: int, limit: int = 200) -> list:
+    """본인 활동 로그 (v6) — 일반 사용자용. 관리자 로그 화면(db_get_activity_log)과
+    달리 user_id로 강제 고정해 다른 사람 기록을 절대 못 본다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, event, report_name, created_at
+                   FROM activity_log WHERE user_id = %s
+                   ORDER BY created_at DESC LIMIT %s""",
+                (user_id, limit),
             )
             return cur.fetchall()
 

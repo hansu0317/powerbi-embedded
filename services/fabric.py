@@ -39,7 +39,14 @@ async def sync_pbi_reports() -> dict:
             try:
                 resp = await client.get(f"{PBI_GROUPS}/{ws_id}/reports", headers=headers)
                 resp.raise_for_status()
-                workspace_reports[ws_id] = {item["id"] for item in resp.json().get("value", [])}
+                ids = {item["id"] for item in resp.json().get("value", [])}
+                # db_get_synced_reports는 report_type 무관하게 전부 반환하므로(v6 대시보드
+                # 포함), 대시보드 ID도 같은 집합에 합쳐야 다음 줄의 in_pbi 판정이 맞는다 —
+                # 안 그러면 방금 등록한 대시보드가 다음 주기에 '삭제됨'으로 오판된다.
+                resp = await client.get(f"{PBI_GROUPS}/{ws_id}/dashboards", headers=headers)
+                resp.raise_for_status()
+                ids |= {item["id"] for item in resp.json().get("value", [])}
+                workspace_reports[ws_id] = ids
             except Exception as exc:
                 workspace_reports[ws_id] = None
                 logger.warning("PBI SYNC SKIP | workspace=%s | error=%s", ws_id, exc)
@@ -195,72 +202,83 @@ def recover_db_jobs():
             logger.exception("UPLOAD RECOVERY FAIL | job_id=%s", job["id"])
 
 
+async def _fetch_fabric_folder_map(client: httpx.AsyncClient, fabric_headers: dict) -> dict[str, str]:
+    """Fabric 폴더 트리 전체를 훑어 {folder_id: '본부/팀' 전체경로}를 만든다.
+
+    fetch_pbi_folders_and_reports/dashboards가 공통으로 쓴다."""
+    fabric_api = f"https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_ID}"
+    folder_nodes: dict[str, dict] = {}
+    params: dict = {"recursive": "true"}
+    while True:
+        resp = await client.get(f"{fabric_api}/folders", headers=fabric_headers, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+        for item in data.get("value", []):
+            folder_nodes[item["id"]] = {
+                "name":   item["displayName"],
+                "parent": item.get("parentFolderId"),
+            }
+        ct = data.get("continuationToken")
+        if not ct:
+            break
+        params = {"continuationToken": ct}
+
+    # parentFolderId를 따라 올라가며 경로를 조합 (seen은 순환 참조 방어)
+    folder_map: dict[str, str] = {}
+    for fid in folder_nodes:
+        parts: list[str] = []
+        cur: str | None = fid
+        seen: set[str] = set()
+        while cur and cur in folder_nodes and cur not in seen:
+            seen.add(cur)
+            parts.append(folder_nodes[cur]["name"])
+            cur = folder_nodes[cur]["parent"]
+        folder_map[fid] = "/".join(reversed(parts))
+    return folder_map
+
+
+async def _fetch_fabric_item_folder_map(
+    client: httpx.AsyncClient, fabric_headers: dict, item_type: str,
+) -> dict[str, str | None]:
+    """Fabric /items에서 특정 타입(Report|Dashboard)의 {item_id: folderId} 매핑.
+
+    PBI REST API(/reports, /dashboards)는 folderId를 반환하지 않아 Fabric /items가 필요하다."""
+    fabric_api = f"https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_ID}"
+    item_folder_map: dict[str, str | None] = {}
+    params: dict = {}
+    while True:
+        resp = await client.get(f"{fabric_api}/items", headers=fabric_headers, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+        for item in data.get("value", []):
+            if item.get("type") == item_type:
+                item_folder_map[item["id"]] = item.get("folderId")
+        ct = data.get("continuationToken")
+        if not ct:
+            break
+        params = {"continuationToken": ct}
+    return item_folder_map
+
+
 async def fetch_pbi_folders_and_reports() -> list[dict]:
     """Fabric 폴더 목록 + PBI 보고서 목록을 조합해 반환한다.
 
     반환: [{"folder_name": str|None, "folder_id": str|None,
              "pbi_report_id": str, "name": str, "dataset_id": str|None}]
 
-    폴더 목록은 Fabric API(다른 스코프), 보고서 목록은 PBI API로 각각 조회한다.
-    folder_id로 매핑해 각 보고서가 어느 폴더에 속하는지 결정한다.
     폴더 없는 보고서(루트)는 folder_name=None으로 반환한다.
     folder_name은 하위 폴더까지 포함한 전체 경로("본부/팀")다.
     """
     fabric_token = await asyncio.to_thread(get_fabric_token)
     pbi_token    = await asyncio.to_thread(get_access_token)
-
     fabric_headers = {"Authorization": f"Bearer {fabric_token}"}
     pbi_headers    = {"Authorization": f"Bearer {pbi_token}"}
 
-    fabric_api = f"https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_ID}"
-
     async with httpx.AsyncClient(timeout=30) as client:
-        # 1. Fabric 폴더 목록 (folderId → 전체 경로 "본부/팀")
-        folder_nodes: dict[str, dict] = {}
-        params: dict = {"recursive": "true"}
-        while True:
-            resp = await client.get(f"{fabric_api}/folders", headers=fabric_headers, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-            for item in data.get("value", []):
-                folder_nodes[item["id"]] = {
-                    "name":   item["displayName"],
-                    "parent": item.get("parentFolderId"),
-                }
-            ct = data.get("continuationToken")
-            if not ct:
-                break
-            params = {"continuationToken": ct}
+        folder_map        = await _fetch_fabric_folder_map(client, fabric_headers)
+        report_folder_map = await _fetch_fabric_item_folder_map(client, fabric_headers, "Report")
 
-        # parentFolderId를 따라 올라가며 경로를 조합 (seen은 순환 참조 방어)
-        folder_map: dict[str, str] = {}
-        for fid in folder_nodes:
-            parts: list[str] = []
-            cur: str | None = fid
-            seen: set[str] = set()
-            while cur and cur in folder_nodes and cur not in seen:
-                seen.add(cur)
-                parts.append(folder_nodes[cur]["name"])
-                cur = folder_nodes[cur]["parent"]
-            folder_map[fid] = "/".join(reversed(parts))
-
-        # 2. Fabric /items → 보고서별 folderId 매핑
-        #    PBI REST API(/reports)는 folderId를 반환하지 않으므로 Fabric /items를 사용한다.
-        report_folder_map: dict[str, str | None] = {}
-        params = {}
-        while True:
-            resp = await client.get(f"{fabric_api}/items", headers=fabric_headers, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-            for item in data.get("value", []):
-                if item.get("type") == "Report":
-                    report_folder_map[item["id"]] = item.get("folderId")
-            ct = data.get("continuationToken")
-            if not ct:
-                break
-            params = {"continuationToken": ct}
-
-        # 3. PBI /reports → datasetId 조회 (Fabric /items에는 datasetId 없음)
+        # PBI /reports → datasetId 조회 (Fabric /items에는 datasetId 없음)
         resp = await client.get(f"{PBI_GROUPS}/{WORKSPACE_ID}/reports", headers=pbi_headers)
         resp.raise_for_status()
         pbi_reports = resp.json().get("value", [])
@@ -275,6 +293,40 @@ async def fetch_pbi_folders_and_reports() -> list[dict]:
             "pbi_report_id": report_id,
             "name":          r["name"],
             "dataset_id":    r.get("datasetId"),
+        })
+    return result
+
+
+async def fetch_pbi_folders_and_dashboards() -> list[dict]:
+    """Fabric 폴더 목록 + PBI 대시보드 목록을 조합해 반환한다 (v6).
+
+    반환: [{"folder_name": str|None, "folder_id": str|None,
+             "pbi_dashboard_id": str, "name": str}]
+
+    대시보드는 여러 데이터셋 타일의 모음이라 dataset_id 개념이 없다 — Report와의
+    이 차이 때문에 별도 함수로 뒀다(폴더 탐색 로직은 위 헬퍼 2개로 공유)."""
+    fabric_token = await asyncio.to_thread(get_fabric_token)
+    pbi_token    = await asyncio.to_thread(get_access_token)
+    fabric_headers = {"Authorization": f"Bearer {fabric_token}"}
+    pbi_headers    = {"Authorization": f"Bearer {pbi_token}"}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        folder_map           = await _fetch_fabric_folder_map(client, fabric_headers)
+        dashboard_folder_map = await _fetch_fabric_item_folder_map(client, fabric_headers, "Dashboard")
+
+        resp = await client.get(f"{PBI_GROUPS}/{WORKSPACE_ID}/dashboards", headers=pbi_headers)
+        resp.raise_for_status()
+        pbi_dashboards = resp.json().get("value", [])
+
+    result = []
+    for d in pbi_dashboards:
+        dashboard_id = d["id"]
+        folder_id = dashboard_folder_map.get(dashboard_id)
+        result.append({
+            "folder_name":      folder_map.get(folder_id) if folder_id else None,
+            "folder_id":        folder_id,
+            "pbi_dashboard_id": dashboard_id,
+            "name":             d.get("displayName", "(이름 없음)"),
         })
     return result
 

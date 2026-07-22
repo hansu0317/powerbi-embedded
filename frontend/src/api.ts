@@ -20,6 +20,7 @@ export interface EmbedResponse {
     enable_page_nav?: boolean;
     enable_filter?: boolean;
     default_page?: string;
+    tab_type?: string; // "dashboard" | "report" — v6 대시보드 임베드 분기용
   };
 }
 
@@ -508,4 +509,61 @@ export async function adminGetRecentErrors(): Promise<ErrorLogRow[]> {
   const res = await fetch("/api/admin/errors");
   if (!res.ok) throw new Error("오류 로그 조회 실패");
   return (await res.json()).errors as ErrorLogRow[];
+}
+
+/* ── v6: 뷰어 다운로드/내보내기 ───────────────────────── */
+
+export async function downloadReportPbix(reportId: number): Promise<Blob> {
+  const res = await fetch(`/api/reports/${reportId}/download/pbix`);
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(extractDetail(j, "PBIX 다운로드 실패"));
+  }
+  return res.blob();
+}
+
+export interface PptxExportJob {
+  export_id: string;
+}
+
+export async function startPptxExport(reportId: number, csrf: string): Promise<PptxExportJob> {
+  const res = await fetch(`/api/reports/${reportId}/export/pptx`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf },
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "내보내기 시작 실패"));
+  return j;
+}
+
+export interface PptxExportStatus {
+  status: string; // Running | Succeeded | Failed | NotStarted
+}
+
+export async function pollPptxExport(reportId: number, exportId: string): Promise<PptxExportStatus> {
+  const res = await fetch(`/api/reports/${reportId}/export/pptx/${exportId}/status`);
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "상태 조회 실패"));
+  return j;
+}
+
+export async function downloadPptxExport(reportId: number, exportId: string): Promise<Blob> {
+  const res = await fetch(`/api/reports/${reportId}/export/pptx/${exportId}/file`);
+  if (!res.ok) throw new Error("파일 다운로드 실패");
+  return res.blob();
+}
+
+/* ── v6: 개인 활동 로그 ───────────────────────────────── */
+
+export interface MyActivityRow {
+  id: number;
+  event: string;
+  report_name: string | null;
+  created_at: string;
+}
+
+export async function fetchMyActivity(): Promise<MyActivityRow[]> {
+  const res = await fetch("/api/user/activity");
+  if (!res.ok) throw new Error("활동 로그 조회 실패");
+  return (await res.json()).activity as MyActivityRow[];
 }

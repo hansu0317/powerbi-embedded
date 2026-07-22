@@ -750,3 +750,53 @@
   background: #fdecec;
   border-color: #f3c2c0;
 }
+
+/* ── v6: 보기모드 토글 (전체화면·맞춤 버튼) ──────────────── */
+.rp-toolbar-fitgroup {
+  display: flex;
+  gap: 2px;
+  background: var(--sage-bg);
+  border-radius: 7px;
+  padding: 2px;
+  margin-left: 6px;
+}
+.rp-toolbar-fitbtn {
+  border: none;
+  background: none;
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rp-toolbar-fitbtn:hover { background: #fff; color: var(--sage-deep); }
+
+/* ── v6: 내 활동 모달 ─────────────────────────────────── */
+.rp-activity-modal { width: 480px; text-align: left; }
+.rp-activity-list {
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rp-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 4px;
+  border-bottom: 1px solid #f3f6ee;
+  font-size: 0.85rem;
+}
+.rp-activity-row:last-child { border-bottom: none; }
+.rp-activity-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.rp-activity-time { font-size: 0.76rem; color: var(--muted); white-space: nowrap; }
