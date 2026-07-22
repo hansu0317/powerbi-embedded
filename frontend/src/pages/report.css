@@ -800,3 +800,6 @@
   color: var(--ink);
 }
 .rp-activity-time { font-size: 0.76rem; color: var(--muted); white-space: nowrap; }
+
+/* ── v7: 보고서 콘텐츠 업데이트 버튼 ──────────────────── */
+.rp-toolbar-update-btn { margin-left: 4px; }

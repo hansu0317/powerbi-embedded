@@ -332,6 +332,33 @@ def db_find_report(owner_id: int, name: str):
 
 # ── 업로드 잡 ─────────────────────────────────────────────────────────────────
 
+def db_reserve_update(actor_id: int, target_report_id: int, report_name: str) -> int:
+    """보고서 콘텐츠 업데이트 예약 (v7). 새 보고서를 만들지 않으므로 개인 보고서
+    개수 한도는 검사하지 않는다 — 일일 업로드 한도와 동시 실행 잠금만 재사용한다.
+    권한(소유자·admin) 검증은 호출자(routes/report.py)에서 이미 끝난 상태로 들어온다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(%s)", (actor_id,))
+            cur.execute(
+                "SELECT COUNT(*) AS count FROM upload_jobs WHERE user_id = %s AND created_at >= CURRENT_DATE",
+                (actor_id,),
+            )
+            if cur.fetchone()["count"] >= config.MAX_UPLOADS_PER_DAY:
+                raise AppError.RATE_UPLOAD_DAILY.http(max=config.MAX_UPLOADS_PER_DAY)
+            try:
+                cur.execute(
+                    "INSERT INTO upload_jobs (user_id, report_name, status, job_type, target_report_id) "
+                    "VALUES (%s, %s, 'publishing', 'update', %s) RETURNING id",
+                    (actor_id, report_name, target_report_id),
+                )
+                row = cur.fetchone()
+            except psycopg2.errors.UniqueViolation as exc:
+                conn.rollback()
+                raise AppError.UPLOAD_IN_PROGRESS.http(name=report_name) from exc
+        conn.commit()
+    return row["id"]
+
+
 def db_reserve_upload(user_id: int, report_name: str) -> int:
     """업로드 예약. DB 제약으로 다중 프로세스 경합을 막는다."""
     with db_conn() as conn:

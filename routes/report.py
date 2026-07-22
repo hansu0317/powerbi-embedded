@@ -23,7 +23,7 @@ from database import (
     db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
     db_fail_stuck_upload_job,
     db_log_activity, db_get_popular_report_ids, db_set_default_report, db_get_data_as_of,
-    db_log_error, db_get_user_activity_log,
+    db_log_error, db_get_user_activity_log, db_reserve_update,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip
 from errors import AppError, extract_code_message
@@ -32,6 +32,7 @@ from services.fabric_folders import get_or_create_folder, move_item_to_folder
 from services.powerbi import (
     get_embed_token, rename_with_retry,
     pbi_download_pbix, pbi_start_export, pbi_poll_export, pbi_get_export_file,
+    pbi_update_report_content, pbi_delete_report, pbi_delete_dataset,
 )
 
 router = APIRouter()
@@ -311,20 +312,14 @@ async def api_upload_status(request: Request, job_id: int):
     }
 
 
-async def _read_and_validate_pbix(
-    file: UploadFile, report_name: str, user_id: int
-) -> tuple[str, bytes, int]:
-    """파일 검증 후 (report_name, pbix_bytes, file_size) 반환."""
+async def _validate_pbix_file(file: UploadFile) -> tuple[bytes, int]:
+    """확장자·크기·매직바이트만 검증(이름 중복 체크는 호출자 책임). (pbix_bytes, file_size) 반환.
+
+    신규 업로드(_read_and_validate_pbix)와 v7 콘텐츠 업데이트(_validate_update_pbix)가
+    공유하는 순수 파일 검증 — 업데이트는 '이미 존재하는 그 이름'을 업데이트하는 것이라
+    이름 중복 체크를 하면 안 된다."""
     if not file.filename or not file.filename.lower().endswith(".pbix"):
         raise AppError.FILE_WRONG_TYPE.http()
-
-    name = report_name.strip() or Path(file.filename).stem.strip()
-    if not name or len(name) > config.REPORT_NAME_MAX_LEN:
-        raise AppError.NAME_INVALID.http(max=config.REPORT_NAME_MAX_LEN)
-
-    if await asyncio.to_thread(db_find_report, user_id, name):
-        raise AppError.REPORT_NAME_CONFLICT.http(name=name)
-
     file.file.seek(0, 2)
     file_size = file.file.tell()
     file.file.seek(0)
@@ -335,8 +330,22 @@ async def _read_and_validate_pbix(
     if file.file.read(4)[:2] != b"PK":
         raise AppError.FILE_INVALID_CONTENT.http()
     file.file.seek(0)
+    return await asyncio.to_thread(file.file.read), file_size
 
-    return name, await asyncio.to_thread(file.file.read), file_size
+
+async def _read_and_validate_pbix(
+    file: UploadFile, report_name: str, user_id: int
+) -> tuple[str, bytes, int]:
+    """신규 업로드용 파일 검증 후 (report_name, pbix_bytes, file_size) 반환."""
+    if not file.filename or not file.filename.lower().endswith(".pbix"):
+        raise AppError.FILE_WRONG_TYPE.http()
+    name = report_name.strip() or Path(file.filename).stem.strip()
+    if not name or len(name) > config.REPORT_NAME_MAX_LEN:
+        raise AppError.NAME_INVALID.http(max=config.REPORT_NAME_MAX_LEN)
+    if await asyncio.to_thread(db_find_report, user_id, name):
+        raise AppError.REPORT_NAME_CONFLICT.http(name=name)
+    pbix_bytes, file_size = await _validate_pbix_file(file)
+    return name, pbix_bytes, file_size
 
 
 async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str,
@@ -412,8 +421,17 @@ async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, 
     return {"report_name": name, "pbi_display_name": pbi_display_name, "new": True}
 
 
-async def _pbi_import_pbix(user: dict, name: str, pbix_bytes: bytes, job_id: int, ip: str) -> dict:
-    """.pbix를 PBI에 게시하고 변환 완료까지 폴링한다. 성공 시 import 결과(JSON)를 반환."""
+async def _pbi_import_pbix(
+    user: dict, name: str, pbix_bytes: bytes, job_id: int, ip: str,
+    workspace_id: str = WORKSPACE_ID, import_name: str | None = None, name_conflict: str = "CreateOrOverwrite",
+) -> dict:
+    """.pbix를 PBI에 게시하고 변환 완료까지 폴링한다. 성공 시 import 결과(JSON)를 반환.
+
+    workspace_id/import_name/name_conflict는 v7 콘텐츠 업데이트의 스테이징 임포트가
+    같은 폴링 로직을 재사용하기 위한 파라미터 — 기본값은 기존 신규 업로드 동작과 동일하다."""
+    if import_name is None:
+        import_name = f"{user['username']}__{name}"
+    report_api = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
     try:
         access_token = await asyncio.to_thread(get_access_token)
     except Exception as exc:
@@ -421,13 +439,12 @@ async def _pbi_import_pbix(user: dict, name: str, pbix_bytes: bytes, job_id: int
         raise
     headers = {"Authorization": f"Bearer {access_token}"}
 
-    import_name   = f"{user['username']}__{name}"
-    import_params = {"datasetDisplayName": f"{import_name}.pbix", "nameConflict": "CreateOrOverwrite"}
+    import_params = {"datasetDisplayName": f"{import_name}.pbix", "nameConflict": name_conflict}
 
     async with httpx.AsyncClient(timeout=300) as client:
         try:
             resp = await client.post(
-                f"{PBI_API}/imports", params=import_params, headers=headers,
+                f"{report_api}/imports", params=import_params, headers=headers,
                 files={"file": (f"{import_name}.pbix", io.BytesIO(pbix_bytes), "application/octet-stream")},
             )
         except httpx.RequestError as exc:
@@ -443,13 +460,13 @@ async def _pbi_import_pbix(user: dict, name: str, pbix_bytes: bytes, job_id: int
             raise AppError.IMPORT_REQUEST_FAILED.http(detail=resp.text)
 
         import_id = resp.json()["id"]
-        await asyncio.to_thread(db_update_upload_job, job_id, "accepted", import_id=import_id, pbi_workspace_id=WORKSPACE_ID)
+        await asyncio.to_thread(db_update_upload_job, job_id, "accepted", import_id=import_id, pbi_workspace_id=workspace_id)
         logger.info("UPLOAD ACCEPT | user=%-12s | report=%s | import_id=%s", user["username"], name, import_id)
 
         # 변환 완료 대기
         for _ in range(config.IMPORT_POLL_MAX):
             await asyncio.sleep(config.IMPORT_POLL_INTERVAL)
-            resp = await client.get(f"{PBI_API}/imports/{import_id}", headers=headers)
+            resp = await client.get(f"{report_api}/imports/{import_id}", headers=headers)
             if resp.status_code != 200:
                 await asyncio.to_thread(db_update_upload_job, job_id, "unknown", error_message=f"poll HTTP {resp.status_code}")
                 raise AppError.IMPORT_POLL_FAILED.http(detail=resp.text)
@@ -499,3 +516,110 @@ async def _register_uploaded_report(
         raise AppError.UPLOAD_DB_FAILED.http() from exc
 
     await asyncio.to_thread(db_update_upload_job, job_id, "completed", report_id=gateway_report_id, error_message=None)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# v7 — 보고서 콘텐츠 업데이트 (데이터셋은 그대로, 페이지·시각화만 교체)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.post("/api/reports/{report_id}/update-content")
+async def api_update_report_content(request: Request, report_id: int, file: UploadFile = File(...)):
+    """기존 보고서에 새 pbix를 올려 콘텐츠만 교체한다. 데이터셋(RLS·관계·DAX)은 유지된다.
+
+    권한: 보고서 소유자 또는 admin만 — 열람 권한(can_view)과는 완전히 별개 체크다.
+    can_view이 있어도 소유자·admin이 아니면 이 API는 쓸 수 없다."""
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+
+    report_row = await asyncio.to_thread(db_get_report, report_id)
+    if not report_row or not report_row["pbi_report_id"]:
+        raise AppError.REPORT_NOT_FOUND.http()
+    if report_row["tab_type"] == "dashboard":
+        raise AppError.UPDATE_NOT_SUPPORTED.http()
+    if not (user.get("is_admin") or report_row["owner_id"] == user["id"]):
+        raise AppError.FORBIDDEN_REPORT_EDIT.http()
+
+    pbix_bytes, file_size = await _validate_pbix_file(file)
+    job_id = await asyncio.to_thread(db_reserve_update, user["id"], report_id, report_row["name"])
+    logger.info("UPDATE RESERVED | user=%-12s | report=%s | job_id=%s", user["username"], report_row["name"], job_id)
+
+    asyncio.create_task(
+        _process_report_update(user, report_row, pbix_bytes, file_size, job_id, get_client_ip(request))
+    )
+    return {"job_id": job_id, "report_name": report_row["name"], "status": "accepted"}
+
+
+async def _process_report_update(user: dict, report_row: dict, pbix_bytes: bytes, file_size: int, job_id: int, ip: str):
+    """백그라운드 진입점 — _process_upload와 동일한 예외 처리 철학을 따른다."""
+    try:
+        await _run_report_update(user, report_row, pbix_bytes, file_size, job_id, ip)
+    except HTTPException as exc:
+        if exc.status_code >= 500:
+            code, msg = extract_code_message(exc.detail)
+            try:
+                await asyncio.to_thread(
+                    db_log_error, code, exc.status_code, msg, user["username"],
+                    "/api/reports/update-content", None,
+                )
+            except Exception:
+                logger.exception("ERROR LOG WRITE FAIL (update) | job_id=%s", job_id)
+    except Exception as exc:
+        logger.exception(
+            "UPDATE UNEXPECTED | user=%s | report=%s | job_id=%s", user["username"], report_row["name"], job_id,
+        )
+        try:
+            await asyncio.to_thread(
+                db_log_error, "UNHANDLED", 500, str(exc), user["username"],
+                "/api/reports/update-content", traceback.format_exc(),
+            )
+        except Exception:
+            logger.exception("ERROR LOG WRITE FAIL (update) | job_id=%s", job_id)
+        try:
+            marked = await asyncio.to_thread(db_fail_stuck_upload_job, job_id)
+            if marked:
+                logger.warning("UPDATE STUCK→FAILED | job_id=%s", job_id)
+        except Exception:
+            logger.exception("UPDATE STUCK MARK FAIL | job_id=%s", job_id)
+
+
+async def _run_report_update(user: dict, report_row: dict, pbix_bytes: bytes, file_size: int, job_id: int, ip: str):
+    """스테이징 임포트 → UpdateReportContent(대상 콘텐츠만 교체) → 스테이징 정리 → 완료.
+
+    스테이징 보고서·데이터셋은 콘텐츠를 옮기는 매개체일 뿐이라 작업이 끝나면 삭제한다.
+    삭제 실패는 치명적이지 않으므로 경고만 남기고 잡은 완료 처리한다(재사용 안 되는
+    임시 항목이 워크스페이스에 남는 것뿐 — 다음 업데이트 때도 새 스테이징을 또 만듦)."""
+    name = report_row["name"]
+    logger.info("UPDATE START | user=%-12s | ip=%s | report=%s | bytes=%s", user["username"], ip, name, file_size)
+
+    workspace_id = config.resolve_workspace_id(report_row["pbi_workspace_id"])
+    staging_name = f"__update_staging__{report_row['id']}_{job_id}"
+
+    result = await _pbi_import_pbix(
+        user, name, pbix_bytes, job_id, ip,
+        workspace_id=workspace_id, import_name=staging_name, name_conflict="Abort",
+    )
+    reports = result.get("reports", [])
+    if not reports:
+        await asyncio.to_thread(db_update_upload_job, job_id, "unknown", error_message="staging: no report in response")
+        raise AppError.IMPORT_NO_REPORT.http()
+    staging_report_id = reports[0]["id"]
+    staging_dataset_ids = [d["id"] for d in result.get("datasets", [])]
+
+    try:
+        await pbi_update_report_content(workspace_id, report_row["pbi_report_id"], staging_report_id)
+    except Exception as exc:
+        await asyncio.to_thread(db_update_upload_job, job_id, "failed", error_message=str(exc))
+        raise AppError.UPLOAD_DB_FAILED.http(detail=f"UpdateReportContent 실패: {exc}") from exc
+
+    # 스테이징 정리 (비치명적 — 실패해도 업데이트 자체는 이미 성공한 상태)
+    try:
+        await pbi_delete_report(workspace_id, staging_report_id)
+        for ds_id in staging_dataset_ids:
+            await pbi_delete_dataset(workspace_id, ds_id)
+    except Exception as exc:
+        logger.warning("UPDATE STAGING CLEANUP WARN | job_id=%s | error=%s", job_id, exc)
+
+    await asyncio.to_thread(db_update_upload_job, job_id, "completed", report_id=report_row["id"], error_message=None)
+    logger.info("UPDATE OK  | user=%-12s | ip=%s | report=%s", user["username"], ip, name)

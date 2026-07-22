@@ -19,11 +19,11 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import type { ReportData, ReportItem } from "../bootstrap";
+import type { ReportData, ReportItem, SessionUser } from "../bootstrap";
 import {
   fetchEmbed, fetchUploadStatus, logout, setDefaultReport, uploadPbix,
   downloadReportPbix, startPptxExport, pollPptxExport, downloadPptxExport,
-  fetchMyActivity, MyActivityRow,
+  fetchMyActivity, MyActivityRow, startReportUpdate,
 } from "../api";
 import { useFavorites } from "../useFavorites";
 import { useRecents } from "../useRecents";
@@ -257,6 +257,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 onClose={closeTab}
                 onGoUpload={() => setView("upload")}
                 csrf={csrf_token}
+                user={user}
               />
             )}
             {view === "all" && (
@@ -707,6 +708,7 @@ function MyReportsView({
   onClose,
   onGoUpload,
   csrf,
+  user,
 }: {
   reports: ReportItem[];
   tabs: OpenTab[];
@@ -720,6 +722,7 @@ function MyReportsView({
   onClose: (id: number) => void;
   onGoUpload: () => void;
   csrf: string;
+  user: SessionUser;
 }) {
   // 탭별 데이터 신선도(마지막 refresh 성공 시각) — ReportPanel이 임베드 응답에서 올려준다
   const [freshMap, setFreshMap] = useState<
@@ -783,6 +786,13 @@ function MyReportsView({
   const activeTab = tabs.find((t) => t.id === active);
   const fresh = activeTab ? freshMap[activeTab.id] : undefined;
   const activeEntry = activeTab ? reportRefs.current[activeTab.id] : undefined;
+  const activeReportItem = activeTab ? reports.find((r) => r.id === activeTab.id) : undefined;
+  // 업데이트(콘텐츠 교체) 권한: 열람 권한(can_view)과는 완전히 별개 — 소유자 또는 admin만.
+  const canEditActive =
+    !!activeReportItem &&
+    (user.is_admin || activeReportItem.owner_username === user.username) &&
+    activeReportItem.report_type !== "dashboard";
+  const [showUpdate, setShowUpdate] = useState(false);
 
   const setDisplay = (opt: keyof typeof pbi.models.DisplayOption) => {
     activeEntry?.report.updateSettings({
@@ -861,10 +871,27 @@ function MyReportsView({
               >
                 <FileArchive size={16} className="icn" />
               </button>
+              {canEditActive && (
+                <button
+                  className="btn btn-ghost btn-sm rp-toolbar-update-btn"
+                  title="새 pbix로 콘텐츠만 교체 (데이터셋·RLS는 유지)"
+                  onClick={() => setShowUpdate(true)}
+                >
+                  업데이트
+                </button>
+              )}
             </>
           )}
           {fresh && <FreshnessBadge asOf={fresh.asOf} status={fresh.status} />}
         </div>
+      )}
+      {showUpdate && activeTab && (
+        <UpdateReportModal
+          reportId={activeTab.id}
+          reportName={activeTab.name}
+          csrf={csrf}
+          onClose={() => setShowUpdate(false)}
+        />
       )}
       <div className="rp-panels">
         {tabs.map((t) => (
@@ -1193,6 +1220,84 @@ function AllReportsView({
           onClose={() => setPreview(null)}
         />
       )}
+    </div>
+  );
+}
+
+/** 보고서 콘텐츠 업데이트 모달 (v7) — 새 pbix로 페이지·시각화만 교체, 데이터셋은 유지.
+ * 소유자·admin만 열 수 있다(toolbar에서 canEditActive로 이미 걸러짐). */
+function UpdateReportModal({
+  reportId,
+  reportName,
+  csrf,
+  onClose,
+}: {
+  reportId: number;
+  reportName: string;
+  csrf: string;
+  onClose: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ msg: string; tone: "" | "ok" | "err" }>({ msg: "", tone: "" });
+
+  const submit = async () => {
+    if (!file) return;
+    setBusy(true);
+    setStatus({ msg: "업로드 중...", tone: "" });
+    try {
+      const accepted = await startReportUpdate(reportId, file, csrf);
+      const jobId = accepted.job_id;
+      for (let i = 0; i < 150; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const s = await fetchUploadStatus(jobId, csrf);
+        if (s.status === "completed") {
+          setStatus({ msg: "업데이트 완료! 잠시 후 새로고침됩니다.", tone: "ok" });
+          setTimeout(() => location.reload(), 1200);
+          return;
+        }
+        if (["failed", "unknown", "conflict", "db_failed"].includes(s.status)) {
+          setStatus({ msg: s.error || "업데이트 실패", tone: "err" });
+          setBusy(false);
+          return;
+        }
+        setStatus({ msg: `처리 중 (${s.status})...`, tone: "" });
+      }
+      setStatus({ msg: "시간 초과 — 관리자에게 문의하세요.", tone: "err" });
+      setBusy(false);
+    } catch (e) {
+      setStatus({ msg: (e as Error).message, tone: "err" });
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rp-modal-overlay" onClick={busy ? undefined : onClose}>
+      <div className="rp-modal" onClick={(e) => e.stopPropagation()}>
+        {!busy && (
+          <button className="rp-modal-x" onClick={onClose}>
+            <X size={18} />
+          </button>
+        )}
+        <div className="rp-modal-name">보고서 업데이트 — {reportName}</div>
+        <p className="rp-landing-sub" style={{ marginBottom: 16 }}>
+          새 pbix로 페이지·시각화만 교체합니다. 데이터셋(RLS·관계·DAX)은 그대로 유지됩니다.
+        </p>
+        <div className="rp-filepick" style={{ marginBottom: 16 }}>
+          <input
+            type="file"
+            accept=".pbix"
+            disabled={busy}
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+          />
+        </div>
+        {status.msg && <div className={`rp-upload-feedback ${status.tone}`}>{status.msg}</div>}
+        <div className="rp-form-actions" style={{ marginTop: 16 }}>
+          <button className="btn btn-primary" disabled={!file || busy} onClick={submit}>
+            {busy ? "처리 중..." : "업데이트 시작"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

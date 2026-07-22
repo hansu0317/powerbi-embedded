@@ -567,3 +567,20 @@ export async function fetchMyActivity(): Promise<MyActivityRow[]> {
   if (!res.ok) throw new Error("활동 로그 조회 실패");
   return (await res.json()).activity as MyActivityRow[];
 }
+
+/* ── v7: 보고서 콘텐츠 업데이트 (데이터셋 유지) ───────── */
+
+export async function startReportUpdate(
+  reportId: number, file: File, csrf: string,
+): Promise<UploadAccepted> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`/api/reports/${reportId}/update-content`, {
+    method: "POST",
+    body: fd,
+    headers: { "X-CSRF-Token": csrf },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(data, res.statusText));
+  return data;
+}

@@ -18,6 +18,8 @@ class AppError(Enum):
     FORBIDDEN_ADMIN      = (403, "ADMIN_REQUIRED",        "관리자만 접근할 수 있습니다.")
     FORBIDDEN_REPORT     = (403, "REPORT_FORBIDDEN",      "해당 보고서에 접근 권한이 없습니다.")
     FORBIDDEN_UPLOAD     = (403, "UPLOAD_FORBIDDEN",      "보고서 업로드 권한이 없습니다. 관리자에게 문의하세요.")
+    FORBIDDEN_REPORT_EDIT = (403, "REPORT_EDIT_FORBIDDEN", "이 보고서를 업데이트할 권한이 없습니다 (소유자 또는 관리자만 가능).")
+    UPDATE_NOT_SUPPORTED = (400, "UPDATE_NOT_SUPPORTED",  "대시보드는 콘텐츠 업데이트를 지원하지 않습니다.")
     CSRF_INVALID         = (403, "CSRF_INVALID",          "잘못된 요청입니다. 페이지를 새로고침해 주세요.")
 
     # ── 리소스 없음 ───────────────────────────────────────────────────────────

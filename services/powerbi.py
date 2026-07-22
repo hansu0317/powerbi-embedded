@@ -379,3 +379,23 @@ async def pbi_get_export_file(workspace_id: str, pbi_report_id: str, export_id: 
     if resp.status_code != 200:
         raise RuntimeError(f"export file HTTP {resp.status_code}: {resp.text}")
     return resp.content
+
+
+# ── v7: 보고서 콘텐츠 업데이트 (데이터셋 유지) ────────────────────────────────
+
+async def pbi_update_report_content(workspace_id: str, target_report_id: str, source_report_id: str) -> None:
+    """대상 보고서의 콘텐츠(페이지·시각화)만 소스 보고서 내용으로 교체한다.
+
+    데이터셋 바인딩은 그대로 유지된다 — RLS 역할·테이블 관계·DAX가 안 바뀐다.
+    source_report_id는 새 pbix를 임시로 게시해 만든 스테이징 보고서의 ID이며,
+    호출자가 이 작업 뒤에 스테이징 보고서·데이터셋을 정리(삭제)해야 한다."""
+    resp = await _pbi_request(
+        "POST",
+        f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/reports/{target_report_id}/UpdateReportContent",
+        json={
+            "sourceReport": {"sourceReportId": source_report_id, "sourceWorkspaceId": workspace_id},
+            "sourceType": "ExistingReport",
+        },
+    )
+    if resp.status_code not in (200, 202):
+        raise RuntimeError(f"UpdateReportContent HTTP {resp.status_code}: {resp.text}")

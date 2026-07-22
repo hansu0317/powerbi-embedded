@@ -566,6 +566,30 @@ def _v6_dashboard_support(cur):
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# v7 — 보고서 콘텐츠 업데이트 (2026-07)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _v7_report_content_update(cur):
+    """기존 보고서에 새 pbix를 올려 콘텐츠(페이지·시각화)만 교체하는 기능.
+
+    Power BI의 UpdateReportContent API를 쓴다 — 대상 보고서의 페이지만 바뀌고
+    데이터셋 바인딩(RLS·관계·DAX)은 그대로 유지된다. upload_jobs를 재사용하되
+    job_type으로 신규 생성(create)과 업데이트(update)를 구분한다.
+    권한은 보고서 소유자 또는 admin으로 한정 — can_view(열람 권한)와는 완전히
+    별개 체크(routes/report.py에서 owner_id 비교로 처리, 이 마이그레이션은 스키마만).
+    """
+    cur.execute("ALTER TABLE upload_jobs ADD COLUMN job_type VARCHAR(16) NOT NULL DEFAULT 'create'")
+    cur.execute(
+        "ALTER TABLE upload_jobs ADD COLUMN target_report_id INTEGER "
+        "REFERENCES reports(id) ON DELETE SET NULL"
+    )
+    cur.execute(
+        """ALTER TABLE upload_jobs ADD CONSTRAINT upload_jobs_type_check
+           CHECK (job_type IN ('create', 'update'))"""
+    )
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
@@ -573,6 +597,7 @@ MIGRATIONS = [
     (4, _v4_dataset_freshness),
     (5, _v5_error_log),
     (6, _v6_dashboard_support),
+    (7, _v7_report_content_update),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]
