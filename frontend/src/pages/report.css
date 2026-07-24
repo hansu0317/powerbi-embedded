@@ -81,6 +81,33 @@
 .rp-report-toolbar-fav:hover { background: var(--sage-bg); }
 .rp-report-toolbar-fav.on { color: #d99a00; }
 .rp-report-toolbar-fav.on .icn { color: #f5b301; }
+.rp-report-toolbar-fav:disabled { opacity: 0.5; cursor: default; }
+
+/* 아이콘 버튼에 짧은 글자 라벨을 같이 보여준다 — 아이콘만으론 뭘 누르는지 알기 어려워서 */
+.rp-toolbar-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+/* RLS 적용 보고서 배지 — "지금 보이는 데이터가 나만 보는 값일 수 있다"는 신호 */
+.rp-rls-badge {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #5a4aa8;
+  background: #efeaff;
+  border: 1px solid #d6cdf5;
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  margin-left: 8px;
+}
+
+/* alert() 대신 툴바 아래 잠깐 보여주는 토스트 */
+.rp-toolbar-toast {
+  margin: 0 16px 8px;
+}
 
 .rp-panels { flex: 1; position: relative; overflow: hidden; background: #fff; }
 .rp-panel { position: absolute; inset: 0; display: none; }
@@ -749,6 +776,11 @@
   color: #b3403c;
   background: #fdecec;
   border-color: #f3c2c0;
+}
+.rp-fresh.muted {
+  color: var(--ink-soft);
+  background: #f2f2f0;
+  border-color: var(--line);
 }
 
 /* ── v6: 보기모드 토글 (전체화면·맞춤 버튼) ──────────────── */

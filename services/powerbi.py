@@ -85,6 +85,7 @@ def _build_embed_response(
         "report_id":   pbi_report_id,
         "dataset_id":  report_row["pbi_dataset_id"],  # 신선도 배지 조회용
         "report_name": report_row["name"],
+        "rls_enabled": bool(report_row["rls_enabled"]),  # 뷰어에 "개인화된 데이터" 배지 표시용
         "settings": {
             "default_page":    report_row["default_page"],
             "enable_filter":   report_row["enable_filter"],

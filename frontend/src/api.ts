@@ -15,6 +15,7 @@ export interface EmbedResponse {
   expires_at: number; // 토큰 만료 (Unix 초) — 프론트가 만료 전 재발급에 사용
   data_as_of?: string | null; // 데이터 기준 시각 (마지막 refresh 성공, ISO)
   refresh_status?: string | null; // Completed | Failed | NotRefreshable | ...
+  rls_enabled?: boolean; // true면 이 보고서는 역할별로 다른 행이 보일 수 있음
 
   settings?: {
     enable_page_nav?: boolean;

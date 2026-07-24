@@ -119,7 +119,16 @@ async def lifespan(_app: FastAPI):
     cleanup_task.cancel()
 
 
-app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
+app = FastAPI(
+    title="qualisoft BI 포털 API",
+    version="7.0",
+    description="App-Owns-Data Power BI 임베딩 게이트웨이. /openapi.json은 항상 노출되지만 "
+                 "/docs·/redoc 대화형 UI는 보안상 비활성화돼 있다 — 로컬 개발 중 필요하면 "
+                 "docs_url/redoc_url을 임시로 지정해서 켤 것.",
+    docs_url=None,
+    redoc_url=None,
+    lifespan=lifespan,
+)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.add_middleware(
     SessionMiddleware,
