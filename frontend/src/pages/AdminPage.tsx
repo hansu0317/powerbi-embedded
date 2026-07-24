@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Settings as SettingsIcon,
+  Upload,
   Users as UsersIcon,
   X,
 } from "lucide-react";
@@ -24,12 +25,14 @@ import {
   AccessUser,
   AdminGroup,
   AppConfigRow,
+  BulkAddResult,
   GroupAccess,
   GroupMember,
   SyncStatus,
   UserReportRow,
   adminGetUserReports,
   adminAddUser,
+  adminBulkAddUsers,
   adminCreateGroup,
   adminDeleteGroup,
   adminDeleteReport,
@@ -540,14 +543,30 @@ function UsersSection({
   const { pageItems, page, totalPages, total, setPage } = usePaged(users, pageSize);
   const [reportsUser, setReportsUser] = useState<AdminUser | null>(null);
   const [rlsUser, setRlsUser] = useState<AdminUser | null>(null);
+  const [showBulk, setShowBulk] = useState(false);
   return (
     <section>
       <div className="ad-section-head">
         <h2 style={{ marginBottom: 0 }}>사용자 관리</h2>
-        <button className="btn btn-primary" onClick={onAdd}>
-          <Plus size={15} className="icn" /> 새 사용자 추가
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn" onClick={() => setShowBulk(true)}>
+            <Upload size={15} className="icn" /> CSV로 일괄 등록
+          </button>
+          <button className="btn btn-primary" onClick={onAdd}>
+            <Plus size={15} className="icn" /> 새 사용자 추가
+          </button>
+        </div>
       </div>
+      {showBulk && (
+        <BulkAddUsersModal
+          csrf={csrf}
+          onClose={() => setShowBulk(false)}
+          onDone={() => {
+            showToast("일괄 등록이 완료됐습니다. 목록을 새로고침합니다...", "ok");
+            setTimeout(() => location.reload(), 1200);
+          }}
+        />
+      )}
       <div className="card-table" ref={tableRef}>
         <table>
           <colgroup>
@@ -781,11 +800,26 @@ function AddUserModal({
   onError: (msg: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [groups, setGroups] = useState<AdminGroup[] | null>(null);
+  const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
+
+  useEffect(() => {
+    adminGetGroups().then(setGroups).catch(() => setGroups([]));
+  }, []);
+
+  const toggleGroup = (id: number) => {
+    setSelectedGroups((prev) =>
+      prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id],
+    );
+  };
+
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setBusy(true);
     try {
-      await adminAddUser(new FormData(e.currentTarget));
+      const fd = new FormData(e.currentTarget);
+      fd.set("group_ids", selectedGroups.join(","));
+      await adminAddUser(fd);
       onAdded();
     } catch (err) {
       onError((err as Error).message);
@@ -827,6 +861,35 @@ function AddUserModal({
                 </select>
               </Field>
             </div>
+            <Field label="그룹 (선택한 그룹의 보고서 열람 권한을 그대로 받습니다)">
+              {!groups && <span className="muted">불러오는 중...</span>}
+              {groups && groups.length === 0 && (
+                <span className="muted">등록된 그룹이 없습니다.</span>
+              )}
+              {groups && groups.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px" }}>
+                  {groups.map((g) => (
+                    <label
+                      key={g.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        fontWeight: 400,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedGroups.includes(g.id)}
+                        onChange={() => toggleGroup(g.id)}
+                      />
+                      {g.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </Field>
           </div>
           <div className="ad-modal-footer">
             <button type="button" className="btn btn-ghost" onClick={onClose}>
@@ -837,6 +900,110 @@ function AddUserModal({
             </button>
           </div>
         </form>
+    </Modal>
+  );
+}
+
+function BulkAddUsersModal({
+  csrf,
+  onClose,
+  onDone,
+}: {
+  csrf: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<BulkAddResult | null>(null);
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await adminBulkAddUsers(file, csrf);
+      setResult(r);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="CSV로 사용자 일괄 등록" wide onClose={onClose}>
+      <div className="ad-modal-body">
+        {!result && (
+          <>
+            <p className="muted" style={{ marginTop: 0 }}>
+              헤더: <code>username,password,display_name,pbi_username,roles,groups,is_admin,can_upload</code>
+              <br />
+              roles·groups는 세미콜론(;)으로 여러 값을 구분합니다. groups에 적은 그룹은
+              미리 만들어져 있어야 하며, 그 그룹에 이미 부여된 보고서 열람 권한을 그대로 받습니다.
+              나머지 칸은 비워도 됩니다 (pbi_username→아이디, roles→도메인, is_admin→false, can_upload→true).
+            </p>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+            {error && <p style={{ color: "var(--danger, #c0392b)" }}>오류: {error}</p>}
+          </>
+        )}
+        {result && (
+          <>
+            <p>
+              생성 <b>{result.created}</b>건 · 실패 <b>{result.failed}</b>건
+            </p>
+            <div className="card-table" style={{ maxHeight: 320, overflow: "auto" }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>행</th>
+                    <th>아이디</th>
+                    <th>결과</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.results.map((r) => (
+                    <tr key={r.row}>
+                      <td>{r.row}</td>
+                      <td>{r.username}</td>
+                      <td style={{ color: r.status === "ok" ? "inherit" : "var(--danger, #c0392b)" }}>
+                        {r.status === "ok" ? "성공" : `실패 — ${r.message}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+      <div className="ad-modal-footer">
+        {!result && (
+          <>
+            <button type="button" className="btn btn-ghost" onClick={onClose}>
+              취소
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!file || busy}
+              onClick={submit}
+            >
+              {busy ? "등록 중..." : "업로드"}
+            </button>
+          </>
+        )}
+        {result && (
+          <button type="button" className="btn btn-primary" onClick={onDone}>
+            확인
+          </button>
+        )}
+      </div>
     </Modal>
   );
 }

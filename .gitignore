@@ -28,6 +28,9 @@ token_cache.json
 
 # 서버 런타임 파일
 .server.pid
+
+# DB 백업 (비밀번호 해시 등 민감정보 포함 — 절대 커밋 금지)
+backups/
 logs/
 *.log
 

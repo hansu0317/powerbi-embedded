@@ -688,7 +688,7 @@ def db_get_user_report_list(user_id: int) -> list:
 
 def db_admin_add_user(username: str, pw_hash: str, display_name: str,
                       pbi_username: str, roles: list[str], is_admin: bool,
-                      can_upload: bool = True) -> int:
+                      can_upload: bool = True, group_ids: list[int] | None = None) -> int:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -697,8 +697,14 @@ def db_admin_add_user(username: str, pw_hash: str, display_name: str,
                 (username, pw_hash, display_name, pbi_username, roles, is_admin, can_upload),
             )
             row = cur.fetchone()
+            user_id = row["id"]
+            if group_ids:
+                cur.executemany(
+                    "INSERT INTO user_groups (user_id, group_id) VALUES (%s, %s)",
+                    [(user_id, gid) for gid in group_ids],
+                )
         conn.commit()
-    return row["id"]
+    return user_id
 
 
 def db_admin_toggle_user_active(user_id: int):

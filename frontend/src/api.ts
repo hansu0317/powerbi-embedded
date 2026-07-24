@@ -179,6 +179,29 @@ export async function adminAddUser(form: FormData) {
   return res.json();
 }
 
+export interface BulkAddRowResult {
+  row: number;
+  username: string;
+  status: "ok" | "error";
+  message: string | null;
+}
+
+export interface BulkAddResult {
+  created: number;
+  failed: number;
+  results: BulkAddRowResult[];
+}
+
+export async function adminBulkAddUsers(file: File, csrf: string): Promise<BulkAddResult> {
+  const form = new FormData();
+  form.set("file", file);
+  form.set("csrf", csrf);
+  const res = await fetch("/api/admin/users/bulk-import", { method: "POST", body: form });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, res.statusText));
+  return j as BulkAddResult;
+}
+
 export async function adminToggleUser(userId: number, csrf: string) {
   const res = await fetch(`/api/admin/users/${userId}/toggle-active`, {
     method: "POST",

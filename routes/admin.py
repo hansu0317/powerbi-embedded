@@ -6,7 +6,7 @@ import logging
 
 import bcrypt
 import psycopg2.errors
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.requests import Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -225,6 +225,7 @@ async def api_admin_add_user(
     roles: str = Form("도메인"),
     is_admin: bool = Form(False),
     can_upload: bool = Form(True),
+    group_ids: str = Form(""),
     csrf: str = Form(),
     user: dict = Depends(require_admin_user),
 ):
@@ -234,15 +235,105 @@ async def api_admin_add_user(
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     # 폼은 콤마 구분 문자열로 받고 DB에는 TEXT[] 배열로 저장한다
     role_list = [r.strip() for r in roles.split(",") if r.strip()] or ["도메인"]
+    group_id_list = [int(g) for g in group_ids.split(",") if g.strip()]
     try:
         new_id = await asyncio.to_thread(
             db_admin_add_user, username, pw_hash, display_name,
-            pbi_username or username, role_list, is_admin, can_upload,
+            pbi_username or username, role_list, is_admin, can_upload, group_id_list,
         )
     except psycopg2.errors.UniqueViolation:
         raise AppError.USER_ALREADY_EXISTS.http(username=username)
-    logger.info("ADMIN ADD USER | admin=%s | new=%s | id=%s", user["username"], username, new_id)
+    logger.info(
+        "ADMIN ADD USER | admin=%s | new=%s | id=%s | groups=%s",
+        user["username"], username, new_id, group_id_list,
+    )
     return {"id": new_id, "username": username}
+
+
+def _parse_csv_bool(value: str, default: bool) -> bool:
+    v = value.strip().lower()
+    if not v:
+        return default
+    return v in ("true", "1", "y", "yes")
+
+
+def _bulk_add_one(row: dict, group_map: dict[str, int]) -> tuple[str, str | None]:
+    """CSV 한 행을 사용자 1명으로 등록. 반환: (상태, 오류메시지|None)."""
+    username = (row.get("username") or "").strip()
+    password = row.get("password") or ""
+    display_name = (row.get("display_name") or "").strip()
+    if not username or not password or not display_name:
+        return "error", "username/password/display_name은 필수입니다."
+    if len(password) < config.PASSWORD_MIN_LEN:
+        return "error", f"비밀번호는 {config.PASSWORD_MIN_LEN}자 이상이어야 합니다."
+
+    group_names = [g.strip() for g in (row.get("groups") or "").split(";") if g.strip()]
+    missing = [g for g in group_names if g not in group_map]
+    if missing:
+        return "error", f"존재하지 않는 그룹: {', '.join(missing)}"
+    group_id_list = [group_map[g] for g in group_names]
+
+    role_list = [r.strip() for r in (row.get("roles") or "").split(";") if r.strip()] or ["도메인"]
+    is_admin = _parse_csv_bool(row.get("is_admin") or "", False)
+    can_upload = _parse_csv_bool(row.get("can_upload") or "", True)
+    pbi_username = (row.get("pbi_username") or "").strip() or username
+    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+    try:
+        db_admin_add_user(
+            username, pw_hash, display_name, pbi_username,
+            role_list, is_admin, can_upload, group_id_list,
+        )
+    except psycopg2.errors.UniqueViolation:
+        return "error", f"'{username}' 아이디가 이미 존재합니다."
+    return "ok", None
+
+
+MAX_BULK_USER_ROWS = 500
+
+
+@router.post("/api/admin/users/bulk-import")
+async def api_admin_bulk_add_users(
+    request: Request,
+    file: UploadFile = File(...),
+    csrf: str = Form(),
+    user: dict = Depends(require_admin_user),
+):
+    """CSV로 사용자 여러 명을 한 번에 등록한다.
+
+    헤더: username,password,display_name,pbi_username,roles,groups,is_admin,can_upload
+    roles/groups는 세미콜론(;)으로 여러 값 구분. groups는 미리 존재하는 그룹 이름만 허용—
+    그룹×보고서 권한은 그룹 쪽에서 한 번만 설정해두면, 이 경로로 늘어나는 인원은
+    그룹 멤버십만으로 자동으로 동일한 열람 권한을 받는다.
+    """
+    verify_csrf(request, csrf)
+    raw = await file.read()
+    if not raw:
+        raise AppError.CSV_EMPTY.http()
+    text = raw.decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames or not {"username", "password", "display_name"} <= set(reader.fieldnames):
+        raise AppError.CSV_HEADER_INVALID.http()
+    rows = list(reader)
+    if len(rows) > MAX_BULK_USER_ROWS:
+        raise AppError.CSV_TOO_MANY_ROWS.http(max=MAX_BULK_USER_ROWS)
+
+    groups = await asyncio.to_thread(db_admin_get_groups)
+    group_map = {g["name"]: g["id"] for g in groups}
+
+    results = []
+    created = 0
+    for i, row in enumerate(rows, start=2):  # 헤더가 1행이니 데이터는 2행부터
+        status, message = await asyncio.to_thread(_bulk_add_one, row, group_map)
+        if status == "ok":
+            created += 1
+        results.append({"row": i, "username": row.get("username", ""), "status": status, "message": message})
+
+    logger.info(
+        "ADMIN BULK ADD USERS | admin=%s | created=%d | failed=%d",
+        user["username"], created, len(rows) - created,
+    )
+    return {"created": created, "failed": len(rows) - created, "results": results}
 
 
 @router.post("/api/admin/users/{user_id}/toggle-active")
