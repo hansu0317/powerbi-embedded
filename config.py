@@ -18,6 +18,9 @@ WORKSPACE_ID  = os.getenv("WORKSPACE_ID")
 SECRET_KEY    = os.getenv("SECRET_KEY")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
+# 네비게이션 허브 — 설정 시에만 상단바에 "마케팅 포털" 링크 노출(선택, 없으면 링크 없음)
+MARKETING_PORTAL_URL = os.getenv("MARKETING_PORTAL_URL")
+
 if not SECRET_KEY or len(SECRET_KEY) < 32:
     raise RuntimeError("SECRET_KEY는 32자 이상의 랜덤 문자열로 설정해야 합니다.")
 

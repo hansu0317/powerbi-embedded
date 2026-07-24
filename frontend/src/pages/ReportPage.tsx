@@ -194,6 +194,16 @@ export default function ReportPage({ data }: { data: ReportData }) {
           <button className="topbar-btn" onClick={() => setShowActivity(true)}>
             내 활동
           </button>
+          {data.marketing_portal_url && (
+            <a
+              href={data.marketing_portal_url}
+              target="_blank"
+              rel="noreferrer"
+              className="topbar-btn"
+            >
+              ↗ 마케팅 포털
+            </a>
+          )}
           {user.is_admin && (
             <a href="/admin" className="topbar-btn">
               관리자 포털

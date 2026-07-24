@@ -68,6 +68,7 @@ async def index(request: Request):
         "recents":   recents,
         "popular":   popular,
         "csrf_token": csrf_token(request),
+        "marketing_portal_url": config.MARKETING_PORTAL_URL,
     })
 
 

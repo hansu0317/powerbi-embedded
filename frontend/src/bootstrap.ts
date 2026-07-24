@@ -36,6 +36,8 @@ export interface ReportData {
   recents: number[];
   popular: PopularItem[];
   csrf_token: string;
+  /** 설정 시에만 상단바에 "마케팅 포털" 링크 노출 (MARKETING_PORTAL_URL, 선택) */
+  marketing_portal_url: string | null;
 }
 
 export interface AdminStats {
