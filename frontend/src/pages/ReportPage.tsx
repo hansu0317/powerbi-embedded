@@ -799,6 +799,12 @@ function MyReportsView({
     }
   };
 
+  // React 훅은 조건부로 호출하면 안 된다 — tabs가 빈 상태(→ 아래 조기 return)에서
+  // 첫 보고서를 열면(tabs.length 0→1) 이 컴포넌트가 이전 렌더보다 훅을 하나 더 호출하게 돼
+  // "Rendered more hooks than during the previous render"로 화면 전체가 하얗게 죽는다.
+  // 조기 return보다 반드시 앞에 선언해야 한다.
+  const [showUpdate, setShowUpdate] = useState(false);
+
   if (tabs.length === 0) {
     return <ReportLanding reports={reports} canUpload={canUpload} onGoUpload={onGoUpload} />;
   }
@@ -811,7 +817,6 @@ function MyReportsView({
     !!activeReportItem &&
     (user.is_admin || activeReportItem.owner_username === user.username) &&
     activeReportItem.report_type !== "dashboard";
-  const [showUpdate, setShowUpdate] = useState(false);
 
   const setDisplay = (opt: keyof typeof pbi.models.DisplayOption) => {
     activeEntry?.report.updateSettings({
