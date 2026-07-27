@@ -4,8 +4,6 @@ import {
   BarChart3,
   ChevronDown,
   Clock,
-  Download,
-  FileArchive,
   Folder,
   Home as HomeIcon,
   Info,
@@ -22,7 +20,6 @@ import {
 import type { ReportData, ReportItem, SessionUser } from "../bootstrap";
 import {
   fetchEmbed, fetchUploadStatus, logout, setDefaultReport, uploadPbix,
-  downloadReportPbix, startPptxExport, pollPptxExport, downloadPptxExport,
   fetchMyActivity, MyActivityRow, startReportUpdate,
 } from "../api";
 import { useFavorites } from "../useFavorites";
@@ -35,18 +32,6 @@ const powerbi = new pbi.service.Service(
   pbi.factories.wpmpFactory,
   pbi.factories.routerFactory,
 );
-
-/** Blob을 파일로 내려받게 한다 (PBIX/PPTX 다운로드 공통). */
-function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
 
 type View = "my" | "all" | "upload";
 interface OpenTab {
@@ -744,60 +729,12 @@ function MyReportsView({
     [],
   );
 
-  // 다운로드·내보내기 실패 등 짧게 보여주고 사라지는 툴바 알림 — alert() 대신 사용
-  const [toolbarMsg, setToolbarMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
-  const notify = useCallback((text: string, tone: "ok" | "err") => {
-    setToolbarMsg({ text, tone });
-    window.setTimeout(() => setToolbarMsg(null), 4000);
-  }, []);
-
   // 탭별 임베드 인스턴스 참조 — 전체화면·보기모드 버튼이 활성 탭의 인스턴스를 직접 조작한다.
   // ref라 리렌더를 트리거하지 않고, 탭이 바뀌면 해당 탭의 것만 조회한다.
   const reportRefs = useRef<Record<number, { report: pbi.Report; isDashboard: boolean }>>({});
   const onReady = useCallback((rid: number, report: pbi.Report, isDashboard: boolean) => {
     reportRefs.current[rid] = { report, isDashboard };
   }, []);
-
-  // PPTX는 PBI가 백그라운드에서 변환하는 비동기 작업이라 exporting으로 진행 중 상태를 표시한다.
-  const [exporting, setExporting] = useState<number | null>(null);
-
-  const downloadPbix = async (reportId: number, name: string) => {
-    try {
-      const blob = await downloadReportPbix(reportId);
-      triggerDownload(blob, `${name}.pbix`);
-      notify(`'${name}.pbix' 다운로드를 시작했습니다.`, "ok");
-    } catch (e) {
-      notify("PBIX 다운로드 실패: " + (e as Error).message, "err");
-    }
-  };
-
-  const exportPptx = async (reportId: number, name: string) => {
-    setExporting(reportId);
-    try {
-      const { export_id } = await startPptxExport(reportId, csrf);
-      for (let i = 0; i < 40; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
-        const s = await pollPptxExport(reportId, export_id);
-        if (s.status === "Succeeded") {
-          const blob = await downloadPptxExport(reportId, export_id);
-          triggerDownload(blob, `${name}.pptx`);
-          notify(`'${name}.pptx' 다운로드를 시작했습니다.`, "ok");
-          setExporting(null);
-          return;
-        }
-        if (s.status === "Failed") {
-          notify("PPTX 내보내기 실패 — 전용 용량이 필요한 기능일 수 있습니다.", "err");
-          setExporting(null);
-          return;
-        }
-      }
-      notify("PPTX 내보내기 시간 초과 — 잠시 후 다시 시도해 주세요.", "err");
-    } catch (e) {
-      notify("PPTX 내보내기 실패: " + (e as Error).message, "err");
-    } finally {
-      setExporting(null);
-    }
-  };
 
   // React 훅은 조건부로 호출하면 안 된다 — tabs가 빈 상태(→ 아래 조기 return)에서
   // 첫 보고서를 열면(tabs.length 0→1) 이 컴포넌트가 이전 렌더보다 훅을 하나 더 호출하게 돼
@@ -881,35 +818,14 @@ function MyReportsView({
             <Maximize size={16} className="icn" />
             <span className="rp-toolbar-label">전체화면</span>
           </button>
-          {!activeEntry?.isDashboard && (
-            <>
-              <button
-                className="rp-report-toolbar-fav"
-                title="PBIX로 다운로드"
-                onClick={() => downloadPbix(activeTab.id, activeTab.name)}
-              >
-                <Download size={16} className="icn" />
-                <span className="rp-toolbar-label">다운로드</span>
-              </button>
-              <button
-                className="rp-report-toolbar-fav"
-                title="PPTX로 내보내기 (전용 용량 필요)"
-                onClick={() => exportPptx(activeTab.id, activeTab.name)}
-                disabled={exporting === activeTab.id}
-              >
-                <FileArchive size={16} className="icn" />
-                <span className="rp-toolbar-label">{exporting === activeTab.id ? "내보내는 중..." : "PPTX"}</span>
-              </button>
-              {canEditActive && (
-                <button
-                  className="btn btn-ghost btn-sm rp-toolbar-update-btn"
-                  title="새 pbix로 콘텐츠만 교체 (데이터셋·RLS는 유지)"
-                  onClick={() => setShowUpdate(true)}
-                >
-                  업데이트
-                </button>
-              )}
-            </>
+          {!activeEntry?.isDashboard && canEditActive && (
+            <button
+              className="btn btn-ghost btn-sm rp-toolbar-update-btn"
+              title="새 pbix로 콘텐츠만 교체 (데이터셋·RLS는 유지)"
+              onClick={() => setShowUpdate(true)}
+            >
+              업데이트
+            </button>
           )}
           {fresh?.rlsEnabled && (
             <span
@@ -920,11 +836,6 @@ function MyReportsView({
             </span>
           )}
           {fresh && <FreshnessBadge asOf={fresh.asOf} status={fresh.status} />}
-        </div>
-      )}
-      {toolbarMsg && (
-        <div className={`rp-upload-feedback rp-toolbar-toast ${toolbarMsg.tone}`}>
-          {toolbarMsg.text}
         </div>
       )}
       {showUpdate && activeTab && (

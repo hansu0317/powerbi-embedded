@@ -104,11 +104,6 @@
   margin-left: 8px;
 }
 
-/* alert() 대신 툴바 아래 잠깐 보여주는 토스트 */
-.rp-toolbar-toast {
-  margin: 0 16px 8px;
-}
-
 .rp-panels { flex: 1; position: relative; overflow: hidden; background: #fff; }
 .rp-panel { position: absolute; inset: 0; display: none; }
 .rp-panel.active { display: flex; flex-direction: column; }
