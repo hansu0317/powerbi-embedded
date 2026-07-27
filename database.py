@@ -533,9 +533,9 @@ def db_register_report(
             cur.execute("INSERT INTO report_settings (report_id) VALUES (%s) ON CONFLICT DO NOTHING", (report_id,))
             cur.execute("INSERT INTO report_rls (report_id) VALUES (%s) ON CONFLICT DO NOTHING", (report_id,))
             cur.execute(
-                """INSERT INTO user_reports (user_id, report_id, can_view, can_edit, can_manage, granted_by)
-                   VALUES (%s, %s, TRUE, TRUE, TRUE, %s)
-                   ON CONFLICT (user_id, report_id) DO UPDATE SET can_view=TRUE, can_edit=TRUE, can_manage=TRUE""",
+                """INSERT INTO user_reports (user_id, report_id, can_view, granted_by)
+                   VALUES (%s, %s, TRUE, %s)
+                   ON CONFLICT (user_id, report_id) DO UPDATE SET can_view=TRUE""",
                 (owner_id, report_id, owner_id),
             )
             cur.execute(

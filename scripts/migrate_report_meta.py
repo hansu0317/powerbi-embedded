@@ -606,6 +606,19 @@ def _v8_config_desc_fix(cur):
     )
 
 
+def _v9_drop_dead_permission_columns(cur):
+    """user_reports.can_edit / can_manage 제거 — 죽은 컬럼.
+
+    등록 시 TRUE로 채워지기만 하고(db_register_report) 코드 어디서도 읽지 않았다.
+    실제 편집 권한(v7 콘텐츠 업데이트)은 이 컬럼과 무관하게 owner_id·is_admin을
+    직접 비교해서 판정한다 — 사용자가 위임 가능한 편집 권한 UI를 만들지 않기로
+    결정했을 때(권한 체크만 분리, can_edit 권한 부여 UI는 안 만들기로 함) 이미
+    쓸모가 없어진 컬럼이었다.
+    """
+    cur.execute("ALTER TABLE user_reports DROP COLUMN IF EXISTS can_edit")
+    cur.execute("ALTER TABLE user_reports DROP COLUMN IF EXISTS can_manage")
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
@@ -615,6 +628,7 @@ MIGRATIONS = [
     (6, _v6_dashboard_support),
     (7, _v7_report_content_update),
     (8, _v8_config_desc_fix),
+    (9, _v9_drop_dead_permission_columns),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

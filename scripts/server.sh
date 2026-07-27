@@ -14,7 +14,7 @@ LOG_DIR="$PROJECT_ROOT/logs"
 LOG_FILE="$LOG_DIR/server.log"
 
 
-# 기존 로그를 시각이 포함된 파일명으로 보관하고 30일이 지난 로그를 정리한다.
+# 기존 로그를 시각이 포함된 파일명으로 보관하고 15일이 지난 로그를 정리한다.
 rotate_log() {
     if [ -f "$LOG_FILE" ]; then
         ARCHIVE_DATE=$(date +%Y%m%d)
@@ -24,7 +24,7 @@ rotate_log() {
         mv "$LOG_FILE" "$ARCHIVE_DIR/server-$ARCHIVE_TIME.log"
         echo "이전 로그 → $ARCHIVE_DIR/server-$ARCHIVE_TIME.log"
     fi
-    find "$LOG_DIR" -mindepth 1 -type f -name 'server-*.log' -mtime +30 -delete 2>/dev/null
+    find "$LOG_DIR" -mindepth 1 -type f -name 'server-*.log' -mtime +15 -delete 2>/dev/null
 }
 
 start() {
