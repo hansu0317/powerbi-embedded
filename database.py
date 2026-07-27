@@ -68,9 +68,9 @@ def db_check_and_get_user(username: str, ip: str):
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) AS count FROM login_attempts "
-                "WHERE username = %s AND ip_address = %s AND succeeded = FALSE "
-                "AND attempted_at >= NOW() - %s * INTERVAL '1 minute'",
+                "SELECT COUNT(*) AS count FROM event_log "
+                "WHERE log_type = 'login' AND username = %s AND ip = %s AND succeeded = FALSE "
+                "AND created_at >= NOW() - %s * INTERVAL '1 minute'",
                 (username, ip, config.LOGIN_BLOCK_MINUTES),
             )
             if cur.fetchone()["count"] >= config.LOGIN_BLOCK_MAX_FAIL:
@@ -102,10 +102,13 @@ def db_record_login(username: str, ip: str, succeeded: bool):
     with db_conn() as conn:
         with conn.cursor() as cur:
             if succeeded:
-                cur.execute("DELETE FROM login_attempts WHERE username = %s AND ip_address = %s", (username, ip))
+                cur.execute(
+                    "DELETE FROM event_log WHERE log_type = 'login' AND username = %s AND ip = %s",
+                    (username, ip),
+                )
                 cur.execute("UPDATE users SET last_login_at = NOW() WHERE username = %s", (username,))
             cur.execute(
-                "INSERT INTO login_attempts (username, ip_address, succeeded) VALUES (%s, %s, %s)",
+                "INSERT INTO event_log (log_type, username, ip, succeeded) VALUES ('login', %s, %s, %s)",
                 (username, ip, succeeded),
             )
         conn.commit()
@@ -119,7 +122,9 @@ def db_cleanup_login_attempts():
     """
     with db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL '30 days'")
+            cur.execute(
+                "DELETE FROM event_log WHERE log_type = 'login' AND created_at < NOW() - INTERVAL '30 days'"
+            )
         conn.commit()
 
 
@@ -158,10 +163,8 @@ def db_get_reports(username: str) -> list:
             cur.execute(
                 f"""SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
                           owner.username AS owner_username,
-                          s.preview_image_url, s.tab_type
+                          r.preview_image_url, r.tab_type
                    FROM reports r
-                   JOIN report_meta m ON m.report_id = r.id
-                   LEFT JOIN report_settings s ON s.report_id = r.id
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    JOIN users u ON u.username = %s
                    WHERE r.status = 'active' AND {_CAN_VIEW_REPORT_SQL}
@@ -178,10 +181,8 @@ def db_get_all_active_reports() -> list:
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
                           owner.username AS owner_username,
-                          s.preview_image_url, s.tab_type
+                          r.preview_image_url, r.tab_type
                    FROM reports r
-                   JOIN report_meta m ON m.report_id = r.id
-                   LEFT JOIN report_settings s ON s.report_id = r.id
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    WHERE r.status = 'active'
                    ORDER BY r.category NULLS LAST, r.name"""
@@ -195,28 +196,36 @@ def db_get_user_favorites(user_id: int) -> list:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT f.report_id
-                   FROM user_favorites f
+                   FROM user_report_marks f
                    JOIN reports r ON r.id = f.report_id
-                   WHERE f.user_id = %s AND r.status = 'active'
-                   ORDER BY f.created_at DESC""",
+                   WHERE f.user_id = %s AND f.is_favorite AND r.status = 'active'
+                   ORDER BY f.favorited_at DESC""",
                 (user_id,),
             )
             return [row["report_id"] for row in cur.fetchall()]
 
 
 def db_set_favorite(user_id: int, report_id: int, on: bool) -> None:
-    """즐겨찾기 추가/해제 (멱등)."""
+    """즐겨찾기 추가/해제 (멱등). 최근 본 기록이 없던 행이 즐겨찾기 해제로 완전히
+    비면(둘 다 NULL/FALSE) user_report_marks 행 자체를 정리한다."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             if on:
                 cur.execute(
-                    "INSERT INTO user_favorites (user_id, report_id) VALUES (%s, %s) "
-                    "ON CONFLICT (user_id, report_id) DO NOTHING",
+                    """INSERT INTO user_report_marks (user_id, report_id, is_favorite, favorited_at)
+                       VALUES (%s, %s, TRUE, NOW())
+                       ON CONFLICT (user_id, report_id) DO UPDATE SET is_favorite = TRUE, favorited_at = NOW()""",
                     (user_id, report_id),
                 )
             else:
                 cur.execute(
-                    "DELETE FROM user_favorites WHERE user_id = %s AND report_id = %s",
+                    "UPDATE user_report_marks SET is_favorite = FALSE, favorited_at = NULL "
+                    "WHERE user_id = %s AND report_id = %s",
+                    (user_id, report_id),
+                )
+                cur.execute(
+                    "DELETE FROM user_report_marks WHERE user_id = %s AND report_id = %s "
+                    "AND NOT is_favorite AND viewed_at IS NULL",
                     (user_id, report_id),
                 )
         conn.commit()
@@ -228,9 +237,9 @@ def db_get_user_recents(user_id: int, limit: int = 8) -> list:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT t.report_id
-                   FROM user_recent_reports t
+                   FROM user_report_marks t
                    JOIN reports r ON r.id = t.report_id
-                   WHERE t.user_id = %s AND r.status = 'active'
+                   WHERE t.user_id = %s AND t.viewed_at IS NOT NULL AND r.status = 'active'
                    ORDER BY t.viewed_at DESC LIMIT %s""",
                 (user_id, limit),
             )
@@ -238,20 +247,28 @@ def db_get_user_recents(user_id: int, limit: int = 8) -> list:
 
 
 def db_add_recent(user_id: int, report_id: int, keep: int = 30) -> None:
-    """최근 본 보고서 기록 (이미 있으면 viewed_at 갱신). 최신 keep건만 남기고 정리."""
+    """최근 본 보고서 기록 (이미 있으면 viewed_at 갱신). 최신 keep건만 남기고 정리.
+
+    즐겨찾기 행과 같은 테이블을 쓰므로, 순위 밖으로 밀린 행은 즐겨찾기가 아닐 때만
+    완전히 삭제한다 — 즐겨찾기는 최근 본 목록에서만 빠지고 유지된다."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO user_recent_reports (user_id, report_id) VALUES (%s, %s) "
+                "INSERT INTO user_report_marks (user_id, report_id, viewed_at) VALUES (%s, %s, NOW()) "
                 "ON CONFLICT (user_id, report_id) DO UPDATE SET viewed_at = NOW()",
                 (user_id, report_id),
             )
             cur.execute(
-                """DELETE FROM user_recent_reports
-                   WHERE user_id = %s AND report_id NOT IN (
-                       SELECT report_id FROM user_recent_reports
-                       WHERE user_id = %s ORDER BY viewed_at DESC LIMIT %s)""",
+                """UPDATE user_report_marks SET viewed_at = NULL
+                   WHERE user_id = %s AND viewed_at IS NOT NULL AND report_id NOT IN (
+                       SELECT report_id FROM user_report_marks
+                       WHERE user_id = %s AND viewed_at IS NOT NULL
+                       ORDER BY viewed_at DESC LIMIT %s)""",
                 (user_id, user_id, keep),
+            )
+            cur.execute(
+                "DELETE FROM user_report_marks WHERE user_id = %s AND viewed_at IS NULL AND NOT is_favorite",
+                (user_id,),
             )
         conn.commit()
 
@@ -261,9 +278,9 @@ def db_get_pbi_report_map() -> dict:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT m.pbi_report_id, r.category, r.name
-                   FROM report_meta m JOIN reports r ON r.id = m.report_id
-                   WHERE r.status = 'active' AND m.pbi_report_id IS NOT NULL"""
+                """SELECT pbi_report_id, category, name
+                   FROM reports
+                   WHERE status = 'active' AND pbi_report_id IS NOT NULL"""
             )
             return {
                 row["pbi_report_id"]: {"category": row["category"], "name": row["name"]}
@@ -301,15 +318,12 @@ def db_get_report(report_id: int):
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id,
-                          m.pbi_report_id, m.pbi_dataset_id, m.pbi_workspace_id,
-                          s.default_page, s.enable_filter, s.enable_page_nav,
-                          s.use_data_bot, s.tab_type,
-                          COALESCE(rr.enabled, FALSE) AS rls_enabled,
-                          COALESCE(rr.role_names, ARRAY[]::TEXT[]) AS rls_role_names
+                          r.pbi_report_id, r.pbi_dataset_id, r.pbi_workspace_id,
+                          r.default_page, r.enable_filter, r.enable_page_nav,
+                          r.use_data_bot, r.tab_type,
+                          COALESCE(r.rls_enabled, FALSE) AS rls_enabled,
+                          COALESCE(r.rls_role_names, ARRAY[]::TEXT[]) AS rls_role_names
                    FROM reports r
-                   LEFT JOIN report_meta m ON m.report_id = r.id
-                   LEFT JOIN report_settings s ON s.report_id = r.id
-                   LEFT JOIN report_rls rr ON rr.report_id = r.id
                    WHERE r.id = %s""",
                 (report_id,),
             )
@@ -321,10 +335,9 @@ def db_find_report(owner_id: int, name: str):
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT r.id, r.name, r.owner_id, m.pbi_report_id
-                   FROM reports r
-                   LEFT JOIN report_meta m ON m.report_id = r.id
-                   WHERE r.owner_id = %s AND LOWER(r.name) = LOWER(%s) AND r.status <> 'deleted'""",
+                """SELECT id, name, owner_id, pbi_report_id
+                   FROM reports
+                   WHERE owner_id = %s AND LOWER(name) = LOWER(%s) AND status <> 'deleted'""",
                 (owner_id, name),
             )
             return cur.fetchone()
@@ -398,8 +411,8 @@ def db_count_other_reports_using_dataset(pbi_dataset_id: str, exclude_report_id:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT COUNT(*) AS count
-                   FROM report_meta m JOIN reports r ON r.id = m.report_id
-                   WHERE m.pbi_dataset_id = %s AND m.report_id <> %s AND r.status <> 'deleted'""",
+                   FROM reports
+                   WHERE pbi_dataset_id = %s AND id <> %s AND status <> 'deleted'""",
                 (pbi_dataset_id, exclude_report_id),
             )
             return cur.fetchone()["count"]
@@ -506,32 +519,22 @@ def db_register_report(
                 cur.execute(
                     "UPDATE reports SET status = 'active', deleted_at = NULL, updated_at = NOW(), "
                     "updated_by = %s, category = COALESCE(category, %s), "
-                    "description = COALESCE(%s, description) WHERE id = %s",
-                    (owner_id, category, description, report_id),
+                    "description = COALESCE(%s, description), "
+                    "pbi_report_id = %s, pbi_workspace_id = %s, pbi_dataset_id = %s, pbi_display_name = %s "
+                    "WHERE id = %s",
+                    (owner_id, category, description, pbi_report_id,
+                     config.resolve_workspace_id(pbi_workspace_id), pbi_dataset_id, pbi_display_name, report_id),
                 )
             else:
                 cur.execute(
-                    "INSERT INTO reports (name, report_type, owner_id, status, category, description, created_by, updated_by) "
-                    "VALUES (%s, 'personal', %s, 'active', %s, %s, %s, %s) RETURNING id",
-                    (name, owner_id, category, description, owner_id, owner_id),
+                    """INSERT INTO reports (
+                           name, report_type, owner_id, status, category, description, created_by, updated_by,
+                           pbi_report_id, pbi_workspace_id, pbi_dataset_id, pbi_display_name
+                       ) VALUES (%s, 'personal', %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                    (name, owner_id, category, description, owner_id, owner_id,
+                     pbi_report_id, config.resolve_workspace_id(pbi_workspace_id), pbi_dataset_id, pbi_display_name),
                 )
                 report_id = cur.fetchone()["id"]
-            cur.execute(
-                """INSERT INTO report_meta (
-                       report_id, pbi_report_id, pbi_workspace_id,
-                       pbi_dataset_id, pbi_display_name
-                   ) VALUES (%s, %s, %s, %s, %s)
-                   ON CONFLICT (report_id) DO UPDATE SET
-                       pbi_report_id    = EXCLUDED.pbi_report_id,
-                       pbi_workspace_id = EXCLUDED.pbi_workspace_id,
-                       pbi_dataset_id   = EXCLUDED.pbi_dataset_id,
-                       pbi_display_name = EXCLUDED.pbi_display_name,
-                       updated_at       = NOW()""",
-                (report_id, pbi_report_id, config.resolve_workspace_id(pbi_workspace_id),
-                 pbi_dataset_id, pbi_display_name),
-            )
-            cur.execute("INSERT INTO report_settings (report_id) VALUES (%s) ON CONFLICT DO NOTHING", (report_id,))
-            cur.execute("INSERT INTO report_rls (report_id) VALUES (%s) ON CONFLICT DO NOTHING", (report_id,))
             cur.execute(
                 """INSERT INTO user_reports (user_id, report_id, can_view, granted_by)
                    VALUES (%s, %s, TRUE, %s)
@@ -539,8 +542,8 @@ def db_register_report(
                 (owner_id, report_id, owner_id),
             )
             cur.execute(
-                """INSERT INTO report_audit_log (report_id, actor_user_id, action, details)
-                   VALUES (%s, %s, 'personal_report_registered',
+                """INSERT INTO event_log (log_type, report_id, user_id, event, details)
+                   VALUES ('audit', %s, %s, 'personal_report_registered',
                            jsonb_build_object('pbi_report_id', %s, 'name', %s))""",
                 (report_id, owner_id, pbi_report_id, name),
             )
@@ -554,11 +557,10 @@ def db_get_synced_reports():
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT r.id, r.name, r.status, m.pbi_report_id,
-                          COALESCE(m.pbi_workspace_id, %s) AS pbi_workspace_id
-                   FROM reports r
-                   JOIN report_meta m ON m.report_id = r.id
-                   WHERE r.status IN ('active', 'deleted')""",
+                """SELECT id, name, status, pbi_report_id,
+                          COALESCE(pbi_workspace_id, %s) AS pbi_workspace_id
+                   FROM reports
+                   WHERE status IN ('active', 'deleted')""",
                 (WORKSPACE_ID,),
             )
             return cur.fetchall()
@@ -574,8 +576,8 @@ def db_mark_report_deleted(report_id: int, pbi_report_id: str, reason: str) -> b
             )
             if cur.rowcount:
                 cur.execute(
-                    """INSERT INTO report_audit_log (report_id, action, details)
-                       VALUES (%s, 'pbi_deleted', jsonb_build_object('pbi_report_id', %s, 'reason', %s))""",
+                    """INSERT INTO event_log (log_type, report_id, event, details)
+                       VALUES ('audit', %s, 'pbi_deleted', jsonb_build_object('pbi_report_id', %s, 'reason', %s))""",
                     (report_id, pbi_report_id, reason),
                 )
         conn.commit()
@@ -592,7 +594,7 @@ def db_restore_report(report_id: int, pbi_report_id: str) -> bool:
             )
             if cur.rowcount:
                 cur.execute(
-                    "INSERT INTO report_audit_log (report_id, action, details) VALUES (%s, 'pbi_restored', jsonb_build_object('pbi_report_id', %s))",
+                    "INSERT INTO event_log (log_type, report_id, event, details) VALUES ('audit', %s, 'pbi_restored', jsonb_build_object('pbi_report_id', %s))",
                     (report_id, pbi_report_id),
                 )
         conn.commit()
@@ -726,18 +728,17 @@ def db_admin_get_reports() -> list:
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.status, r.created_at, r.category, r.description,
                           u.username AS owner_username,
-                          m.pbi_report_id, m.pbi_display_name, m.pbi_dataset_id,
-                          COALESCE(m.pbi_workspace_id, %s) AS pbi_workspace_id,
+                          r.pbi_report_id, r.pbi_display_name, r.pbi_dataset_id,
+                          COALESCE(r.pbi_workspace_id, %s) AS pbi_workspace_id,
                           COUNT(ur.user_id) FILTER (WHERE NOT vu.is_admin) AS viewer_count,
                           (SELECT COUNT(*) FROM group_reports gr
                            WHERE gr.report_id = r.id AND gr.can_view) AS group_count
                    FROM reports r
                    LEFT JOIN users u ON u.id = r.owner_id
-                   LEFT JOIN report_meta m ON m.report_id = r.id
                    LEFT JOIN user_reports ur ON ur.report_id = r.id AND ur.can_view = TRUE
                    LEFT JOIN users vu ON vu.id = ur.user_id
                    WHERE r.status <> 'deleted'
-                   GROUP BY r.id, u.username, m.pbi_report_id, m.pbi_display_name, m.pbi_dataset_id, m.pbi_workspace_id
+                   GROUP BY r.id, u.username
                    ORDER BY r.id""",
                 (WORKSPACE_ID,)
             )
@@ -761,11 +762,7 @@ def db_import_managed_report(
     """
     with db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT r.id FROM report_meta rm JOIN reports r ON r.id = rm.report_id "
-                "WHERE rm.pbi_report_id = %s",
-                (pbi_report_id,),
-            )
+            cur.execute("SELECT id FROM reports WHERE pbi_report_id = %s", (pbi_report_id,))
             existing = cur.fetchone()
             if existing:
                 if category:
@@ -777,22 +774,17 @@ def db_import_managed_report(
                     conn.commit()
                 return False
             cur.execute(
-                """INSERT INTO reports (name, report_type, owner_id, status, category, created_by, updated_by)
-                   VALUES (%s, 'managed', NULL, 'active', %s, %s, %s)
+                """INSERT INTO reports (
+                       name, report_type, owner_id, status, category, created_by, updated_by,
+                       pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id
+                   ) VALUES (%s, 'managed', NULL, 'active', %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (name, category, actor_id, actor_id),
+                (name, category, actor_id, actor_id, pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id),
             )
             report_id = cur.fetchone()["id"]
             cur.execute(
-                """INSERT INTO report_meta (report_id, pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id)
-                   VALUES (%s, %s, %s, %s, %s)""",
-                (report_id, pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id),
-            )
-            cur.execute("INSERT INTO report_settings (report_id) VALUES (%s)", (report_id,))
-            cur.execute("INSERT INTO report_rls (report_id) VALUES (%s)", (report_id,))
-            cur.execute(
-                """INSERT INTO report_audit_log (report_id, actor_user_id, action, details)
-                   VALUES (%s, %s, 'managed_report_imported',
+                """INSERT INTO event_log (log_type, report_id, user_id, event, details)
+                   VALUES ('audit', %s, %s, 'managed_report_imported',
                            jsonb_build_object('pbi_report_id', %s, 'name', %s, 'category', %s))""",
                 (report_id, actor_id, pbi_report_id, name, category),
             )
@@ -807,16 +799,12 @@ def db_import_managed_dashboard(
     """PBI 대시보드를 DB에 등록한다 (v6). db_import_managed_report와 구조는 같되:
 
     - report_type='dashboard' (reports_type_check 제약이 v6에서 허용)
-    - report_settings.tab_type='dashboard' — 뷰어가 임베드 방식을 분기하는 신호
+    - reports.tab_type='dashboard' — 뷰어가 임베드 방식을 분기하는 신호
     - pbi_dataset_id는 NULL (대시보드는 여러 데이터셋의 타일 모음이라 단일 ID가 없음)
     """
     with db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT r.id FROM report_meta rm JOIN reports r ON r.id = rm.report_id "
-                "WHERE rm.pbi_report_id = %s",
-                (pbi_dashboard_id,),
-            )
+            cur.execute("SELECT id FROM reports WHERE pbi_report_id = %s", (pbi_dashboard_id,))
             existing = cur.fetchone()
             if existing:
                 if category:
@@ -828,23 +816,17 @@ def db_import_managed_dashboard(
                     conn.commit()
                 return False
             cur.execute(
-                """INSERT INTO reports (name, report_type, owner_id, status, category, created_by, updated_by)
-                   VALUES (%s, 'dashboard', NULL, 'active', %s, %s, %s)
+                """INSERT INTO reports (
+                       name, report_type, owner_id, status, category, created_by, updated_by,
+                       pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id, tab_type
+                   ) VALUES (%s, 'dashboard', NULL, 'active', %s, %s, %s, %s, %s, NULL, %s, 'dashboard')
                    RETURNING id""",
-                (name, category, actor_id, actor_id),
+                (name, category, actor_id, actor_id, pbi_dashboard_id, pbi_workspace_id, folder_id),
             )
             report_id = cur.fetchone()["id"]
             cur.execute(
-                """INSERT INTO report_meta (report_id, pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id)
-                   VALUES (%s, %s, %s, NULL, %s)""",
-                (report_id, pbi_dashboard_id, pbi_workspace_id, folder_id),
-            )
-            cur.execute(
-                "INSERT INTO report_settings (report_id, tab_type) VALUES (%s, 'dashboard')", (report_id,))
-            cur.execute("INSERT INTO report_rls (report_id) VALUES (%s)", (report_id,))
-            cur.execute(
-                """INSERT INTO report_audit_log (report_id, actor_user_id, action, details)
-                   VALUES (%s, %s, 'dashboard_imported',
+                """INSERT INTO event_log (log_type, report_id, user_id, event, details)
+                   VALUES ('audit', %s, %s, 'dashboard_imported',
                            jsonb_build_object('pbi_dashboard_id', %s, 'name', %s, 'category', %s))""",
                 (report_id, actor_id, pbi_dashboard_id, name, category),
             )
@@ -860,8 +842,8 @@ def db_admin_set_category(report_id: int, category: str | None, admin_user_id: i
                 (category or None, admin_user_id, report_id),
             )
             cur.execute(
-                "INSERT INTO report_audit_log (report_id, actor_user_id, action, details) "
-                "VALUES (%s, %s, 'admin_set_category', jsonb_build_object('category', %s))",
+                "INSERT INTO event_log (log_type, report_id, user_id, event, details) "
+                "VALUES ('audit', %s, %s, 'admin_set_category', jsonb_build_object('category', %s))",
                 (report_id, admin_user_id, category),
             )
         conn.commit()
@@ -878,8 +860,8 @@ def db_admin_soft_delete_report(report_id: int, admin_user_id: int) -> bool:
             row = cur.fetchone()
             if row:
                 cur.execute(
-                    "INSERT INTO report_audit_log (report_id, actor_user_id, action, details) "
-                    "VALUES (%s, %s, 'admin_deleted', '{}'::jsonb)",
+                    "INSERT INTO event_log (log_type, report_id, user_id, event, details) "
+                    "VALUES ('audit', %s, %s, 'admin_deleted', '{}'::jsonb)",
                     (report_id, admin_user_id),
                 )
         conn.commit()
@@ -1080,19 +1062,19 @@ def db_log_activity(user_id: int, username: str, event: str,
         with conn.cursor() as cur:
             if dedupe_minutes > 0:
                 cur.execute(
-                    """INSERT INTO activity_log (user_id, username, event, report_id, report_name, ip)
-                       SELECT %s, %s, %s, %s, %s, %s
+                    """INSERT INTO event_log (log_type, user_id, username, event, report_id, report_name, ip)
+                       SELECT 'activity', %s, %s, %s, %s, %s, %s
                        WHERE NOT EXISTS (
-                           SELECT 1 FROM activity_log
-                           WHERE user_id = %s AND report_id = %s AND event = %s
+                           SELECT 1 FROM event_log
+                           WHERE log_type = 'activity' AND user_id = %s AND report_id = %s AND event = %s
                              AND created_at > NOW() - %s * INTERVAL '1 minute')""",
                     (user_id, username, event, report_id, report_name, ip,
                      user_id, report_id, event, dedupe_minutes),
                 )
             else:
                 cur.execute(
-                    "INSERT INTO activity_log (user_id, username, event, report_id, report_name, ip) "
-                    "VALUES (%s, %s, %s, %s, %s, %s)",
+                    "INSERT INTO event_log (log_type, user_id, username, event, report_id, report_name, ip) "
+                    "VALUES ('activity', %s, %s, %s, %s, %s, %s)",
                     (user_id, username, event, report_id, report_name, ip),
                 )
         conn.commit()
@@ -1102,7 +1084,7 @@ def db_get_activity_log(username: str | None = None, event: str | None = None,
                         date_from: str | None = None, date_to: str | None = None,
                         limit: int = 1000) -> list:
     """활동 로그 조회 (관리자 로그 화면·CSV 내보내기용). 필터는 전부 선택."""
-    conds, params = [], []
+    conds, params = ["log_type = 'activity'"], []
     if username:
         conds.append("username ILIKE %s")
         params.append(f"%{username}%")
@@ -1121,7 +1103,7 @@ def db_get_activity_log(username: str | None = None, event: str | None = None,
         with conn.cursor() as cur:
             cur.execute(
                 f"""SELECT id, username, event, report_name, ip, created_at
-                   FROM activity_log {where}
+                   FROM event_log {where}
                    ORDER BY created_at DESC LIMIT %s""",
                 params,
             )
@@ -1135,7 +1117,7 @@ def db_get_user_activity_log(user_id: int, limit: int = 200) -> list:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT id, event, report_name, created_at
-                   FROM activity_log WHERE user_id = %s
+                   FROM event_log WHERE log_type = 'activity' AND user_id = %s
                    ORDER BY created_at DESC LIMIT %s""",
                 (user_id, limit),
             )
@@ -1144,23 +1126,23 @@ def db_get_user_activity_log(user_id: int, limit: int = 200) -> list:
 
 def db_get_audit_log(date_from: str | None = None, date_to: str | None = None,
                      limit: int = 1000) -> list:
-    """관리 행위 감사 로그 조회 (report_audit_log — 등록/삭제/권한변경)."""
-    conds, params = [], []
+    """관리 행위 감사 로그 조회 (event_log의 log_type='audit' — 등록/삭제/권한변경)."""
+    conds, params = ["a.log_type = 'audit'"], []
     if date_from:
         conds.append("a.created_at >= %s::date")
         params.append(date_from)
     if date_to:
         conds.append("a.created_at < %s::date + INTERVAL '1 day'")
         params.append(date_to)
-    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    where = "WHERE " + " AND ".join(conds)
     params.append(limit)
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"""SELECT a.id, a.action, a.details, a.created_at,
+                f"""SELECT a.id, a.event AS action, a.details, a.created_at,
                           u.username AS actor, r.name AS report_name
-                   FROM report_audit_log a
-                   LEFT JOIN users u ON u.id = a.actor_user_id
+                   FROM event_log a
+                   LEFT JOIN users u ON u.id = a.user_id
                    LEFT JOIN reports r ON r.id = a.report_id
                    {where}
                    ORDER BY a.created_at DESC LIMIT %s""",
@@ -1174,7 +1156,7 @@ def db_cleanup_activity_log() -> int:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM activity_log WHERE created_at < NOW() - %s * INTERVAL '1 day'",
+                "DELETE FROM event_log WHERE log_type = 'activity' AND created_at < NOW() - %s * INTERVAL '1 day'",
                 (config.ACTIVITY_LOG_RETENTION_DAYS,),
             )
             deleted = cur.rowcount
@@ -1191,9 +1173,9 @@ def db_get_popular_report_ids(days: int = 30, limit: int = 20) -> list:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT a.report_id, COUNT(*) AS views
-                   FROM activity_log a
+                   FROM event_log a
                    JOIN reports r ON r.id = a.report_id AND r.status = 'active'
-                   WHERE a.event = 'report_view'
+                   WHERE a.log_type = 'activity' AND a.event = 'report_view'
                      AND a.created_at >= NOW() - %s * INTERVAL '1 day'
                    GROUP BY a.report_id
                    ORDER BY views DESC, a.report_id
@@ -1278,11 +1260,10 @@ def db_get_freshness_targets() -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT DISTINCT m.pbi_dataset_id,
-                          COALESCE(m.pbi_workspace_id, %s) AS pbi_workspace_id
-                   FROM report_meta m
-                   JOIN reports r ON r.id = m.report_id
-                   WHERE r.status = 'active' AND m.pbi_dataset_id IS NOT NULL""",
+                """SELECT DISTINCT pbi_dataset_id,
+                          COALESCE(pbi_workspace_id, %s) AS pbi_workspace_id
+                   FROM reports
+                   WHERE status = 'active' AND pbi_dataset_id IS NOT NULL""",
                 (WORKSPACE_ID,),
             )
             return cur.fetchall()
@@ -1292,26 +1273,23 @@ def db_upsert_refresh_status(
     dataset_id: str, workspace_id: str, status: str,
     success_at=None, attempt_at=None, failure_reason: str | None = None,
 ) -> None:
-    """refresh 이력 1건을 반영한다. 연속 실패 카운트는 상태에 따라 증감."""
+    """refresh 이력 1건을 반영한다. 연속 실패 카운트는 상태에 따라 증감.
+
+    같은 데이터셋을 쓰는 보고서가 여럿이면(개인+관리 보고서가 같은 데이터셋을 공유하는
+    경우) WHERE pbi_dataset_id = %s가 그 보고서 행 전부에 동일하게 반영한다."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO dataset_refresh_status AS s
-                       (pbi_dataset_id, pbi_workspace_id, last_status,
-                        last_success_at, last_attempt_at, failure_reason,
-                        consecutive_failures, updated_at)
-                   VALUES (%s, %s, %s, %s, %s, %s,
-                           CASE WHEN %s = 'Failed' THEN 1 ELSE 0 END, NOW())
-                   ON CONFLICT (pbi_dataset_id) DO UPDATE SET
-                       pbi_workspace_id = EXCLUDED.pbi_workspace_id,
-                       last_status      = EXCLUDED.last_status,
-                       last_success_at  = COALESCE(EXCLUDED.last_success_at, s.last_success_at),
-                       last_attempt_at  = COALESCE(EXCLUDED.last_attempt_at, s.last_attempt_at),
-                       failure_reason   = EXCLUDED.failure_reason,
-                       consecutive_failures = CASE WHEN EXCLUDED.last_status = 'Failed'
-                                                   THEN s.consecutive_failures + 1 ELSE 0 END,
-                       updated_at = NOW()""",
-                (dataset_id, workspace_id, status, success_at, attempt_at, failure_reason, status),
+                """UPDATE reports SET
+                       refresh_last_status = %s,
+                       refresh_last_success_at = COALESCE(%s, refresh_last_success_at),
+                       refresh_last_attempt_at = COALESCE(%s, refresh_last_attempt_at),
+                       refresh_failure_reason = %s,
+                       refresh_consecutive_failures = CASE WHEN %s = 'Failed'
+                                                           THEN refresh_consecutive_failures + 1 ELSE 0 END,
+                       updated_at = NOW()
+                   WHERE pbi_dataset_id = %s""",
+                (status, success_at, attempt_at, failure_reason, status, dataset_id),
             )
         conn.commit()
 
@@ -1321,15 +1299,15 @@ def db_mark_refresh_retry(dataset_id: str) -> bool:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """UPDATE dataset_refresh_status SET
-                       auto_retries_today = CASE WHEN retry_date = CURRENT_DATE
-                                                 THEN auto_retries_today + 1 ELSE 1 END,
-                       retry_date = CURRENT_DATE,
+                """UPDATE reports SET
+                       refresh_auto_retries_today = CASE WHEN refresh_retry_date = CURRENT_DATE
+                                                         THEN refresh_auto_retries_today + 1 ELSE 1 END,
+                       refresh_retry_date = CURRENT_DATE,
                        updated_at = NOW()
                    WHERE pbi_dataset_id = %s
-                     AND (retry_date IS DISTINCT FROM CURRENT_DATE
-                          OR auto_retries_today < %s)
-                   RETURNING auto_retries_today""",
+                     AND (refresh_retry_date IS DISTINCT FROM CURRENT_DATE
+                          OR refresh_auto_retries_today < %s)
+                   RETURNING refresh_auto_retries_today""",
                 (dataset_id, config.REFRESH_AUTO_RETRY_MAX),
             )
             row = cur.fetchone()
@@ -1344,8 +1322,8 @@ def db_get_data_as_of(dataset_id: str | None):
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT last_status, last_success_at FROM dataset_refresh_status "
-                "WHERE pbi_dataset_id = %s",
+                "SELECT refresh_last_status AS last_status, refresh_last_success_at AS last_success_at "
+                "FROM reports WHERE pbi_dataset_id = %s LIMIT 1",
                 (dataset_id,),
             )
             return cur.fetchone()
@@ -1356,16 +1334,18 @@ def db_get_freshness_overview() -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT s.pbi_dataset_id, s.last_status, s.last_success_at,
-                          s.last_attempt_at, s.failure_reason, s.consecutive_failures,
-                          s.auto_retries_today,
-                          COALESCE(ARRAY_AGG(r.name ORDER BY r.name)
-                                   FILTER (WHERE r.name IS NOT NULL), '{}') AS report_names
-                   FROM dataset_refresh_status s
-                   LEFT JOIN report_meta m ON m.pbi_dataset_id = s.pbi_dataset_id
-                   LEFT JOIN reports r ON r.id = m.report_id AND r.status = 'active'
-                   GROUP BY s.pbi_dataset_id
-                   ORDER BY (s.last_status = 'Failed') DESC, s.last_success_at ASC NULLS FIRST"""
+                """SELECT pbi_dataset_id,
+                          refresh_last_status AS last_status, refresh_last_success_at AS last_success_at,
+                          refresh_last_attempt_at AS last_attempt_at, refresh_failure_reason AS failure_reason,
+                          refresh_consecutive_failures AS consecutive_failures,
+                          refresh_auto_retries_today AS auto_retries_today,
+                          ARRAY_AGG(name ORDER BY name) AS report_names
+                   FROM reports
+                   WHERE status = 'active' AND pbi_dataset_id IS NOT NULL
+                   GROUP BY pbi_dataset_id, refresh_last_status, refresh_last_success_at,
+                            refresh_last_attempt_at, refresh_failure_reason,
+                            refresh_consecutive_failures, refresh_auto_retries_today
+                   ORDER BY (refresh_last_status = 'Failed') DESC, refresh_last_success_at ASC NULLS FIRST"""
             )
             return cur.fetchall()
 
@@ -1380,15 +1360,15 @@ def db_set_report_rls(report_id: int, enabled: bool, role_names: list[str], acto
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """UPDATE report_rls SET enabled = %s, role_names = %s, updated_at = NOW()
-                   WHERE report_id = %s""",
+                """UPDATE reports SET rls_enabled = %s, rls_role_names = %s, updated_at = NOW()
+                   WHERE id = %s""",
                 (enabled, role_names, report_id),
             )
             updated = cur.rowcount > 0
             if updated:
                 cur.execute(
-                    "INSERT INTO report_audit_log (report_id, actor_user_id, action, details) "
-                    "VALUES (%s, %s, 'rls_changed', jsonb_build_object('enabled', %s, 'roles', %s::text[]))",
+                    "INSERT INTO event_log (log_type, report_id, user_id, event, details) "
+                    "VALUES ('audit', %s, %s, 'rls_changed', jsonb_build_object('enabled', %s, 'roles', %s::text[]))",
                     (report_id, actor_id, enabled, role_names),
                 )
         conn.commit()
@@ -1413,7 +1393,7 @@ def db_get_report_rls(report_id: int):
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT enabled, role_names FROM report_rls WHERE report_id = %s",
+                "SELECT rls_enabled AS enabled, rls_role_names AS role_names FROM reports WHERE id = %s",
                 (report_id,),
             )
             return cur.fetchone()
@@ -1430,9 +1410,9 @@ def db_system_stats() -> dict:
                     (SELECT COUNT(*) FROM upload_jobs
                      WHERE status IN ('failed','unknown','db_failed')
                        AND created_at >= NOW() - INTERVAL '7 days')     AS failed_jobs_7d,
-                    (SELECT COUNT(*) FROM dataset_refresh_status
-                     WHERE last_status = 'Failed')                       AS failing_datasets,
-                    (SELECT COUNT(*) FROM activity_log)                  AS activity_rows,
+                    (SELECT COUNT(DISTINCT pbi_dataset_id) FROM reports
+                     WHERE refresh_last_status = 'Failed')                AS failing_datasets,
+                    (SELECT COUNT(*) FROM event_log WHERE log_type='activity') AS activity_rows,
                     (SELECT COUNT(*) FROM reports WHERE status='active') AS active_reports"""
             )
             return dict(cur.fetchone())
@@ -1448,8 +1428,8 @@ def db_log_error(
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO error_log (error_code, http_status, message, username, path, detail) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
+                "INSERT INTO event_log (log_type, event, http_status, message, username, path, detail) "
+                "VALUES ('error', %s, %s, %s, %s, %s, %s)",
                 (error_code, http_status, message, username, path, detail),
             )
         conn.commit()
@@ -1460,8 +1440,8 @@ def db_get_recent_errors(limit: int = 20) -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, error_code, http_status, message, username, path, detail, created_at "
-                "FROM error_log ORDER BY created_at DESC LIMIT %s",
+                "SELECT id, event AS error_code, http_status, message, username, path, detail, created_at "
+                "FROM event_log WHERE log_type = 'error' ORDER BY created_at DESC LIMIT %s",
                 (limit,),
             )
             return cur.fetchall()
@@ -1472,7 +1452,7 @@ def db_cleanup_error_log() -> int:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM error_log WHERE created_at < NOW() - %s * INTERVAL '1 day'",
+                "DELETE FROM event_log WHERE log_type = 'error' AND created_at < NOW() - %s * INTERVAL '1 day'",
                 (config.ERROR_LOG_RETENTION_DAYS,),
             )
             deleted = cur.rowcount

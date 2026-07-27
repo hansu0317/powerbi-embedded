@@ -619,6 +619,199 @@ def _v9_drop_dead_permission_columns(cur):
     cur.execute("ALTER TABLE user_reports DROP COLUMN IF EXISTS can_manage")
 
 
+def _v10_consolidate_schema(cur):
+    """19개 테이블 → 11개로 통합. 기능 변화 없음, 구조만 정리.
+
+    A) report_meta·report_settings·report_rls·dataset_refresh_status를
+       reports 컬럼으로 흡수. 넷 다 보고서 1개당 정확히 1행이라(dataset_refresh_status는
+       report_meta.pbi_dataset_id 기준 1:1 확인됨 — db_get_freshness_targets가
+       report_meta JOIN으로만 대상을 뽑았다) 굳이 별도 테이블일 이유가 없었다.
+    B) activity_log·report_audit_log·error_log·login_attempts를 event_log로 통합.
+       넷 다 "누가·언제·무슨 일" 모양이 같아 log_type 구분 컬럼 + 타입별 컬럼으로 흡수.
+       보존기간이 다른 건(활동 90일 vs 오류 90일 vs 로그인 30일 vs 감사 영구) 기존
+       app_config 키를 그대로 두고 WHERE log_type=... 조건으로 구현한다.
+    C) user_favorites·user_recent_reports를 user_report_marks로 통합.
+       둘 다 "이 사용자와 이 보고서의 관계" 같은 개념이라 is_favorite/viewed_at
+       두 컬럼으로 한 행에 담긴다.
+    """
+    # ── A: report_meta / report_settings / report_rls / dataset_refresh_status → reports ──
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS pbi_report_id VARCHAR(50)")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS pbi_workspace_id VARCHAR(36)")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS pbi_dataset_id VARCHAR(36)")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS pbi_display_name VARCHAR(105)")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS folder_id VARCHAR(36)")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS default_page VARCHAR(255)")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS enable_filter BOOLEAN NOT NULL DEFAULT FALSE")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS enable_page_nav BOOLEAN NOT NULL DEFAULT FALSE")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS use_data_bot BOOLEAN NOT NULL DEFAULT FALSE")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS preview_image_url TEXT")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS tab_type VARCHAR(32) NOT NULL DEFAULT 'report'")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS rls_enabled BOOLEAN NOT NULL DEFAULT FALSE")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS rls_role_names TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS refresh_last_status VARCHAR(24)")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS refresh_last_success_at TIMESTAMPTZ")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS refresh_last_attempt_at TIMESTAMPTZ")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS refresh_failure_reason TEXT")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS refresh_consecutive_failures INTEGER NOT NULL DEFAULT 0")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS refresh_auto_retries_today INTEGER NOT NULL DEFAULT 0")
+    cur.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS refresh_retry_date DATE")
+
+    cur.execute(
+        """DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='report_meta') THEN
+               UPDATE reports r SET
+                   pbi_report_id = m.pbi_report_id, pbi_workspace_id = m.pbi_workspace_id,
+                   pbi_dataset_id = m.pbi_dataset_id, pbi_display_name = m.pbi_display_name,
+                   folder_id = m.folder_id
+               FROM report_meta m WHERE m.report_id = r.id;
+             END IF;
+           END $$"""
+    )
+    cur.execute(
+        """DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='report_settings') THEN
+               UPDATE reports r SET
+                   default_page = s.default_page, enable_filter = s.enable_filter,
+                   enable_page_nav = s.enable_page_nav, use_data_bot = s.use_data_bot,
+                   preview_image_url = s.preview_image_url, tab_type = s.tab_type
+               FROM report_settings s WHERE s.report_id = r.id;
+             END IF;
+           END $$"""
+    )
+    cur.execute(
+        """DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='report_rls') THEN
+               UPDATE reports r SET rls_enabled = rr.enabled, rls_role_names = rr.role_names
+               FROM report_rls rr WHERE rr.report_id = r.id;
+             END IF;
+           END $$"""
+    )
+    cur.execute(
+        """DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='dataset_refresh_status') THEN
+               UPDATE reports r SET
+                   refresh_last_status = d.last_status, refresh_last_success_at = d.last_success_at,
+                   refresh_last_attempt_at = d.last_attempt_at, refresh_failure_reason = d.failure_reason,
+                   refresh_consecutive_failures = d.consecutive_failures,
+                   refresh_auto_retries_today = d.auto_retries_today, refresh_retry_date = d.retry_date
+               FROM dataset_refresh_status d WHERE d.pbi_dataset_id = r.pbi_dataset_id;
+             END IF;
+           END $$"""
+    )
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS reports_pbi_report_id_idx "
+        "ON reports (pbi_report_id) WHERE pbi_report_id IS NOT NULL"
+    )
+    cur.execute("DROP TABLE IF EXISTS report_meta")
+    cur.execute("DROP TABLE IF EXISTS report_settings")
+    cur.execute("DROP TABLE IF EXISTS report_rls")
+    cur.execute("DROP TABLE IF EXISTS dataset_refresh_status")
+
+    # ── B: activity_log / report_audit_log / error_log / login_attempts → event_log ──
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS event_log (
+            id BIGSERIAL PRIMARY KEY,
+            log_type VARCHAR(16) NOT NULL CHECK (log_type IN ('activity', 'audit', 'error', 'login')),
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            username VARCHAR(100),
+            report_id INTEGER REFERENCES reports(id) ON DELETE SET NULL,
+            report_name VARCHAR(105),
+            event VARCHAR(64),
+            ip VARCHAR(64),
+            succeeded BOOLEAN,
+            http_status SMALLINT,
+            message TEXT,
+            path VARCHAR(255),
+            detail TEXT,
+            details JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"""
+    )
+    cur.execute(
+        """DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='activity_log') THEN
+               INSERT INTO event_log (log_type, user_id, username, report_id, report_name, event, ip, created_at)
+               SELECT 'activity', user_id, username, report_id, report_name, event, ip, created_at FROM activity_log;
+             END IF;
+           END $$"""
+    )
+    cur.execute(
+        """DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='report_audit_log') THEN
+               INSERT INTO event_log (log_type, user_id, report_id, event, details, created_at)
+               SELECT 'audit', actor_user_id, report_id, action, details, created_at FROM report_audit_log;
+             END IF;
+           END $$"""
+    )
+    cur.execute(
+        """DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='error_log') THEN
+               INSERT INTO event_log (log_type, event, http_status, message, username, path, detail, created_at)
+               SELECT 'error', error_code, http_status, message, username, path, detail, created_at FROM error_log;
+             END IF;
+           END $$"""
+    )
+    cur.execute(
+        """DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='login_attempts') THEN
+               INSERT INTO event_log (log_type, username, ip, succeeded, created_at)
+               SELECT 'login', username, ip_address, succeeded, attempted_at FROM login_attempts;
+             END IF;
+           END $$"""
+    )
+    cur.execute("DROP TABLE IF EXISTS activity_log")
+    cur.execute("DROP TABLE IF EXISTS report_audit_log")
+    cur.execute("DROP TABLE IF EXISTS error_log")
+    cur.execute("DROP TABLE IF EXISTS login_attempts")
+
+    cur.execute("CREATE INDEX IF NOT EXISTS event_log_login_lookup_idx ON event_log (username, ip, created_at) WHERE log_type='login'")
+    cur.execute("CREATE INDEX IF NOT EXISTS event_log_activity_created_idx ON event_log (created_at DESC) WHERE log_type='activity'")
+    cur.execute("CREATE INDEX IF NOT EXISTS event_log_activity_user_idx ON event_log (user_id, created_at DESC) WHERE log_type='activity'")
+    cur.execute("CREATE INDEX IF NOT EXISTS event_log_activity_report_idx ON event_log (report_id, created_at DESC) WHERE log_type='activity'")
+    cur.execute("CREATE INDEX IF NOT EXISTS event_log_audit_actor_idx ON event_log (user_id) WHERE log_type='audit'")
+    cur.execute("CREATE INDEX IF NOT EXISTS event_log_audit_created_idx ON event_log (created_at) WHERE log_type='audit'")
+    cur.execute("CREATE INDEX IF NOT EXISTS event_log_audit_details_gin ON event_log USING gin (details) WHERE log_type='audit'")
+    cur.execute("CREATE INDEX IF NOT EXISTS event_log_error_created_idx ON event_log (created_at DESC) WHERE log_type='error'")
+    cur.execute("CREATE INDEX IF NOT EXISTS event_log_error_code_idx ON event_log (event, created_at DESC) WHERE log_type='error'")
+
+    # ── C: user_favorites / user_recent_reports → user_report_marks ──
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS user_report_marks (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+            is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
+            favorited_at TIMESTAMPTZ,
+            viewed_at TIMESTAMPTZ,
+            PRIMARY KEY (user_id, report_id)
+        )"""
+    )
+    cur.execute(
+        """DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='user_favorites') THEN
+               INSERT INTO user_report_marks (user_id, report_id, is_favorite, favorited_at)
+               SELECT user_id, report_id, TRUE, created_at FROM user_favorites
+               ON CONFLICT (user_id, report_id) DO UPDATE
+               SET is_favorite = TRUE, favorited_at = EXCLUDED.favorited_at;
+             END IF;
+           END $$"""
+    )
+    cur.execute(
+        """DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='user_recent_reports') THEN
+               INSERT INTO user_report_marks (user_id, report_id, viewed_at)
+               SELECT user_id, report_id, viewed_at FROM user_recent_reports
+               ON CONFLICT (user_id, report_id) DO UPDATE SET viewed_at = EXCLUDED.viewed_at;
+             END IF;
+           END $$"""
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS user_report_marks_recent_idx "
+        "ON user_report_marks (user_id, viewed_at DESC) WHERE viewed_at IS NOT NULL"
+    )
+    cur.execute("DROP TABLE IF EXISTS user_favorites")
+    cur.execute("DROP TABLE IF EXISTS user_recent_reports")
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
@@ -629,6 +822,7 @@ MIGRATIONS = [
     (7, _v7_report_content_update),
     (8, _v8_config_desc_fix),
     (9, _v9_drop_dead_permission_columns),
+    (10, _v10_consolidate_schema),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]
