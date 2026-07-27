@@ -590,6 +590,22 @@ def _v7_report_content_update(cur):
     )
 
 
+def _v8_config_desc_fix(cur):
+    """embed_token_lifetime_min 설명 정정.
+
+    실제 임베드 토큰 만료 시각은 항상 Power BI GenerateToken 응답의 expiration을
+    그대로 쓴다(services/powerbi.py의 _parse_token_expiry) — 이 설정값은 그 응답
+    파싱이 실패했을 때만 쓰이는 예비값이라, "Power BI 기본값 60분"이라는 기존
+    설명이 마치 이 값을 바꾸면 실제 토큰 수명이 바뀌는 것처럼 오해하게 만든다.
+    """
+    cur.execute(
+        """UPDATE app_config SET description = %s, updated_at = NOW()
+           WHERE key = 'embed_token_lifetime_min'""",
+        ("PBI 응답의 만료 시각 파싱에 실패했을 때만 쓰이는 예비값(분) — "
+         "정상 동작 시 실제 토큰 수명은 항상 Power BI 응답값을 그대로 따른다.",),
+    )
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
@@ -598,6 +614,7 @@ MIGRATIONS = [
     (5, _v5_error_log),
     (6, _v6_dashboard_support),
     (7, _v7_report_content_update),
+    (8, _v8_config_desc_fix),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

@@ -262,6 +262,17 @@
   gap: 10px;
 }
 .cfg-group-hint { font-size: 0.72rem; font-weight: 400; color: var(--muted); }
+.cfg-advanced-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 2px;
+  margin-bottom: 8px;
+}
+.cfg-advanced-toggle:hover { color: var(--sage-deep); }
 .cfg-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));

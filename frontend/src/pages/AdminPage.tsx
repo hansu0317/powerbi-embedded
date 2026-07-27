@@ -944,6 +944,27 @@ function BulkAddUsersModal({
               미리 만들어져 있어야 하며, 그 그룹에 이미 부여된 보고서 열람 권한을 그대로 받습니다.
               나머지 칸은 비워도 됩니다 (pbi_username→아이디, roles→도메인, is_admin→false, can_upload→true).
             </p>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              style={{ marginBottom: 12 }}
+              onClick={() => {
+                const csv =
+                  "username,password,display_name,pbi_username,roles,groups,is_admin,can_upload\n" +
+                  "user01,TempPass123!,홍길동,,도메인,영업팀,false,true\n";
+                const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "사용자_일괄등록_템플릿.csv";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              <Download size={14} className="icn" /> 템플릿 다운로드
+            </button>
             <input
               type="file"
               accept=".csv,text/csv"
@@ -1405,13 +1426,13 @@ function ConfigSection({
     }
   };
 
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // 실제로 관리자가 정책 판단으로 바꿀 만한 것들만 기본 노출 — 나머지(구현 세부값)는 "고급 설정"으로 뺐다
   const categories: { title: string; hint?: string; keys: string[] }[] = [
     {
       title: "업로드",
-      keys: [
-        "max_pbix_size_mb", "max_uploads_per_day", "max_personal_reports",
-        "report_name_max_len", "import_poll_interval_sec", "import_poll_max",
-      ],
+      keys: ["max_pbix_size_mb", "max_uploads_per_day", "max_personal_reports"],
     },
     {
       title: "로그인 · 보안",
@@ -1420,11 +1441,16 @@ function ConfigSection({
     {
       title: "동기화 · 임베드",
       hint: "동기화 주기는 진행 중인 회차가 끝난 뒤부터 적용됩니다.",
-      keys: [
-        "pbi_sync_interval", "embed_token_lifetime_min",
-        "pbi_token_cache_margin_sec", "max_embed_rls_roles",
-      ],
+      keys: ["pbi_sync_interval", "pbi_token_cache_margin_sec", "max_embed_rls_roles"],
     },
+    {
+      title: "로그 · 신선도",
+      keys: ["activity_log_retention_days", "error_log_retention_days", "refresh_auto_retry_max"],
+    },
+  ];
+  const advancedKeys = [
+    "report_name_max_len", "import_poll_interval_sec", "import_poll_max",
+    "embed_token_lifetime_min",
   ];
   const byKey = new Map((rows ?? []).map((r) => [r.key, r]));
 
@@ -1476,6 +1502,49 @@ function ConfigSection({
             </div>
           </div>
         ))}
+      {rows && (
+        <div className="cfg-group">
+          <button
+            type="button"
+            className="cfg-advanced-toggle"
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? "▾" : "▸"} 고급 설정 ({advancedKeys.length}) — 구현 세부값, 평소엔 안 건드려도 됩니다
+          </button>
+          {showAdvanced && (
+            <div className="cfg-grid">
+              {advancedKeys.map((key) => {
+                const r = byKey.get(key);
+                if (!r) return null;
+                const dirty = edited[key] !== undefined && edited[key] !== r.value;
+                return (
+                  <div key={key} className={`cfg-card${dirty ? " dirty" : ""}`}>
+                    <div className="cfg-key">{key}</div>
+                    <div className="cfg-desc">{r.description || "-"}</div>
+                    <div className="cfg-row">
+                      <input
+                        inputMode="numeric"
+                        value={edited[key] ?? r.value}
+                        onChange={(e) =>
+                          setEdited((prev) => ({ ...prev, [key]: e.target.value }))
+                        }
+                        onKeyDown={(e) => e.key === "Enter" && dirty && save(key)}
+                      />
+                      <button
+                        className="btn btn-sm btn-primary"
+                        disabled={saving === key || !dirty}
+                        onClick={() => save(key)}
+                      >
+                        {saving === key ? "저장 중..." : "저장"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
