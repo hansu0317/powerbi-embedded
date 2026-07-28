@@ -87,17 +87,19 @@ def publish(pbix_path: Path, report_name: str):
     print(f"  보고서 이름: {report_name}")
     print(f"  Report ID:   {report_id}")
 
-    # 3) 게이트웨이 등록 안내 (Report ID는 DB의 report_meta에서 관리)
-    print(f"\n게이트웨이 신규 등록 SQL:")
-    print(f"  INSERT INTO reports (name, report_type, owner_id)")
-    print(f"    VALUES ('{report_name}', 'managed', NULL);")
-    print(f"  INSERT INTO report_meta (report_id, pbi_report_id, pbi_workspace_id)")
-    print(f"    VALUES ((SELECT id FROM reports WHERE name = '{report_name}'), '{report_id}', '{WORKSPACE_ID}');")
-    print(f"  INSERT INTO user_reports (user_id, report_id) VALUES (")
+    # 3) 게이트웨이 등록 안내
+    #    v10부터 PBI 연결 정보는 reports 테이블 컬럼에 직접 들어간다(report_meta 폐지).
+    print(f"\n다음 중 하나로 게이트웨이에 등록하세요:")
+    print(f"  [권장] 관리자 포털 → 보고서 → 'PBI에서 가져오기'")
+    print(f"         폴더·카테고리까지 자동으로 잡히고 감사 로그도 남는다.")
+    print(f"\n  [수동 SQL]")
+    print(f"  INSERT INTO reports (name, report_type, owner_id, status, pbi_report_id, pbi_workspace_id)")
+    print(f"    VALUES ('{report_name}', 'managed', NULL, 'active', '{report_id}', '{WORKSPACE_ID}');")
+    print(f"  INSERT INTO user_reports (user_id, report_id, can_view) VALUES (")
     print(f"    (SELECT id FROM users WHERE username = '대상사용자'),")
-    print(f"    (SELECT id FROM reports WHERE name = '{report_name}'));")
+    print(f"    (SELECT id FROM reports WHERE name = '{report_name}'), TRUE);")
     print(f"\n서버 재시작 불필요 — DB 등록 즉시 반영됩니다.")
-    print(f"참고: 웹 화면의 '내 보고서 올리기' 버튼을 쓰면 이 과정이 전부 자동입니다.")
+    print(f"참고: 웹 화면의 '보고서 등록'을 쓰면 이 과정이 전부 자동입니다.")
 
 
 if __name__ == "__main__":
