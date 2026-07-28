@@ -14,11 +14,10 @@ from fastapi.templating import Jinja2Templates
 import config
 from config import WORKSPACE_ID
 from database import (
-    db_system_stats,
     db_admin_get_stats, db_admin_get_users, db_admin_add_user,
     db_admin_toggle_user_active, db_admin_get_reports,
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
-    db_import_managed_report, db_import_managed_dashboard,
+    db_import_pbi_item,
     db_get_report, db_get_report_access, db_set_report_access,
     db_get_synced_reports, db_hard_delete_report, db_get_pbi_report_map,
     db_count_other_reports_using_dataset, db_get_app_config, db_update_app_config,
@@ -404,19 +403,19 @@ async def api_admin_import_pbi(user: dict = Depends(require_admin_csrf)):
     async def _import_one(r):
         async with sem:
             return await asyncio.to_thread(
-                db_import_managed_report,
-                r["pbi_report_id"], r["name"], r["dataset_id"],
-                WORKSPACE_ID, r["folder_id"], r["folder_name"],
-                user["id"],
+                db_import_pbi_item,
+                r["pbi_report_id"], r["name"], WORKSPACE_ID,
+                r["folder_id"], r["folder_name"], user["id"],
+                r["dataset_id"], False,
             )
 
     async def _import_one_dashboard(d):
         async with sem:
             return await asyncio.to_thread(
-                db_import_managed_dashboard,
-                d["pbi_dashboard_id"], d["name"],
-                WORKSPACE_ID, d["folder_id"], d["folder_name"],
-                user["id"],
+                db_import_pbi_item,
+                d["pbi_dashboard_id"], d["name"], WORKSPACE_ID,
+                d["folder_id"], d["folder_name"], user["id"],
+                None, True,
             )
 
     import_results = await asyncio.gather(*(_import_one(r) for r in reports))
@@ -611,7 +610,7 @@ async def api_admin_system_status(user: dict = Depends(require_admin_user)):
     """자가진단: DB 응답시간·백그라운드 루프 하트비트·실패 잡 수."""
     import time as _time
     t0 = _time.perf_counter()
-    stats = await asyncio.to_thread(db_system_stats)
+    stats = await asyncio.to_thread(db_admin_get_stats)
     db_ms = round((_time.perf_counter() - t0) * 1000)
     now = _time.time()
     heartbeats = {

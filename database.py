@@ -628,7 +628,11 @@ def db_get_recoverable_jobs():
 # ── 관리자 ────────────────────────────────────────────────────────────────────
 
 def db_admin_get_stats() -> dict:
-    """관리자 대시보드 통계. 4개의 개별 쿼리를 스칼라 서브쿼리 1개로 통합해 왕복 1회로 줄인다."""
+    """관리자 현황 화면이 쓰는 집계 전부. 스칼라 서브쿼리로 묶어 DB 왕복 1회로 처리한다.
+
+    부트스트랩(stats)과 자가진단(/api/admin/system-status)이 같은 화면을 채우므로
+    한 함수로 합쳤다 — 예전엔 두 함수가 active_reports를 각자 세고 있었다.
+    """
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -637,7 +641,11 @@ def db_admin_get_stats() -> dict:
                     (SELECT COUNT(*) FROM reports     WHERE status    = 'active')        AS active_reports,
                     (SELECT COUNT(*) FROM upload_jobs WHERE created_at >= CURRENT_DATE)  AS today_uploads,
                     (SELECT COUNT(*) FROM upload_jobs WHERE status = 'completed'
-                                                       AND created_at >= CURRENT_DATE)  AS today_success"""
+                                                       AND created_at >= CURRENT_DATE)  AS today_success,
+                    (SELECT COUNT(*) FROM upload_jobs
+                     WHERE status IN ('failed','unknown','db_failed')
+                       AND created_at >= NOW() - INTERVAL '7 days')                      AS failed_jobs_7d,
+                    (SELECT COUNT(*) FROM event_log WHERE log_type = 'activity')         AS activity_rows"""
             )
             row = cur.fetchone()
     return dict(row)
@@ -742,66 +750,33 @@ def db_admin_get_reports() -> list:
             return cur.fetchall()
 
 
-def db_import_managed_report(
-    pbi_report_id: str,
+def db_import_pbi_item(
+    pbi_item_id: str,
     name: str,
-    pbi_dataset_id: str | None,
     pbi_workspace_id: str,
     folder_id: str | None,
     category: str | None,
     actor_id: int,
+    pbi_dataset_id: str | None = None,
+    is_dashboard: bool = False,
 ) -> bool:
-    """PBI에서 가져온 공용 보고서를 DB에 등록한다.
+    """PBI에서 가져온 공용 항목(보고서 또는 대시보드)을 DB에 등록한다.
 
-    이미 등록된 보고서(pbi_report_id 기준)는 건너뛰고 False를 반환한다.
-    신규 등록 성공 시 True를 반환한다.
-    권한은 부여하지 않는다 — 관리자가 보고서 관리 화면에서 별도로 설정한다.
+    이미 등록된 항목(pbi_report_id 기준)은 category만 갱신하고 False를 반환한다.
+    신규 등록 성공 시 True. 권한은 부여하지 않는다 — 관리자가 별도로 설정한다.
+
+    보고서와 대시보드는 등록 절차가 같고 세 가지만 다르다:
+      report_type, tab_type(뷰어 임베드 분기 신호), 그리고 대시보드는
+      pbi_dataset_id가 없다(여러 데이터셋의 타일 모음이라 단일 ID가 없음).
     """
+    report_type = "dashboard" if is_dashboard else "managed"
+    tab_type    = "dashboard" if is_dashboard else "report"
+    dataset_id  = None if is_dashboard else pbi_dataset_id
+    audit_event = "dashboard_imported" if is_dashboard else "managed_report_imported"
+
     with db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM reports WHERE pbi_report_id = %s", (pbi_report_id,))
-            existing = cur.fetchone()
-            if existing:
-                if category:
-                    cur.execute(
-                        "UPDATE reports SET category = %s, updated_at = NOW() "
-                        "WHERE id = %s AND category IS DISTINCT FROM %s",
-                        (category, existing["id"], category),
-                    )
-                    conn.commit()
-                return False
-            cur.execute(
-                """INSERT INTO reports (
-                       name, report_type, owner_id, status, category, created_by, updated_by,
-                       pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id
-                   ) VALUES (%s, 'managed', NULL, 'active', %s, %s, %s, %s, %s, %s, %s)
-                   RETURNING id""",
-                (name, category, actor_id, actor_id, pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id),
-            )
-            report_id = cur.fetchone()["id"]
-            cur.execute(
-                """INSERT INTO event_log (log_type, report_id, user_id, event, details)
-                   VALUES ('audit', %s, %s, 'managed_report_imported',
-                           jsonb_build_object('pbi_report_id', %s, 'name', %s, 'category', %s))""",
-                (report_id, actor_id, pbi_report_id, name, category),
-            )
-        conn.commit()
-    return True
-
-
-def db_import_managed_dashboard(
-    pbi_dashboard_id: str, name: str, pbi_workspace_id: str,
-    folder_id: str | None, category: str | None, actor_id: int,
-) -> bool:
-    """PBI 대시보드를 DB에 등록한다 (v6). db_import_managed_report와 구조는 같되:
-
-    - report_type='dashboard' (reports_type_check 제약이 v6에서 허용)
-    - reports.tab_type='dashboard' — 뷰어가 임베드 방식을 분기하는 신호
-    - pbi_dataset_id는 NULL (대시보드는 여러 데이터셋의 타일 모음이라 단일 ID가 없음)
-    """
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id FROM reports WHERE pbi_report_id = %s", (pbi_dashboard_id,))
+            cur.execute("SELECT id FROM reports WHERE pbi_report_id = %s", (pbi_item_id,))
             existing = cur.fetchone()
             if existing:
                 if category:
@@ -816,16 +791,17 @@ def db_import_managed_dashboard(
                 """INSERT INTO reports (
                        name, report_type, owner_id, status, category, created_by, updated_by,
                        pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id, tab_type
-                   ) VALUES (%s, 'dashboard', NULL, 'active', %s, %s, %s, %s, %s, NULL, %s, 'dashboard')
+                   ) VALUES (%s, %s, NULL, 'active', %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (name, category, actor_id, actor_id, pbi_dashboard_id, pbi_workspace_id, folder_id),
+                (name, report_type, category, actor_id, actor_id,
+                 pbi_item_id, pbi_workspace_id, dataset_id, folder_id, tab_type),
             )
             report_id = cur.fetchone()["id"]
             cur.execute(
                 """INSERT INTO event_log (log_type, report_id, user_id, event, details)
-                   VALUES ('audit', %s, %s, 'dashboard_imported',
-                           jsonb_build_object('pbi_dashboard_id', %s, 'name', %s, 'category', %s))""",
-                (report_id, actor_id, pbi_dashboard_id, name, category),
+                   VALUES ('audit', %s, %s, %s,
+                           jsonb_build_object('pbi_item_id', %s, 'name', %s, 'category', %s))""",
+                (report_id, actor_id, audit_event, pbi_item_id, name, category),
             )
         conn.commit()
     return True
@@ -1218,18 +1194,5 @@ def db_admin_toggle_user_upload(user_id: int):
 
 # ── v4: 시스템 자가진단 ──────────────────────────────────────────────────────
 
-def db_system_stats() -> dict:
-    """자가진단 수치: 실패 잡·로그 적재량·활성 보고서를 한 쿼리로."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT
-                    (SELECT COUNT(*) FROM upload_jobs
-                     WHERE status IN ('failed','unknown','db_failed')
-                       AND created_at >= NOW() - INTERVAL '7 days')     AS failed_jobs_7d,
-                    (SELECT COUNT(*) FROM event_log WHERE log_type='activity') AS activity_rows,
-                    (SELECT COUNT(*) FROM reports WHERE status='active') AS active_reports"""
-            )
-            return dict(cur.fetchone())
 
 
