@@ -850,6 +850,20 @@ def _v11_drop_removed_feature_columns(cur):
     )
 
 
+def _v12_drop_unused_report_columns(cur):
+    """reports에서 실제로 쓰이지 않는 컬럼 5개 제거 (23 → 18).
+
+    - use_data_bot, preview_image_url : DB에서 읽기만 하고 화면이 참조하지 않았다.
+    - default_page, enable_filter, enable_page_nav : 임베드 설정으로 전달되긴 했으나
+      값을 바꿀 화면이 없어 전 보고서가 기본값(NULL/false) 그대로였다. 동일한 동작을
+      코드 상수로 고정하고 컬럼은 제거한다 — 나중에 보고서별 차등이 필요해지면
+      그때 설정 화면과 함께 다시 추가하는 편이 낫다.
+    """
+    for col in ("use_data_bot", "preview_image_url",
+                "default_page", "enable_filter", "enable_page_nav"):
+        cur.execute(f"ALTER TABLE reports DROP COLUMN IF EXISTS {col}")
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
@@ -862,6 +876,7 @@ MIGRATIONS = [
     (9, _v9_drop_dead_permission_columns),
     (10, _v10_consolidate_schema),
     (11, _v11_drop_removed_feature_columns),
+    (12, _v12_drop_unused_report_columns),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

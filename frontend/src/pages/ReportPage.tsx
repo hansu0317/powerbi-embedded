@@ -902,20 +902,24 @@ function ReportPanel({
               embedUrl: d.embed_url,
               accessToken: d.embed_token,
               tokenType: pbi.models.TokenType.Embed,
+              // 보고서별 차등 설정이 필요 없어 상수로 고정한다 (예전 DB 컬럼은 v12에서 제거).
+              //  · 페이지 탭은 켠다 — 여러 장짜리 보고서(예: 8장)에서 탭이 없으면
+              //    첫 페이지 외에는 접근할 방법이 아예 없다.
+              //  · 필터창은 '보이되 접힘' — 평소엔 자리를 차지하지 않고, 필요한 사람만
+              //    펼쳐 쓴다. 완전히 숨기면 필터 기능이 없는 줄 알게 된다.
               settings: {
-                navContentPaneEnabled: Boolean(s.enable_page_nav),
-                filterPaneEnabled: Boolean(s.enable_filter),
+                navContentPaneEnabled: true,
+                filterPaneEnabled: true,
                 layoutType: pbi.models.LayoutType.Custom,
                 customLayout: {
                   displayOption: pbi.models.DisplayOption.FitToPage,
                 },
                 panes: {
-                  pageNavigation: { visible: Boolean(s.enable_page_nav) },
-                  filters: { visible: Boolean(s.enable_filter), expanded: false },
+                  pageNavigation: { visible: true },
+                  filters: { visible: true, expanded: false },
                 },
               },
             };
-        if (!isDashboard && s.default_page) config.pageName = s.default_page;
         const report = powerbi.embed(el, config);
         scheduleRenew(report, d.expires_at);
         onReady(id, report as pbi.Report, isDashboard);

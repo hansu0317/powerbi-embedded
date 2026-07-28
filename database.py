@@ -161,8 +161,7 @@ def db_get_reports(username: str) -> list:
         with conn.cursor() as cur:
             cur.execute(
                 f"""SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
-                          owner.username AS owner_username,
-                          r.preview_image_url, r.tab_type
+                          owner.username AS owner_username, r.tab_type
                    FROM reports r
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    JOIN users u ON u.username = %s
@@ -179,8 +178,7 @@ def db_get_all_active_reports() -> list:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
-                          owner.username AS owner_username,
-                          r.preview_image_url, r.tab_type
+                          owner.username AS owner_username, r.tab_type
                    FROM reports r
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    WHERE r.status = 'active'
@@ -318,8 +316,7 @@ def db_get_report(report_id: int):
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id,
                           r.pbi_report_id, r.pbi_dataset_id, r.pbi_workspace_id,
-                          r.default_page, r.enable_filter, r.enable_page_nav,
-                          r.use_data_bot, r.tab_type
+                          r.tab_type
                    FROM reports r
                    WHERE r.id = %s""",
                 (report_id,),

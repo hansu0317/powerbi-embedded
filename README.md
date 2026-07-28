@@ -180,12 +180,12 @@ Power BI REST 호출도 `routes/`가 직접 하지 않고 `services/`를 거친�
 
 ## 데이터베이스
 
-테이블 11개. 스키마 버전은 `schema_migrations`에 기록된다 (현재 **v11**).
+테이블 11개. 스키마 버전은 `schema_migrations`에 기록된다 (현재 **v12**).
 
 | 테이블 | 내용 |
 |---|---|
 | `users` | 계정 (bcrypt 해시, 역할, 관리자·업로드 권한) |
-| `reports` | 보고서 본체 + PBI 연결 정보 + 화면 설정 |
+| `reports` | 보고서 본체 + PBI 연결 정보 (18컬럼) |
 | `user_reports` | 개인 열람 권한 |
 | `groups` / `user_groups` / `group_reports` | 그룹 단위 권한 |
 | `upload_jobs` | 업로드 상태 머신 (재시작 복구용) |

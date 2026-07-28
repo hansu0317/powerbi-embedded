@@ -24,7 +24,7 @@ logger = logging.getLogger("powerbi-gateway")
 #   - roles_key:   RLS 역할 목록(users.roles TEXT[])을 콤마로 직렬화한 문자열 — 역할이 다르면 다른 토큰 필요.
 #
 # 캐시 값: embed_token, embed_url, expires_at(Unix timestamp)
-#   - report_name, settings(enable_filter 등)는 관리자가 바꿀 수 있으므로 항상 DB에서 읽음.
+#   - report_name과 tab_type은 관리자 작업으로 바뀔 수 있으므로 항상 DB에서 읽음.
 #   - embed_token·embed_url만 캐시 대상. 이 두 값은 PBI 측에서만 변경됨.
 #
 # 만료 처리: PBI API 응답의 expiration 필드를 파싱해 캐시 만료 시각으로 사용.
@@ -84,13 +84,8 @@ def _build_embed_response(
         "expires_at":  expires_at,
         "report_id":   pbi_report_id,
         "report_name": report_row["name"],
-        "settings": {
-            "default_page":    report_row["default_page"],
-            "enable_filter":   report_row["enable_filter"],
-            "enable_page_nav": report_row["enable_page_nav"],
-            "use_data_bot":    report_row["use_data_bot"],
-            "tab_type":        report_row["tab_type"],
-        },
+        # 뷰어가 report/dashboard 임베드를 분기하는 데 필요한 값만 내려보낸다.
+        "settings": {"tab_type": report_row["tab_type"]},
     }
 
 

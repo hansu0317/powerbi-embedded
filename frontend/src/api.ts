@@ -18,10 +18,7 @@ export interface EmbedResponse {
   rls_enabled?: boolean; // true면 이 보고서는 역할별로 다른 행이 보일 수 있음
 
   settings?: {
-    enable_page_nav?: boolean;
-    enable_filter?: boolean;
-    default_page?: string;
-    tab_type?: string; // "dashboard" | "report" — v6 대시보드 임베드 분기용
+    tab_type?: string; // "dashboard" | "report" — 대시보드 임베드 분기용
   };
 }
 
