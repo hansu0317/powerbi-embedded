@@ -102,17 +102,6 @@ export async function logout(csrf: string) {
 
 // ── 사용자 편의 (v3) ─────────────────────────────────────────────────────────
 
-export async function setDefaultReport(reportId: number | null, csrf: string) {
-  const res = await fetch("/api/user/default-report", {
-    method: "POST",
-    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-    body: JSON.stringify({ report_id: reportId }),
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "기본 보고서 설정 실패"));
-  return j as { default_report_id: number | null };
-}
-
 // ── 관리자 API ────────────────────────────────────────────────────────────────
 
 export interface SyncStatus {
@@ -369,25 +358,6 @@ export async function adminSetAccess(
 
 // ── 권한 매트릭스 / 로그 / 편의 (v3) ─────────────────────────────────────────
 
-export interface MatrixGroup {
-  id: number;
-  name: string;
-  member_count: number;
-}
-
-export interface MatrixReport {
-  id: number;
-  name: string;
-  category: string | null;
-  group_ids: number[];
-}
-
-export async function adminGetAccessMatrix(): Promise<{ groups: MatrixGroup[]; reports: MatrixReport[] }> {
-  const res = await fetch("/api/admin/access-matrix");
-  if (!res.ok) throw new Error("권한 매트릭스 조회 실패");
-  return res.json();
-}
-
 export async function adminToggleUpload(userId: number, csrf: string) {
   const res = await fetch(`/api/admin/users/${userId}/toggle-upload`, {
     method: "POST",
@@ -396,17 +366,6 @@ export async function adminToggleUpload(userId: number, csrf: string) {
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(extractDetail(j, "업로드 권한 변경 실패"));
   return j as { can_upload: boolean };
-}
-
-export async function adminSetDescription(reportId: number, description: string, csrf: string) {
-  const res = await fetch(`/api/admin/reports/${reportId}/description`, {
-    method: "POST",
-    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-    body: JSON.stringify({ description }),
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "설명 저장 실패"));
-  return j as { report_id: number; description: string | null };
 }
 
 export interface LogRow {
@@ -449,63 +408,11 @@ export interface RlsConfig {
   role_names: string[];
 }
 
-export async function adminGetRls(reportId: number): Promise<RlsConfig> {
-  const res = await fetch(`/api/admin/reports/${reportId}/rls`);
-  if (!res.ok) throw new Error("RLS 조회 실패");
-  return res.json();
-}
-
-export async function adminSetRls(
-  reportId: number, enabled: boolean, roleNames: string[], csrf: string,
-): Promise<RlsConfig> {
-  const res = await fetch(`/api/admin/reports/${reportId}/rls`, {
-    method: "POST",
-    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled, role_names: roleNames }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(data, "RLS 저장 실패"));
-  return data;
-}
-
-export async function adminSetUserRls(
-  userId: number, pbiUsername: string, roles: string[], csrf: string,
-): Promise<{ pbi_username: string; roles: string[] }> {
-  const res = await fetch(`/api/admin/users/${userId}/rls`, {
-    method: "POST",
-    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-    body: JSON.stringify({ pbi_username: pbiUsername, roles }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(data, "저장 실패"));
-  return data;
-}
-
-/* ── v4: 신선도·자가진단 ──────────────────────────────── */
-
-export interface FreshnessRow {
-  pbi_dataset_id: string;
-  last_status: string | null;
-  last_success_at: string | null;
-  last_attempt_at: string | null;
-  failure_reason: string | null;
-  consecutive_failures: number;
-  auto_retries_today: number;
-  report_names: string[];
-}
-
-export async function adminGetFreshness(): Promise<FreshnessRow[]> {
-  const res = await fetch("/api/admin/freshness");
-  if (!res.ok) throw new Error("신선도 조회 실패");
-  return (await res.json()).datasets as FreshnessRow[];
-}
-
 export interface SystemStatus {
   db_latency_ms: number;
   loop_seconds_ago: Record<string, number>;
   sync_interval_sec: number;
   failed_jobs_7d: number;
-  failing_datasets: number;
   activity_rows: number;
   active_reports: number;
 }
@@ -517,67 +424,6 @@ export async function adminGetSystemStatus(): Promise<SystemStatus> {
 }
 
 /* ── v5: 서버 오류 추적 ───────────────────────────────── */
-
-export interface ErrorLogRow {
-  id: number;
-  error_code: string;
-  http_status: number;
-  message: string | null;
-  username: string | null;
-  path: string | null;
-  detail: string | null;
-  created_at: string;
-}
-
-export async function adminGetRecentErrors(): Promise<ErrorLogRow[]> {
-  const res = await fetch("/api/admin/errors");
-  if (!res.ok) throw new Error("오류 로그 조회 실패");
-  return (await res.json()).errors as ErrorLogRow[];
-}
-
-/* ── v6: 뷰어 다운로드/내보내기 ───────────────────────── */
-
-export async function downloadReportPbix(reportId: number): Promise<Blob> {
-  const res = await fetch(`/api/reports/${reportId}/download/pbix`);
-  if (!res.ok) {
-    const j = await res.json().catch(() => ({}));
-    throw new Error(extractDetail(j, "PBIX 다운로드 실패"));
-  }
-  return res.blob();
-}
-
-export interface PptxExportJob {
-  export_id: string;
-}
-
-export async function startPptxExport(reportId: number, csrf: string): Promise<PptxExportJob> {
-  const res = await fetch(`/api/reports/${reportId}/export/pptx`, {
-    method: "POST",
-    headers: { "X-CSRF-Token": csrf },
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "내보내기 시작 실패"));
-  return j;
-}
-
-export interface PptxExportStatus {
-  status: string; // Running | Succeeded | Failed | NotStarted
-}
-
-export async function pollPptxExport(reportId: number, exportId: string): Promise<PptxExportStatus> {
-  const res = await fetch(`/api/reports/${reportId}/export/pptx/${exportId}/status`);
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "상태 조회 실패"));
-  return j;
-}
-
-export async function downloadPptxExport(reportId: number, exportId: string): Promise<Blob> {
-  const res = await fetch(`/api/reports/${reportId}/export/pptx/${exportId}/file`);
-  if (!res.ok) throw new Error("파일 다운로드 실패");
-  return res.blob();
-}
-
-/* ── v6: 개인 활동 로그 ───────────────────────────────── */
 
 export interface MyActivityRow {
   id: number;

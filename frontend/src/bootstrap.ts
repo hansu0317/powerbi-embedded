@@ -7,7 +7,6 @@ export interface SessionUser {
   display_name: string;
   is_admin: boolean;
   can_upload?: boolean;
-  default_report_id?: number | null;
 }
 
 export interface ReportItem {

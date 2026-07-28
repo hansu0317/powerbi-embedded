@@ -1,12 +1,10 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
-  ClipboardList,
   Download,
   History,
   LayoutDashboard,
-  LayoutGrid,
   Layers,
   Plus,
   RefreshCw,
@@ -51,28 +49,17 @@ import {
   adminSyncStatus,
   adminToggleUser,
   adminToggleUpload,
-  adminSetDescription,
-  adminGetAccessMatrix,
   adminGetLogs,
-  adminGetRls,
-  adminSetRls,
-  adminSetUserRls,
   adminGetSystemStatus,
-  adminGetFreshness,
-  adminGetRecentErrors,
-  ErrorLogRow,
   logQueryString,
-  MatrixGroup,
-  MatrixReport,
   LogRow,
   SystemStatus,
-  FreshnessRow,
   logout,
 } from "../api";
 import { Pager, usePaged, useFitRows } from "../Pager";
 
 type SectionKey =
-  | "overview" | "users" | "groups" | "reports" | "matrix" | "logs" | "jobs" | "config";
+  | "overview" | "users" | "groups" | "reports" | "logs" | "config";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
 
 const SECTIONS: {
@@ -84,10 +71,8 @@ const SECTIONS: {
   { key: "users", Icon: UsersIcon, label: "사용자" },
   { key: "groups", Icon: Layers, label: "그룹" },
   { key: "reports", Icon: BarChart3, label: "보고서" },
-  { key: "matrix", Icon: LayoutGrid, label: "권한 매트릭스" },
   { key: "logs", Icon: History, label: "로그" },
   { key: "config", Icon: SettingsIcon, label: "설정" },
-  { key: "jobs", Icon: ClipboardList, label: "업로드 이력" },
 ];
 
 function JobStatus({ status }: { status: string }) {
@@ -234,11 +219,6 @@ export default function AdminPage({ data }: { data: AdminData }) {
                 users={users}
                 csrf={csrf_token}
                 showToast={showToast}
-                onUserRls={(id, pbi_username, roles) =>
-                  setUsers((prev) =>
-                    prev.map((u) => (u.id === id ? { ...u, pbi_username, roles } : u)),
-                  )
-                }
                 onAdd={() => setShowAddUser(true)}
                 onToggle={async (id) => {
                   try {
@@ -282,22 +262,13 @@ export default function AdminPage({ data }: { data: AdminData }) {
                     ),
                   )
                 }
-                onDescription={(id, description) =>
-                  setReports((prev) =>
-                    prev.map((r) => (r.id === id ? { ...r, description } : r)),
-                  )
-                }
                 onManageAccess={setAccessReport}
               />
-            )}
-            {section === "matrix" && (
-              <MatrixSection csrf={csrf_token} showToast={showToast} />
             )}
             {section === "logs" && <LogsSection />}
             {section === "groups" && (
               <GroupsSection csrf={csrf_token} showToast={showToast} />
             )}
-            {section === "jobs" && <JobsSection jobs={data.jobs} />}
             {section === "config" && (
               <ConfigSection csrf={csrf_token} showToast={showToast} />
             )}
@@ -343,16 +314,10 @@ function OverviewSection({
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
   const fit = useFitRows(tableRef, 40, 38);
-  // v4 자가진단·신선도, v5 서버 오류 — 페이지 로드 후 비동기 (실패해도 기존 현황은 그대로)
+  // 자가진단 — 페이지 로드 후 비동기 (실패해도 기존 현황은 그대로)
   const [sys, setSys] = useState<SystemStatus | null>(null);
-  const [failing, setFailing] = useState<FreshnessRow[]>([]);
-  const [errors, setErrors] = useState<ErrorLogRow[]>([]);
   useEffect(() => {
     adminGetSystemStatus().then(setSys).catch(() => {});
-    adminGetFreshness()
-      .then((rows) => setFailing(rows.filter((r) => r.last_status === "Failed")))
-      .catch(() => {});
-    adminGetRecentErrors().then(setErrors).catch(() => {});
   }, []);
   return (
     <section>
@@ -377,93 +342,13 @@ function OverviewSection({
               }`}
             />
             <StatCard
-              label="갱신 실패 데이터셋"
-              value={sys.failing_datasets}
-              sub={sys.failing_datasets > 0 ? "아래 목록 확인" : "모두 정상"}
-            />
-            <StatCard
               label="실패 업로드 (7일)"
               value={sys.failed_jobs_7d}
               sub="failed·unknown·db_failed"
             />
-            <StatCard
-              label="서버 오류 (최근)"
-              value={errors.length}
-              sub={errors.length > 0 ? "아래 목록 확인" : "이상 없음"}
-            />
           </>
         )}
       </div>
-
-      {failing.length > 0 && (
-        <>
-          <h2>⚠ 데이터 갱신 실패</h2>
-          <div className="card-table" style={{ marginBottom: 20 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>보고서</th>
-                  <th>마지막 성공</th>
-                  <th>연속 실패</th>
-                  <th>오늘 자동 재시도</th>
-                  <th>사유</th>
-                </tr>
-              </thead>
-              <tbody>
-                {failing.map((f) => (
-                  <tr key={f.pbi_dataset_id}>
-                    <td>{f.report_names.join(", ") || f.pbi_dataset_id}</td>
-                    <td>{f.last_success_at ? String(f.last_success_at).replace("T", " ").slice(0, 16) : "없음"}</td>
-                    <td>{f.consecutive_failures}회</td>
-                    <td>{f.auto_retries_today}회</td>
-                    <td className="ad-err-cell">
-                      <span className="ad-err-text">{f.failure_reason || "-"}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {errors.length > 0 && (
-        <>
-          <h2>⚠ 최근 서버 오류</h2>
-          <p className="ad-import-result" style={{ marginBottom: 10 }}>
-            로그인 실패·권한 없음 같은 정상적인 사용자 흐름은 여기 안 나온다.
-            Azure/PBI 장애나 예상 밖 예외(서버 5xx)만 자동 기록된다.
-          </p>
-          <div className="card-table" style={{ marginBottom: 20 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>일시</th>
-                  <th>코드</th>
-                  <th>상태</th>
-                  <th>사용자</th>
-                  <th>경로</th>
-                  <th>메시지</th>
-                </tr>
-              </thead>
-              <tbody>
-                {errors.map((e) => (
-                  <tr key={e.id}>
-                    <td>{String(e.created_at).replace("T", " ").slice(0, 19)}</td>
-                    <td><span className="pill fail">{e.error_code}</span></td>
-                    <td>{e.http_status}</td>
-                    <td>{e.username || "-"}</td>
-                    <td title={e.path || ""}>{e.path || "-"}</td>
-                    <td className="ad-err-cell">
-                      <span className="ad-err-text">{e.message || "-"}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
 
       <h2>최근 업로드</h2>
       <div className="card-table" ref={tableRef}>
@@ -528,7 +413,6 @@ function UsersSection({
   onAdd,
   onToggle,
   onToggleUpload,
-  onUserRls,
 }: {
   users: AdminUser[];
   csrf: string;
@@ -536,13 +420,11 @@ function UsersSection({
   onAdd: () => void;
   onToggle: (id: number) => void;
   onToggleUpload: (id: number) => void;
-  onUserRls: (id: number, pbiUsername: string, roles: string[]) => void;
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
   const pageSize = useFitRows(tableRef, 40, 38);
   const { pageItems, page, totalPages, total, setPage } = usePaged(users, pageSize);
   const [reportsUser, setReportsUser] = useState<AdminUser | null>(null);
-  const [rlsUser, setRlsUser] = useState<AdminUser | null>(null);
   const [showBulk, setShowBulk] = useState(false);
   return (
     <section>
@@ -644,13 +526,6 @@ function UsersSection({
                   </span>
                 </td>
                 <td className="ad-actions-cell">
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    title="PBI 사용자명(RLS 식별자)·역할 편집"
-                    onClick={() => setRlsUser(u)}
-                  >
-                    역할
-                  </button>
                   {u.username !== "admin" && (
                     <button
                       className="btn btn-warn btn-sm"
@@ -669,83 +544,7 @@ function UsersSection({
       {reportsUser && (
         <UserReportsModal user={reportsUser} onClose={() => setReportsUser(null)} />
       )}
-      {rlsUser && (
-        <UserRlsModal
-          user={rlsUser}
-          csrf={csrf}
-          showToast={showToast}
-          onSaved={onUserRls}
-          onClose={() => setRlsUser(null)}
-        />
-      )}
     </section>
-  );
-}
-
-/** 사용자 RLS 식별자·역할 편집 모달. */
-function UserRlsModal({
-  user,
-  csrf,
-  showToast,
-  onSaved,
-  onClose,
-}: {
-  user: AdminUser;
-  csrf: string;
-  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
-  onSaved: (id: number, pbiUsername: string, roles: string[]) => void;
-  onClose: () => void;
-}) {
-  const [pbiUsername, setPbiUsername] = useState(user.pbi_username);
-  const [rolesText, setRolesText] = useState(user.roles.join(", "));
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      const roles = rolesText.split(",").map((s) => s.trim()).filter(Boolean);
-      const r = await adminSetUserRls(user.id, pbiUsername.trim(), roles, csrf);
-      onSaved(user.id, r.pbi_username, r.roles);
-      showToast(`'${user.display_name}' RLS 정보가 저장됐습니다.`, "ok");
-      onClose();
-    } catch (e) {
-      showToast("저장 실패: " + (e as Error).message, "err");
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={<>RLS 식별자·역할 — {user.display_name}</>} onClose={onClose}>
-      <div className="ad-modal-body">
-        <div className="rls-note">
-          RLS가 켜진 보고서를 열 때 이 값이 identity로 전달됩니다.
-          PBI 사용자명은 PBIX 보안 테이블의 키(UPN)와 일치해야 합니다.
-        </div>
-        <Field label="PBI 사용자명 (UPN)">
-          <input
-            value={pbiUsername}
-            onChange={(e) => setPbiUsername(e.target.value)}
-            placeholder="user@company.com"
-          />
-        </Field>
-        <div style={{ height: 10 }} />
-        <Field label="역할 (콤마 구분)">
-          <input
-            value={rolesText}
-            onChange={(e) => setRolesText(e.target.value)}
-            placeholder="예: 도메인, 영업"
-          />
-        </Field>
-      </div>
-      <div className="ad-modal-footer">
-        <button className="btn btn-ghost" onClick={onClose}>
-          취소
-        </button>
-        <button className="btn btn-primary" disabled={busy || !pbiUsername.trim()} onClick={save}>
-          {busy ? "저장 중..." : "저장"}
-        </button>
-      </div>
-    </Modal>
   );
 }
 
@@ -1034,19 +833,16 @@ function ReportsSection({
   csrf,
   showToast,
   onDeleted,
-  onDescription,
   onManageAccess,
 }: {
   reports: AdminReport[];
   csrf: string;
   showToast: (msg: string, tone?: "ok" | "err" | "") => void;
   onDeleted: (id: number) => void;
-  onDescription: (id: number, description: string | null) => void;
   onManageAccess: (r: AdminReport) => void;
 }) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState("");
-  const [rlsReport, setRlsReport] = useState<AdminReport | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const pageSize = useFitRows(tableRef, 40, 38);
   const { pageItems, page, totalPages, total, setPage } = usePaged(reports, pageSize);
@@ -1100,18 +896,6 @@ function ReportsSection({
       showToast(`'${r.name}' 새로고침 요청 완료 (PBI가 백그라운드 처리)`, "ok");
     } catch (e) {
       showToast("새로고침 실패: " + (e as Error).message, "err");
-    }
-  };
-
-  const doEditDescription = async (r: AdminReport) => {
-    const next = prompt(`'${r.name}' 보고서 설명 (비우면 삭제)`, r.description || "");
-    if (next === null) return; // 취소
-    try {
-      await adminSetDescription(r.id, next, csrf);
-      onDescription(r.id, next.trim() || null);
-      showToast("설명이 저장됐습니다.", "ok");
-    } catch (e) {
-      showToast("설명 저장 실패: " + (e as Error).message, "err");
     }
   };
 
@@ -1195,20 +979,6 @@ function ReportsSection({
                   >
                     권한
                   </button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    title="보고서 설명 수정 (뷰어 검색 대상)"
-                    onClick={() => doEditDescription(r)}
-                  >
-                    설명
-                  </button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    title="행 수준 보안(RLS) 설정 — PBIX에 역할이 정의돼 있어야 동작"
-                    onClick={() => setRlsReport(r)}
-                  >
-                    RLS
-                  </button>
                   {r.pbi_dataset_id && (
                     <button className="btn btn-primary btn-sm" onClick={() => doRefresh(r)}>
                       새로고침
@@ -1220,163 +990,6 @@ function ReportsSection({
                     </button>
                   )}
                 </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
-      {rlsReport && (
-        <RlsModal
-          report={rlsReport}
-          csrf={csrf}
-          showToast={showToast}
-          onClose={() => setRlsReport(null)}
-        />
-      )}
-    </section>
-  );
-}
-
-/** 보고서 RLS 설정 모달 — enabled 토글 + PBIX 역할 이름 목록(콤마 구분). */
-function RlsModal({
-  report,
-  csrf,
-  showToast,
-  onClose,
-}: {
-  report: AdminReport;
-  csrf: string;
-  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
-  onClose: () => void;
-}) {
-  const [enabled, setEnabled] = useState(false);
-  const [rolesText, setRolesText] = useState("");
-  const [loaded, setLoaded] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    adminGetRls(report.id)
-      .then((r) => {
-        setEnabled(r.enabled);
-        setRolesText(r.role_names.join(", "));
-        setLoaded(true);
-      })
-      .catch(() => setError("RLS 설정 조회 실패"));
-  }, [report.id]);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      const roles = rolesText.split(",").map((s) => s.trim()).filter(Boolean);
-      await adminSetRls(report.id, enabled, roles, csrf);
-      showToast(
-        enabled
-          ? `'${report.name}' RLS가 켜졌습니다. 다음 열람부터 적용됩니다.`
-          : `'${report.name}' RLS가 꺼졌습니다.`,
-        "ok",
-      );
-      onClose();
-    } catch (e) {
-      showToast("RLS 저장 실패: " + (e as Error).message, "err");
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={<>행 수준 보안(RLS) — {report.name}</>} onClose={onClose}>
-      <div className="ad-modal-body">
-        {error && <div className="ad-modal-err">{error}</div>}
-        {!error && !loaded && <div className="ad-modal-loading">불러오는 중...</div>}
-        {loaded && (
-          <>
-            <div className="rls-note">
-              PBIX 파일에 역할(DAX 예: <code>보안[upn] = USERNAME()</code>)이 정의돼
-              있어야 동작합니다. 켜면 임베드 토큰에 각 사용자의 PBI 사용자명이
-              identity로 전달돼 <b>사용자마다 자기 데이터만</b> 보게 됩니다.
-            </div>
-            <label className="rls-toggle">
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(e) => setEnabled(e.target.checked)}
-              />
-              이 보고서에 RLS 적용
-            </label>
-            <div className="ad-field" style={{ marginTop: 12 }}>
-              <label>역할 이름 (콤마 구분 — 비우면 사용자별 역할(users.roles) 사용)</label>
-              <input
-                value={rolesText}
-                onChange={(e) => setRolesText(e.target.value)}
-                placeholder="예: 도메인, 영업"
-                disabled={!enabled}
-              />
-            </div>
-          </>
-        )}
-      </div>
-      <div className="ad-modal-footer">
-        <button className="btn btn-ghost" onClick={onClose}>
-          취소
-        </button>
-        <button className="btn btn-primary" disabled={busy || !loaded} onClick={save}>
-          {busy ? "저장 중..." : "저장"}
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-function JobsSection({ jobs }: { jobs: AdminJob[] }) {
-  const tableRef = useRef<HTMLDivElement>(null);
-  const pageSize = useFitRows(tableRef, 40, 38);
-  const { pageItems, page, totalPages, total, setPage } = usePaged(jobs, pageSize);
-  return (
-    <section>
-      <h2>업로드 이력 (최근 30건)</h2>
-      <div className="card-table" ref={tableRef}>
-        <table>
-          <colgroup>
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "16%" }} />
-            <col style={{ width: "9%" }} />
-            <col style={{ width: "20%" }} />
-            <col style={{ width: "19%" }} />
-            <col style={{ width: "19%" }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>사용자</th>
-              <th>보고서명</th>
-              <th>상태</th>
-              <th>오류</th>
-              <th>시작</th>
-              <th>갱신</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pageItems.map((j) => (
-              <tr key={j.id}>
-                <td>{j.id}</td>
-                <td>{j.username}</td>
-                <td title={j.report_name}>{j.category ? `/${j.category}/${j.report_name}` : j.report_name}</td>
-                <td>
-                  <JobStatus status={j.status} />
-                </td>
-                <td className="ad-err-cell">
-                  {j.status !== "completed" && j.error_message ? (
-                    <span className="ad-err-text" title={j.error_message}>
-                      {j.error_message}
-                    </span>
-                  ) : (
-                    "-"
-                  )}
-                </td>
-                <td className="ad-nowrap">{j.created_at || "-"}</td>
-                <td className="ad-nowrap">{j.updated_at || "-"}</td>
               </tr>
             ))}
           </tbody>
@@ -1932,173 +1545,6 @@ function GroupMembersModal({
 }
 
 /* ── 권한 매트릭스 (그룹 × 보고서 한눈에 보기/토글) ────── */
-
-function MatrixSection({
-  csrf,
-  showToast,
-}: {
-  csrf: string;
-  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
-}) {
-  const [groups, setGroups] = useState<MatrixGroup[] | null>(null);
-  const [reports, setReports] = useState<MatrixReport[]>([]);
-  const [query, setQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const m = await adminGetAccessMatrix();
-      setGroups(m.groups);
-      setReports(m.reports);
-    } catch {
-      setError("권한 매트릭스 조회 실패");
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  // 카테고리별 그룹핑 (사이드바 폴더 트리와 같은 축)
-  const grouped = useMemo(() => {
-    const k = query.trim().toLowerCase();
-    const filtered = k
-      ? reports.filter(
-          (r) =>
-            r.name.toLowerCase().includes(k) ||
-            (r.category || "").toLowerCase().includes(k),
-        )
-      : reports;
-    const map = new Map<string, MatrixReport[]>();
-    for (const r of filtered) {
-      const cat = r.category || "미분류";
-      if (!map.has(cat)) map.set(cat, []);
-      map.get(cat)!.push(r);
-    }
-    return [...map.entries()];
-  }, [reports, query]);
-
-  const toggle = async (report: MatrixReport, group: MatrixGroup) => {
-    const has = report.group_ids.includes(group.id);
-    // 낙관적 UI: 화면 먼저 바꾸고, 실패하면 되돌린다
-    setReports((prev) =>
-      prev.map((r) =>
-        r.id === report.id
-          ? {
-              ...r,
-              group_ids: has
-                ? r.group_ids.filter((g) => g !== group.id)
-                : [...r.group_ids, group.id],
-            }
-          : r,
-      ),
-    );
-    try {
-      await adminSetGroupAccess(report.id, group.id, !has, csrf);
-    } catch {
-      setReports((prev) =>
-        prev.map((r) => (r.id === report.id ? { ...r, group_ids: report.group_ids } : r)),
-      );
-      showToast("권한 변경 실패 — 다시 시도해 주세요.", "err");
-    }
-  };
-
-  if (error)
-    return (
-      <section>
-        <h2>권한 매트릭스</h2>
-        <div className="ad-modal-err">{error}</div>
-      </section>
-    );
-  if (!groups)
-    return (
-      <section>
-        <h2>권한 매트릭스</h2>
-        <div className="ad-modal-loading">불러오는 중...</div>
-      </section>
-    );
-
-  return (
-    <section>
-      <div className="ad-section-head">
-        <h2 style={{ marginBottom: 0 }}>권한 매트릭스</h2>
-        <div className="ad-section-actions">
-          <input
-            className="mx-search"
-            placeholder="보고서·카테고리 검색"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-      </div>
-      <p className="mx-hint">
-        셀을 클릭하면 해당 그룹의 열람 권한이 즉시 부여/해제됩니다. 개인별 예외 부여는
-        보고서 탭 → 권한에서 처리하세요.
-      </p>
-      {groups.length === 0 ? (
-        <div className="ad-modal-loading">
-          그룹이 없습니다. 그룹 탭에서 팀/부서 그룹을 먼저 만들어 주세요.
-        </div>
-      ) : (
-        <div className="mx-wrap card-table">
-          <table className="mx-table">
-            <thead>
-              <tr>
-                <th className="mx-sticky mx-report-col">보고서</th>
-                {groups.map((g) => (
-                  <th key={g.id} className="mx-group-col" title={`멤버 ${g.member_count}명`}>
-                    {g.name}
-                    <span className="mx-member">{g.member_count}명</span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {grouped.map(([cat, rows]) => (
-                <Fragment key={cat}>
-                  <tr className="mx-cat-row">
-                    <td className="mx-sticky mx-cat" colSpan={1 + groups.length}>
-                      {cat} <span className="mx-member">({rows.length})</span>
-                    </td>
-                  </tr>
-                  {rows.map((r) => (
-                    <tr key={r.id}>
-                      <td className="mx-sticky mx-report" title={r.name}>
-                        {r.name}
-                      </td>
-                      {groups.map((g) => {
-                        const on = r.group_ids.includes(g.id);
-                        return (
-                          <td
-                            key={g.id}
-                            className={`mx-cell${on ? " on" : ""}`}
-                            title={`${r.name} × ${g.name} — 클릭하여 ${on ? "해제" : "부여"}`}
-                            onClick={() => toggle(r, g)}
-                          >
-                            {on ? "✓" : ""}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </Fragment>
-              ))}
-              {grouped.length === 0 && (
-                <tr>
-                  <td className="mx-report" colSpan={1 + groups.length}>
-                    검색 결과가 없습니다
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-/* ── 로그 (사용자 활동 / 관리 감사) ────────────────────── */
 
 const EVENT_LABELS: Record<string, string> = {
   report_view: "보고서 열람",

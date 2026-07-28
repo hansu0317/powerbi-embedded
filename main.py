@@ -14,7 +14,6 @@
 """
 import asyncio
 import logging
-import traceback
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
@@ -26,10 +25,7 @@ from contextlib import asynccontextmanager
 
 import config
 from config import SECRET_KEY, COOKIE_SECURE
-from database import (
-    db_cleanup_login_attempts, db_cleanup_activity_log,
-    db_cleanup_error_log, db_log_error,
-)
+from database import db_cleanup_login_attempts, db_cleanup_activity_log
 from errors import AppError, extract_code_message
 from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
 from routes import auth, report, admin
@@ -43,22 +39,20 @@ logger = logging.getLogger("powerbi-gateway")
 
 
 def _daily_cleanup():
-    """일 1회 정리 묶음: login_attempts 30일 초과 + activity_log·error_log 보존기간 초과."""
+    """일 1회 정리 묶음: 로그인 기록 30일 초과 + 활동 로그 보존기간 초과."""
     db_cleanup_login_attempts()
-    deleted = db_cleanup_activity_log()
-    deleted += db_cleanup_error_log()
-    return deleted
+    return db_cleanup_activity_log()
 
 
 async def _login_cleanup_loop():
-    """오래된 기록(login_attempts, activity_log, error_log)을 하루 1회 정리한다.
+    """오래된 기록(로그인 시도·활동 로그)을 하루 1회 정리한다.
 
     기존에는 db_record_login() 안에서 매 로그인마다 실행했다.
     로그인 응답 경로에서 분리해 서버 시작 시 1회 + 이후 24시간마다 실행한다.
     """
     try:
         deleted = await asyncio.to_thread(_daily_cleanup)
-        logger.info("DAILY CLEANUP: 로그인 기록 + 활동/오류 로그 %d건 정리 완료", deleted)
+        logger.info("DAILY CLEANUP: 로그인 기록 + 활동 로그 %d건 정리 완료", deleted)
     except Exception:
         logger.exception("DAILY CLEANUP FAIL (startup)")
     while True:
@@ -67,34 +61,6 @@ async def _login_cleanup_loop():
             await asyncio.to_thread(_daily_cleanup)
         except Exception:
             logger.exception("DAILY CLEANUP FAIL")
-
-
-def _log_error_sync(error_code: str, http_status: int, message, request: Request, detail: str | None = None):
-    """error_log INSERT — 동기 함수라 to_thread로 감싸 호출한다. 실패해도 응답에 영향 없음."""
-    try:
-        username = request.session.get("username")
-    except Exception:
-        username = None
-    try:
-        db_log_error(
-            error_code, http_status,
-            str(message)[:2000] if message else None,
-            username, request.url.path[:255], detail[:2000] if detail else None,
-        )
-    except Exception:
-        logger.exception("ERROR LOG WRITE FAIL")
-
-
-# fire-and-forget 로깅 태스크 참조 보관 — asyncio 공식 문서 권장 패턴.
-# create_task() 결과를 아무 데도 안 담으면 이벤트 루프가 약한 참조만 가져서
-# 실행 도중 GC될 수 있다(로그 유실). 완료되면 done_callback이 자동으로 치운다.
-_bg_tasks: set[asyncio.Task] = set()
-
-
-def _fire_and_forget(coro) -> None:
-    task = asyncio.create_task(coro)
-    _bg_tasks.add(task)
-    task.add_done_callback(_bg_tasks.discard)
 
 
 @asynccontextmanager
@@ -145,26 +111,21 @@ app.include_router(admin.router)
 
 @app.exception_handler(HTTPException)
 async def http_error_logger(request: Request, exc: HTTPException):
-    """AppError.http()가 만든 5xx만 error_log에 남긴다 (v5).
+    """AppError.http()가 만든 5xx만 서버 로그에 남긴다.
 
     4xx는 정상적인 사용자 흐름의 일부(권한 없음·중복 등)라 노이즈만 쌓이므로 제외.
-    응답 자체는 FastAPI 기본 핸들러에 그대로 위임 — 로깅 실패가 응답에 영향을 주지 않는다.
+    응답 자체는 FastAPI 기본 핸들러에 그대로 위임한다.
     """
     if exc.status_code >= 500:
         code, msg = extract_code_message(exc.detail)
-        _fire_and_forget(asyncio.to_thread(_log_error_sync, code, exc.status_code, msg, request))
+        logger.error("HTTP 5xx | path=%s | %s | %s", request.url.path, code, msg)
     return await default_http_exception_handler(request, exc)
 
 
 @app.exception_handler(Exception)
 async def unhandled_error_logger(request: Request, exc: Exception):
-    """AppError로 감싸지 못한 예상 밖 예외 — 로깅 후 500 반환 (v5).
-
-    이게 없으면 이런 예외는 콘솔 로그에만 남고 관리자 화면에는 전혀 보이지 않는다.
-    """
-    tb = traceback.format_exc()
+    """AppError로 감싸지 못한 예상 밖 예외 — 로깅 후 500 반환."""
     logger.exception("UNHANDLED EXCEPTION | path=%s", request.url.path)
-    _fire_and_forget(asyncio.to_thread(_log_error_sync, "UNHANDLED", 500, str(exc), request, tb))
     return JSONResponse(status_code=500, content={"detail": "서버 오류가 발생했습니다."})
 
 

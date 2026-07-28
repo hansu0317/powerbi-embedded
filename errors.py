@@ -21,6 +21,7 @@ class AppError(Enum):
     FORBIDDEN_REPORT_EDIT = (403, "REPORT_EDIT_FORBIDDEN", "이 보고서를 업데이트할 권한이 없습니다 (소유자 또는 관리자만 가능).")
     UPDATE_NOT_SUPPORTED = (400, "UPDATE_NOT_SUPPORTED",  "대시보드는 콘텐츠 업데이트를 지원하지 않습니다.")
     CSRF_INVALID         = (403, "CSRF_INVALID",          "잘못된 요청입니다. 페이지를 새로고침해 주세요.")
+    BODY_INVALID         = (400, "BODY_INVALID",          "요청 본문이 올바른 JSON이 아닙니다.")
 
     # ── 리소스 없음 ───────────────────────────────────────────────────────────
     REPORT_NOT_FOUND     = (404, "REPORT_NOT_FOUND",      "등록되지 않은 보고서입니다.")

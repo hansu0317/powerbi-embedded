@@ -2,7 +2,6 @@
 import asyncio
 import io
 import logging
-import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,10 +21,10 @@ from database import (
     db_health_check, db_get_report,
     db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
     db_fail_stuck_upload_job,
-    db_log_activity, db_get_popular_report_ids, db_set_default_report, db_get_data_as_of,
-    db_log_error, db_get_user_activity_log, db_reserve_update,
+    db_log_activity, db_get_popular_report_ids,
+    db_get_user_activity_log, db_reserve_update,
 )
-from deps import current_user, csrf_token, verify_csrf, get_client_ip
+from deps import current_user, csrf_token, verify_csrf, get_client_ip, json_body
 from errors import AppError, extract_code_message
 from services.azure import get_access_token
 from services.fabric_folders import get_or_create_folder, move_item_to_folder
@@ -92,7 +91,7 @@ async def api_set_favorite(request: Request, report_id: int):
     if not user:
         raise AppError.NOT_AUTHENTICATED.http()
     await _require_viewable_report(user, report_id)
-    body = await request.json()
+    body = await json_body(request)
     on = bool(body.get("favorite", False))
     try:
         await asyncio.to_thread(db_set_favorite, user["id"], report_id, on)
@@ -114,27 +113,6 @@ async def api_add_recent(request: Request, report_id: int):
     except psycopg2.errors.ForeignKeyViolation:
         raise AppError.REPORT_NOT_FOUND.http()
     return {"report_id": report_id, "status": "ok"}
-
-
-@router.post("/api/user/default-report")
-async def api_set_default_report(request: Request):
-    """기본 보고서 설정/해제. body: {"report_id": int|null}
-
-    설정된 보고서는 뷰어 진입 시 자동으로 열린다. null이면 해제."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    user = await current_user(request)
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
-    body = await request.json()
-    report_id = body.get("report_id")
-    if report_id is not None:
-        report_id = int(report_id)
-        await _require_viewable_report(user, report_id)
-    try:
-        await asyncio.to_thread(db_set_default_report, user["id"], report_id)
-    except psycopg2.errors.ForeignKeyViolation:
-        raise AppError.REPORT_NOT_FOUND.http()
-    return {"default_report_id": report_id}
 
 
 @router.get("/health")
@@ -170,10 +148,6 @@ async def api_embed(request: Request, report_id: int):
         raise
     logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
     result = await get_embed_token(report_id, user["pbi_username"], user["roles"])
-    # 데이터 기준 시각(마지막 refresh 성공) — 뷰어 신선도 배지용. 캐시된 토큰이어도 항상 최신을 읽는다
-    fresh = await asyncio.to_thread(db_get_data_as_of, result.get("dataset_id"))
-    result["data_as_of"] = fresh["last_success_at"].isoformat() if fresh and fresh["last_success_at"] else None
-    result["refresh_status"] = fresh["last_status"] if fresh else None
     # 30분 dedupe: 토큰 자동 재발급·새로고침 탭 복원이 조회수를 부풀리지 않게 한다
     await asyncio.to_thread(
         db_log_activity, user["id"], user["username"], "report_view",
@@ -359,23 +333,13 @@ async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: i
     try:
         await _run_upload(user, name, pbix_bytes, file_size, job_id, ip, description)
     except HTTPException as exc:
-        # 잡 상태는 발생 지점에서 이미 기록됨. 이 태스크는 asyncio.create_task로 요청
-        # 컨텍스트 밖에서 도는 백그라운드라 main.py의 전역 예외 핸들러가 못 잡는다 —
-        # 5xx(Azure/PBI 장애·DB 등록 실패 등)만 여기서 직접 error_log에 남긴다.
+        # 잡 상태는 발생 지점에서 이미 기록됨. 이 태스크는 백그라운드라 main.py의
+        # 전역 예외 핸들러가 못 잡으므로 5xx만 서버 로그에 남긴다.
         if exc.status_code >= 500:
             code, msg = extract_code_message(exc.detail)
-            try:
-                await asyncio.to_thread(db_log_error, code, exc.status_code, msg, user["username"], "/api/upload", None)
-            except Exception:
-                logger.exception("ERROR LOG WRITE FAIL (upload) | job_id=%s", job_id)
-    except Exception as exc:
+            logger.error("UPLOAD 5xx | job_id=%s | %s | %s", job_id, code, msg)
+    except Exception:
         logger.exception("UPLOAD UNEXPECTED | user=%s | report=%s | job_id=%s", user["username"], name, job_id)
-        try:
-            await asyncio.to_thread(
-                db_log_error, "UNHANDLED", 500, str(exc), user["username"], "/api/upload", traceback.format_exc(),
-            )
-        except Exception:
-            logger.exception("ERROR LOG WRITE FAIL (upload) | job_id=%s", job_id)
         try:
             marked = await asyncio.to_thread(db_fail_stuck_upload_job, job_id)
             if marked:
@@ -559,24 +523,11 @@ async def _process_report_update(user: dict, report_row: dict, pbix_bytes: bytes
     except HTTPException as exc:
         if exc.status_code >= 500:
             code, msg = extract_code_message(exc.detail)
-            try:
-                await asyncio.to_thread(
-                    db_log_error, code, exc.status_code, msg, user["username"],
-                    "/api/reports/update-content", None,
-                )
-            except Exception:
-                logger.exception("ERROR LOG WRITE FAIL (update) | job_id=%s", job_id)
-    except Exception as exc:
+            logger.error("UPDATE 5xx | job_id=%s | %s | %s", job_id, code, msg)
+    except Exception:
         logger.exception(
             "UPDATE UNEXPECTED | user=%s | report=%s | job_id=%s", user["username"], report_row["name"], job_id,
         )
-        try:
-            await asyncio.to_thread(
-                db_log_error, "UNHANDLED", 500, str(exc), user["username"],
-                "/api/reports/update-content", traceback.format_exc(),
-            )
-        except Exception:
-            logger.exception("ERROR LOG WRITE FAIL (update) | job_id=%s", job_id)
         try:
             marked = await asyncio.to_thread(db_fail_stuck_upload_job, job_id)
             if marked:

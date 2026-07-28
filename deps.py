@@ -52,6 +52,20 @@ async def require_admin_csrf(request: Request) -> dict:
     return user
 
 
+async def json_body(request: Request) -> dict:
+    """요청 본문을 JSON dict로 파싱한다. 비어 있거나 형식이 틀리면 400.
+
+    request.json()을 그대로 쓰면 본문이 없을 때 JSONDecodeError가 그대로 올라가
+    500으로 나간다 — 사용자 입력 문제는 4xx로 돌려주는 것이 맞다."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise AppError.BODY_INVALID.http()
+    if not isinstance(body, dict):
+        raise AppError.BODY_INVALID.http()
+    return body
+
+
 def get_client_ip(request: Request) -> str:
     """실제 클라이언트 IP 반환. 리버스 프록시 뒤에서는 X-Forwarded-For 첫 번째 값 사용."""
     forwarded = request.headers.get("X-Forwarded-For")

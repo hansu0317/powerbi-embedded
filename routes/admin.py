@@ -14,8 +14,7 @@ from fastapi.templating import Jinja2Templates
 import config
 from config import WORKSPACE_ID
 from database import (
-    db_get_report_rls, db_set_report_rls, db_set_user_rls,
-    db_get_freshness_overview, db_system_stats, db_get_recent_errors,
+    db_system_stats,
     db_admin_get_stats, db_admin_get_users, db_admin_add_user,
     db_admin_toggle_user_active, db_admin_get_reports,
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
@@ -27,10 +26,10 @@ from database import (
     db_get_group_members, db_set_group_member,
     db_get_report_group_access, db_set_report_group_access,
     db_get_user_report_list,
-    db_get_activity_log, db_get_audit_log, db_get_access_matrix,
-    db_admin_toggle_user_upload, db_update_report_description,
+    db_get_activity_log, db_get_audit_log,
+    db_admin_toggle_user_upload,
 )
-from deps import csrf_token, verify_csrf, require_admin_user, require_admin_csrf
+from deps import csrf_token, verify_csrf, require_admin_user, require_admin_csrf, json_body
 from errors import AppError
 from services.fabric import (
     sync_pbi_reports, fetch_pbi_folders_and_reports, fetch_pbi_folders_and_dashboards, LOOP_HEARTBEAT,
@@ -83,7 +82,7 @@ async def api_admin_get_groups(user: dict = Depends(require_admin_user)):
 @router.post("/api/admin/groups")
 async def api_admin_create_group(request: Request, user: dict = Depends(require_admin_csrf)):
     """그룹 생성. body: {name, description?}"""
-    body = await request.json()
+    body = await json_body(request)
     name = str(body.get("name", "")).strip()
     if not name or len(name) > 50:
         raise AppError.GROUP_NAME_INVALID.http()
@@ -118,7 +117,7 @@ async def api_admin_set_group_member(
     request: Request, group_id: int, user_id: int, user: dict = Depends(require_admin_csrf),
 ):
     """그룹 멤버 추가/제거. body: {member: bool}"""
-    body = await request.json()
+    body = await json_body(request)
     member = bool(body.get("member", False))
     try:
         await asyncio.to_thread(db_set_group_member, group_id, user_id, member, user["id"])
@@ -138,7 +137,7 @@ async def api_admin_set_group_access(
     request: Request, report_id: int, group_id: int, user: dict = Depends(require_admin_csrf),
 ):
     """보고서×그룹 열람 권한 부여/해제. body: {can_view: bool}"""
-    body = await request.json()
+    body = await json_body(request)
     can_view = bool(body.get("can_view", False))
     try:
         await asyncio.to_thread(db_set_report_group_access, report_id, group_id, can_view, user["id"])
@@ -166,7 +165,6 @@ CONFIG_LIMITS = {
     "import_poll_interval_sec":   (1, 60),
     "embed_token_lifetime_min":   (5, 60),
     "pbi_token_cache_margin_sec": (0, 3600),
-    "max_embed_rls_roles":        (1, 50),
     "activity_log_retention_days": (7, 3650),
     "refresh_auto_retry_max":     (0, 8),      # Pro refresh 한도 8회/일 이내
     "error_log_retention_days":  (7, 3650),
@@ -185,7 +183,7 @@ async def api_admin_set_config(request: Request, user: dict = Depends(require_ad
     """런타임 설정 변경 — 저장 즉시 재시작 없이 반영된다.
 
     키는 마이그레이션이 시드한 것만 허용하고, 값은 정수만 받는다(현재 키 전부 정수)."""
-    body = await request.json()
+    body = await json_body(request)
     key, value = str(body.get("key", "")), str(body.get("value", "")).strip()
     if key not in CONFIG_LIMITS:
         raise AppError.CONFIG_KEY_UNKNOWN.http(key=key)
@@ -536,7 +534,7 @@ async def api_admin_set_access(
     request: Request, report_id: int, user_id: int, user: dict = Depends(require_admin_csrf),
 ):
     """보고서에 대한 특정 사용자의 열람 권한을 설정한다."""
-    body = await request.json()
+    body = await json_body(request)
     can_view = bool(body.get("can_view", False))
     await asyncio.to_thread(db_set_report_access, report_id, user_id, can_view, user["id"])
     if not can_view:
@@ -548,12 +546,6 @@ async def api_admin_set_access(
 
 # ── 권한 매트릭스 / 로그 / 편의 (v3) ─────────────────────────────────────────
 
-@router.get("/api/admin/access-matrix")
-async def api_admin_access_matrix(user: dict = Depends(require_admin_user)):
-    """권한 매트릭스 데이터: 그룹 전체 × active 보고서 전체 + 부여 현황."""
-    return await asyncio.to_thread(db_get_access_matrix)
-
-
 @router.post("/api/admin/users/{user_id}/toggle-upload")
 async def api_admin_toggle_upload(user_id: int, user: dict = Depends(require_admin_csrf)):
     """사용자의 보고서 업로드 권한을 켜고 끈다."""
@@ -563,19 +555,6 @@ async def api_admin_toggle_upload(user_id: int, user: dict = Depends(require_adm
     logger.info("ADMIN UPLOAD PERM | admin=%s | user_id=%s | can_upload=%s",
                 user["username"], user_id, can_upload)
     return {"can_upload": can_upload}
-
-
-@router.post("/api/admin/reports/{report_id}/description")
-async def api_admin_set_description(
-    request: Request, report_id: int, user: dict = Depends(require_admin_csrf),
-):
-    """보고서 설명 수정. body: {description: str} (빈 문자열 = 설명 제거)"""
-    body = await request.json()
-    description = str(body.get("description", ""))[:500]
-    updated = await asyncio.to_thread(db_update_report_description, report_id, description)
-    if not updated:
-        raise AppError.REPORT_NOT_FOUND.http()
-    return {"report_id": report_id, "description": description.strip() or None}
 
 
 def _fetch_logs(log_type: str, username: str, event: str, date_from: str, date_to: str):
@@ -625,74 +604,11 @@ async def api_admin_logs_export(
     )
 
 
-# ── v4: 동적 RLS 설정 ────────────────────────────────────────────────────────
-
-@router.get("/api/admin/reports/{report_id}/rls")
-async def api_admin_get_rls(report_id: int, user: dict = Depends(require_admin_user)):
-    """보고서 RLS 현황 (편집 모달 초기값)."""
-    row = await asyncio.to_thread(db_get_report_rls, report_id)
-    if not row:
-        raise AppError.REPORT_NOT_FOUND.http()
-    return {"enabled": row["enabled"], "role_names": row["role_names"]}
-
-
-@router.post("/api/admin/reports/{report_id}/rls")
-async def api_admin_set_rls(
-    request: Request, report_id: int, user: dict = Depends(require_admin_csrf),
-):
-    """보고서 RLS on/off + 역할 목록 변경. body: {enabled: bool, role_names: [..]}
-
-    role_names는 PBIX에 정의된 역할 이름. 비우면 임베드 시 사용자별 users.roles가 쓰인다.
-    변경 즉시 임베드 캐시를 퇴거해 다음 열람부터 새 identity로 토큰이 발급된다."""
-    body = await request.json()
-    enabled = bool(body.get("enabled", False))
-    role_names = [str(r).strip() for r in body.get("role_names", []) if str(r).strip()]
-    if len(role_names) > config.MAX_EMBED_RLS_ROLES:
-        raise AppError.RLS_TOO_MANY_ROLES.http(max=config.MAX_EMBED_RLS_ROLES)
-    updated = await asyncio.to_thread(db_set_report_rls, report_id, enabled, role_names, user["id"])
-    if not updated:
-        raise AppError.REPORT_NOT_FOUND.http()
-    invalidate_embed_cache(report_id)
-    logger.info("ADMIN RLS | admin=%s | report_id=%s | enabled=%s | roles=%s",
-                user["username"], report_id, enabled, role_names)
-    return {"enabled": enabled, "role_names": role_names}
-
-
-@router.post("/api/admin/users/{user_id}/rls")
-async def api_admin_set_user_rls(
-    request: Request, user_id: int, user: dict = Depends(require_admin_csrf),
-):
-    """사용자 RLS 식별자(pbi_username)·역할 변경. body: {pbi_username, roles: [..]}
-
-    임베드 캐시 키에 pbi_username·roles가 포함되므로 별도 퇴거 없이
-    다음 열람부터 새 identity가 적용된다 (기존 토큰은 만료까지 유효 — 최대 1h)."""
-    body = await request.json()
-    pbi_username = str(body.get("pbi_username", "")).strip()
-    roles = [str(r).strip() for r in body.get("roles", []) if str(r).strip()] or ["도메인"]
-    if not pbi_username:
-        raise AppError.RLS_IDENTIFIER_REQUIRED.http()
-    if len(roles) > config.MAX_EMBED_RLS_ROLES:
-        raise AppError.RLS_TOO_MANY_ROLES.http(max=config.MAX_EMBED_RLS_ROLES)
-    updated = await asyncio.to_thread(db_set_user_rls, user_id, pbi_username, roles)
-    if not updated:
-        raise AppError.USER_NOT_FOUND.http()
-    logger.info("ADMIN USER RLS | admin=%s | user_id=%s | pbi=%s | roles=%s",
-                user["username"], user_id, pbi_username, roles)
-    return {"pbi_username": pbi_username, "roles": roles}
-
-
 # ── v4: 신선도·자가진단 ──────────────────────────────────────────────────────
-
-@router.get("/api/admin/freshness")
-async def api_admin_freshness(user: dict = Depends(require_admin_user)):
-    """데이터셋 신선도 현황 (실패·미갱신 우선 정렬)."""
-    rows = await asyncio.to_thread(db_get_freshness_overview)
-    return {"datasets": [dict(r) for r in rows]}
-
 
 @router.get("/api/admin/system-status")
 async def api_admin_system_status(user: dict = Depends(require_admin_user)):
-    """자가진단: DB 응답시간·백그라운드 루프 하트비트·실패 잡·신선도 실패 수."""
+    """자가진단: DB 응답시간·백그라운드 루프 하트비트·실패 잡 수."""
     import time as _time
     t0 = _time.perf_counter()
     stats = await asyncio.to_thread(db_system_stats)
@@ -703,14 +619,9 @@ async def api_admin_system_status(user: dict = Depends(require_admin_user)):
     }
     return {
         "db_latency_ms": db_ms,
-        "loop_seconds_ago": heartbeats,      # {"pbi_sync": 132, "freshness": 132}
+        "loop_seconds_ago": heartbeats,      # {"pbi_sync": 132}
         "sync_interval_sec": config.PBI_SYNC_INTERVAL,
         **stats,
     }
 
 
-@router.get("/api/admin/errors")
-async def api_admin_recent_errors(user: dict = Depends(require_admin_user)):
-    """최근 서버 오류(5xx) 목록 — main.py 전역 예외 핸들러가 자동 기록한 것 (v5)."""
-    rows = await asyncio.to_thread(db_get_recent_errors, 20)
-    return {"errors": [dict(r) for r in rows]}

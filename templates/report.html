@@ -15,8 +15,7 @@
           username: {{ user.username | tojson }},
           display_name: {{ user.display_name | tojson }},
           is_admin: {{ (user.is_admin or False) | tojson }},
-          can_upload: {{ (user.can_upload or False) | tojson }},
-          default_report_id: {{ user.default_report_id | tojson }}
+          can_upload: {{ (user.can_upload or False) | tojson }}
         },
         reports: [
           {%- for r in reports %}

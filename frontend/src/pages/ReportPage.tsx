@@ -10,7 +10,6 @@ import {
   LayoutDashboard,
   LayoutList,
   Maximize,
-  Pin,
   Search,
   Star,
   TrendingUp,
@@ -19,7 +18,7 @@ import {
 } from "lucide-react";
 import type { ReportData, ReportItem, SessionUser } from "../bootstrap";
 import {
-  fetchEmbed, fetchUploadStatus, logout, setDefaultReport, uploadPbix,
+  fetchEmbed, fetchUploadStatus, logout, uploadPbix,
   fetchMyActivity, MyActivityRow, startReportUpdate,
 } from "../api";
 import { useFavorites } from "../useFavorites";
@@ -61,19 +60,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
   const { isFav, toggle: toggleFav } = useFavorites(data.favorites, csrf_token);
   const { recents, push: pushRecent } = useRecents(data.recents, csrf_token);
 
-  // 기본 보고서: 서버 저장값을 초기값으로, 핀 토글 시 즉시 갱신 (낙관적 UI)
-  const [defaultId, setDefaultId] = useState<number | null>(
-    user.default_report_id ?? null,
-  );
-  const toggleDefault = useCallback(
-    (id: number) => {
-      const next = defaultId === id ? null : id;
-      setDefaultId(next);
-      setDefaultReport(next, csrf_token).catch(() => setDefaultId(defaultId));
-    },
-    [defaultId, csrf_token],
-  );
-
   // 열람 보고서 = 열람 가능한 보고서 전체(폴더 트리).
   //  - 관리자: 모든 보고서(권한과 무관하게 다 봄)
   //  - 일반 사용자: 관리자 포털에서 열람권한을 부여받은 보고서 + 본인 업로드
@@ -94,18 +80,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
     sessionStorage.setItem(TABS_KEY, JSON.stringify(tabs));
     sessionStorage.setItem(ACTIVE_KEY, String(active ?? ""));
   }, [tabs, active]);
-
-  // 기본 보고서 자동 열기 — 새 세션(복원할 탭 없음)에서만. 기존 작업 흐름은 방해하지 않는다.
-  const autoOpened = useRef(false);
-  useEffect(() => {
-    if (autoOpened.current || tabs.length > 0 || !defaultId) return;
-    const target = reports.find((r) => r.id === defaultId);
-    if (target) {
-      autoOpened.current = true;
-      openReport(target);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const goMode = useCallback((m: Mode) => {
     setMode(m);
@@ -244,8 +218,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 tabs={tabs}
                 active={active}
                 isFav={isFav}
-                defaultId={defaultId}
-                onToggleDefault={toggleDefault}
                 canUpload={canUpload}
                 onToggleFav={toggleFav}
                 onActivate={setActive}
@@ -695,8 +667,6 @@ function MyReportsView({
   tabs,
   active,
   isFav,
-  defaultId,
-  onToggleDefault,
   canUpload,
   onToggleFav,
   onActivate,
@@ -709,8 +679,6 @@ function MyReportsView({
   tabs: OpenTab[];
   active: number | null;
   isFav: (id: number) => boolean;
-  defaultId: number | null;
-  onToggleDefault: (id: number) => void;
   canUpload: boolean;
   onToggleFav: (id: number) => void;
   onActivate: (id: number) => void;
@@ -719,16 +687,6 @@ function MyReportsView({
   csrf: string;
   user: SessionUser;
 }) {
-  // 탭별 데이터 신선도(마지막 refresh 성공 시각) + RLS 적용 여부 — ReportPanel이 임베드 응답에서 올려준다
-  const [freshMap, setFreshMap] = useState<
-    Record<number, { asOf: string | null; status: string | null; rlsEnabled: boolean }>
-  >({});
-  const onFreshness = useCallback(
-    (rid: number, asOf: string | null, status: string | null, rlsEnabled: boolean) =>
-      setFreshMap((prev) => ({ ...prev, [rid]: { asOf, status, rlsEnabled } })),
-    [],
-  );
-
   // 탭별 임베드 인스턴스 참조 — 전체화면·보기모드 버튼이 활성 탭의 인스턴스를 직접 조작한다.
   // ref라 리렌더를 트리거하지 않고, 탭이 바뀌면 해당 탭의 것만 조회한다.
   const reportRefs = useRef<Record<number, { report: pbi.Report; isDashboard: boolean }>>({});
@@ -746,7 +704,6 @@ function MyReportsView({
     return <ReportLanding reports={reports} canUpload={canUpload} onGoUpload={onGoUpload} />;
   }
   const activeTab = tabs.find((t) => t.id === active);
-  const fresh = activeTab ? freshMap[activeTab.id] : undefined;
   const activeEntry = activeTab ? reportRefs.current[activeTab.id] : undefined;
   const activeReportItem = activeTab ? reports.find((r) => r.id === activeTab.id) : undefined;
   // 업데이트(콘텐츠 교체) 권한: 열람 권한(can_view)과는 완전히 별개 — 소유자 또는 admin만.
@@ -785,22 +742,6 @@ function MyReportsView({
             />
             <span className="rp-toolbar-label">즐겨찾기</span>
           </button>
-          <button
-            className={`rp-report-toolbar-fav rp-toolbar-pin${defaultId === activeTab.id ? " on" : ""}`}
-            title={
-              defaultId === activeTab.id
-                ? "기본 보고서 해제"
-                : "기본 보고서로 설정 (접속 시 자동으로 열림)"
-            }
-            onClick={() => onToggleDefault(activeTab.id)}
-          >
-            <Pin
-              size={16}
-              className="icn"
-              fill={defaultId === activeTab.id ? "currentColor" : "none"}
-            />
-            <span className="rp-toolbar-label">기본</span>
-          </button>
           {!activeEntry?.isDashboard && (
             <div className="rp-toolbar-fitgroup">
               <button className="rp-toolbar-fitbtn" title="페이지에 맞춤" onClick={() => setDisplay("FitToPage")}>
@@ -821,21 +762,12 @@ function MyReportsView({
           {!activeEntry?.isDashboard && canEditActive && (
             <button
               className="btn btn-ghost btn-sm rp-toolbar-update-btn"
-              title="새 pbix로 콘텐츠만 교체 (데이터셋·RLS는 유지)"
+              title="새 pbix로 콘텐츠만 교체 (데이터셋은 유지)"
               onClick={() => setShowUpdate(true)}
             >
               업데이트
             </button>
           )}
-          {fresh?.rlsEnabled && (
-            <span
-              className="rp-rls-badge"
-              title="이 보고서는 사용자 역할에 따라 보이는 데이터(행)가 다를 수 있습니다"
-            >
-              개인화 데이터
-            </span>
-          )}
-          {fresh && <FreshnessBadge asOf={fresh.asOf} status={fresh.status} />}
         </div>
       )}
       {showUpdate && activeTab && (
@@ -848,7 +780,7 @@ function MyReportsView({
       )}
       <div className="rp-panels">
         {tabs.map((t) => (
-          <ReportPanel key={t.id} id={t.id} active={t.id === active} onFreshness={onFreshness} onReady={onReady} />
+          <ReportPanel key={t.id} id={t.id} active={t.id === active} onReady={onReady} />
         ))}
       </div>
       {/* 탭 바 — 하단 */}
@@ -913,49 +845,13 @@ function ReportLanding({
   );
 }
 
-/** 데이터 기준(마지막 refresh 성공) 배지 — 26시간 넘으면 경고, refresh 실패면 위험. */
-function FreshnessBadge({ asOf, status }: { asOf: string | null; status: string | null }) {
-  if (status === "Failed") {
-    return (
-      <span className="rp-fresh danger" title="데이터셋 새로고침이 실패했습니다. 관리자에게 문의하세요.">
-        데이터 갱신 실패
-      </span>
-    );
-  }
-  if (!asOf) {
-    // NotRefreshable(DirectQuery 등) 또는 아직 수집 전 — 예전엔 아무것도 안 보여줘서
-    // "고장인지 정상인지" 구분이 안 됐다. 중립 배지로 상태를 명시한다.
-    return (
-      <span
-        className="rp-fresh muted"
-        title="이 보고서는 자동 새로고침 이력이 없거나 아직 수집되지 않았습니다"
-      >
-        데이터 갱신 정보 없음
-      </span>
-    );
-  }
-  const d = new Date(asOf);
-  const ageHours = (Date.now() - d.getTime()) / 3_600_000;
-  const label = `${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return (
-    <span
-      className={`rp-fresh${ageHours > 26 ? " warn" : ""}`}
-      title={ageHours > 26 ? "데이터가 하루 이상 갱신되지 않았습니다" : "마지막 데이터 새로고침 성공 시각"}
-    >
-      데이터 기준 {label}
-    </span>
-  );
-}
-
 function ReportPanel({
   id,
   active,
-  onFreshness,
   onReady,
 }: {
   id: number;
   active: boolean;
-  onFreshness: (rid: number, asOf: string | null, status: string | null, rlsEnabled: boolean) => void;
   onReady: (rid: number, report: pbi.Report, isDashboard: boolean) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -977,7 +873,6 @@ function ReportPanel({
           const d = await fetchEmbed(id);
           if (cancelled) return;
           await report.setAccessToken(d.embed_token);
-          onFreshness(id, d.data_as_of ?? null, d.refresh_status ?? null, Boolean(d.rls_enabled));
           scheduleRenew(report, d.expires_at);
         } catch {
           if (!cancelled) scheduleRenew(report, Date.now() / 1000 + 6 * 60);
@@ -989,7 +884,6 @@ function ReportPanel({
       try {
         const d = await fetchEmbed(id);
         if (cancelled || !el) return;
-        onFreshness(id, d.data_as_of ?? null, d.refresh_status ?? null, Boolean(d.rls_enabled));
         const s = d.settings || {};
         const isDashboard = s.tab_type === "dashboard";
         // 대시보드는 페이지·필터창 개념이 없어 report 전용 설정을 넣으면 SDK가
@@ -1046,7 +940,7 @@ function ReportPanel({
       if (renewTimer) window.clearTimeout(renewTimer);
       if (el) powerbi.reset(el);
     };
-  }, [id, onFreshness, onReady]);
+  }, [id, onReady]);
 
   return (
     <div className={`rp-panel${active ? " active" : ""}`}>

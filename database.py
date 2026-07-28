@@ -135,8 +135,7 @@ def db_get_user(username: str):
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, username, display_name, pbi_username, roles, is_admin, "
-                "       can_upload, default_report_id "
+                "SELECT id, username, display_name, pbi_username, roles, is_admin, can_upload "
                 "FROM users WHERE username = %s AND is_active = TRUE",
                 (username,),
             )
@@ -320,9 +319,7 @@ def db_get_report(report_id: int):
                 """SELECT r.id, r.name, r.report_type, r.owner_id,
                           r.pbi_report_id, r.pbi_dataset_id, r.pbi_workspace_id,
                           r.default_page, r.enable_filter, r.enable_page_nav,
-                          r.use_data_bot, r.tab_type,
-                          COALESCE(r.rls_enabled, FALSE) AS rls_enabled,
-                          COALESCE(r.rls_role_names, ARRAY[]::TEXT[]) AS rls_role_names
+                          r.use_data_bot, r.tab_type
                    FROM reports r
                    WHERE r.id = %s""",
                 (report_id,),
@@ -901,9 +898,14 @@ def db_get_report_access(report_id: int) -> list:
 
 
 def db_set_report_access(report_id: int, user_id: int, can_view: bool, granted_by: int) -> None:
-    """보고서에 대한 특정 사용자의 열람 권한을 설정한다."""
+    """보고서에 대한 특정 사용자의 열람 권한을 설정한다.
+
+    없는 보고서·사용자 ID면 FK 위반이 나는데, 이는 서버 장애가 아니라 잘못된 요청이므로
+    404로 변환한다 (그대로 두면 500).
+    """
     with db_conn() as conn:
         with conn.cursor() as cur:
+          try:
             if can_view:
                 cur.execute(
                     """INSERT INTO user_reports (user_id, report_id, can_view, granted_by)
@@ -916,6 +918,9 @@ def db_set_report_access(report_id: int, user_id: int, can_view: bool, granted_b
                     "UPDATE user_reports SET can_view = FALSE WHERE user_id = %s AND report_id = %s",
                     (user_id, report_id),
                 )
+          except psycopg2.errors.ForeignKeyViolation as exc:
+            conn.rollback()
+            raise AppError.REPORT_NOT_FOUND.http() from exc
         conn.commit()
 
 
@@ -982,8 +987,10 @@ def db_get_group_members(group_id: int) -> list:
 
 
 def db_set_group_member(group_id: int, user_id: int, member: bool, added_by: int) -> None:
+    """그룹 멤버 추가/제거. 없는 그룹·사용자면 404 (FK 위반 → 500 방지)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
+          try:
             if member:
                 cur.execute(
                     """INSERT INTO user_groups (user_id, group_id, added_by) VALUES (%s, %s, %s)
@@ -995,6 +1002,9 @@ def db_set_group_member(group_id: int, user_id: int, member: bool, added_by: int
                     "DELETE FROM user_groups WHERE user_id = %s AND group_id = %s",
                     (user_id, group_id),
                 )
+          except psycopg2.errors.ForeignKeyViolation as exc:
+            conn.rollback()
+            raise AppError.USER_NOT_FOUND.http() from exc
         conn.commit()
 
 
@@ -1015,8 +1025,10 @@ def db_get_report_group_access(report_id: int) -> list:
 
 
 def db_set_report_group_access(report_id: int, group_id: int, can_view: bool, granted_by: int) -> None:
+    """그룹 단위 열람 권한 설정. 없는 보고서·그룹이면 404 (FK 위반 → 500 방지)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
+          try:
             if can_view:
                 cur.execute(
                     """INSERT INTO group_reports (group_id, report_id, can_view, granted_by)
@@ -1030,6 +1042,9 @@ def db_set_report_group_access(report_id: int, group_id: int, can_view: bool, gr
                     "DELETE FROM group_reports WHERE group_id = %s AND report_id = %s",
                     (group_id, report_id),
                 )
+          except psycopg2.errors.ForeignKeyViolation as exc:
+            conn.rollback()
+            raise AppError.REPORT_NOT_FOUND.http() from exc
         conn.commit()
 
 
@@ -1185,19 +1200,6 @@ def db_get_popular_report_ids(days: int = 30, limit: int = 20) -> list:
             return cur.fetchall()
 
 
-# ── 사용자 편의 (v3) ─────────────────────────────────────────────────────────
-
-def db_set_default_report(user_id: int, report_id: int | None) -> None:
-    """기본 보고서 설정/해제(None). FK가 잘못된 ID를 거른다(ForeignKeyViolation)."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE users SET default_report_id = %s, updated_at = NOW() WHERE id = %s",
-                (report_id, user_id),
-            )
-        conn.commit()
-
-
 def db_admin_toggle_user_upload(user_id: int):
     """업로드 권한 토글. 반환: 변경 후 can_upload (없는 사용자·관리자는 None).
 
@@ -1214,195 +1216,10 @@ def db_admin_toggle_user_upload(user_id: int):
     return row["can_upload"] if row else None
 
 
-def db_update_report_description(report_id: int, description: str) -> bool:
-    """보고서 설명 수정 (관리자 보고서 탭). 빈 문자열은 NULL로 저장."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE reports SET description = NULLIF(%s, ''), updated_at = NOW() "
-                "WHERE id = %s AND status <> 'deleted'",
-                (description.strip(), report_id),
-            )
-            updated = cur.rowcount > 0
-        conn.commit()
-    return updated
-
-
-def db_get_access_matrix() -> dict:
-    """권한 매트릭스 데이터: 그룹 전체 + active 보고서 전체 + 부여 쌍.
-
-    반환: {"groups": [{id,name,member_count}], "reports": [{id,name,category,group_ids:[...]}]}"""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT g.id, g.name,
-                          (SELECT COUNT(*) FROM user_groups ug WHERE ug.group_id = g.id) AS member_count
-                   FROM groups g ORDER BY g.name"""
-            )
-            groups = cur.fetchall()
-            cur.execute(
-                """SELECT r.id, r.name, r.category,
-                          COALESCE(ARRAY_AGG(gr.group_id) FILTER (WHERE gr.can_view), '{}') AS group_ids
-                   FROM reports r
-                   LEFT JOIN group_reports gr ON gr.report_id = r.id
-                   WHERE r.status = 'active'
-                   GROUP BY r.id
-                   ORDER BY r.category NULLS LAST, r.name"""
-            )
-            reports = cur.fetchall()
-    return {"groups": groups, "reports": reports}
-
-
-# ── v4: 데이터 신선도 관제 ────────────────────────────────────────────────────
-
-def db_get_freshness_targets() -> list:
-    """신선도 수집 대상: active 보고서가 쓰는 데이터셋(중복 제거) + 워크스페이스."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT DISTINCT pbi_dataset_id,
-                          COALESCE(pbi_workspace_id, %s) AS pbi_workspace_id
-                   FROM reports
-                   WHERE status = 'active' AND pbi_dataset_id IS NOT NULL""",
-                (WORKSPACE_ID,),
-            )
-            return cur.fetchall()
-
-
-def db_upsert_refresh_status(
-    dataset_id: str, workspace_id: str, status: str,
-    success_at=None, attempt_at=None, failure_reason: str | None = None,
-) -> None:
-    """refresh 이력 1건을 반영한다. 연속 실패 카운트는 상태에 따라 증감.
-
-    같은 데이터셋을 쓰는 보고서가 여럿이면(개인+관리 보고서가 같은 데이터셋을 공유하는
-    경우) WHERE pbi_dataset_id = %s가 그 보고서 행 전부에 동일하게 반영한다."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """UPDATE reports SET
-                       refresh_last_status = %s,
-                       refresh_last_success_at = COALESCE(%s, refresh_last_success_at),
-                       refresh_last_attempt_at = COALESCE(%s, refresh_last_attempt_at),
-                       refresh_failure_reason = %s,
-                       refresh_consecutive_failures = CASE WHEN %s = 'Failed'
-                                                           THEN refresh_consecutive_failures + 1 ELSE 0 END,
-                       updated_at = NOW()
-                   WHERE pbi_dataset_id = %s""",
-                (status, success_at, attempt_at, failure_reason, status, dataset_id),
-            )
-        conn.commit()
-
-
-def db_mark_refresh_retry(dataset_id: str) -> bool:
-    """자동 재시도 1회를 기록한다. 오늘 한도(config.REFRESH_AUTO_RETRY_MAX) 초과면 False."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """UPDATE reports SET
-                       refresh_auto_retries_today = CASE WHEN refresh_retry_date = CURRENT_DATE
-                                                         THEN refresh_auto_retries_today + 1 ELSE 1 END,
-                       refresh_retry_date = CURRENT_DATE,
-                       updated_at = NOW()
-                   WHERE pbi_dataset_id = %s
-                     AND (refresh_retry_date IS DISTINCT FROM CURRENT_DATE
-                          OR refresh_auto_retries_today < %s)
-                   RETURNING refresh_auto_retries_today""",
-                (dataset_id, config.REFRESH_AUTO_RETRY_MAX),
-            )
-            row = cur.fetchone()
-        conn.commit()
-    return row is not None
-
-
-def db_get_data_as_of(dataset_id: str | None):
-    """보고서 데이터 기준 시각(마지막 refresh 성공)과 상태. 뷰어 배지용."""
-    if not dataset_id:
-        return None
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT refresh_last_status AS last_status, refresh_last_success_at AS last_success_at "
-                "FROM reports WHERE pbi_dataset_id = %s LIMIT 1",
-                (dataset_id,),
-            )
-            return cur.fetchone()
-
-
-def db_get_freshness_overview() -> list:
-    """관리자용 신선도 현황: 보고서명과 조인해 실패·미갱신 순으로 반환."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT pbi_dataset_id,
-                          refresh_last_status AS last_status, refresh_last_success_at AS last_success_at,
-                          refresh_last_attempt_at AS last_attempt_at, refresh_failure_reason AS failure_reason,
-                          refresh_consecutive_failures AS consecutive_failures,
-                          refresh_auto_retries_today AS auto_retries_today,
-                          ARRAY_AGG(name ORDER BY name) AS report_names
-                   FROM reports
-                   WHERE status = 'active' AND pbi_dataset_id IS NOT NULL
-                   GROUP BY pbi_dataset_id, refresh_last_status, refresh_last_success_at,
-                            refresh_last_attempt_at, refresh_failure_reason,
-                            refresh_consecutive_failures, refresh_auto_retries_today
-                   ORDER BY (refresh_last_status = 'Failed') DESC, refresh_last_success_at ASC NULLS FIRST"""
-            )
-            return cur.fetchall()
-
-
-# ── v4: 동적 RLS 설정 ────────────────────────────────────────────────────────
-
-def db_set_report_rls(report_id: int, enabled: bool, role_names: list[str], actor_id: int) -> bool:
-    """보고서 RLS 설정 변경 + 감사 기록. 반환: 대상 보고서 존재 여부.
-
-    role_names는 PBIX에 정의된 역할 이름 목록. 비우면 사용자별 users.roles가 쓰인다
-    (services/powerbi.py identity 구성 로직 참조)."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """UPDATE reports SET rls_enabled = %s, rls_role_names = %s, updated_at = NOW()
-                   WHERE id = %s""",
-                (enabled, role_names, report_id),
-            )
-            updated = cur.rowcount > 0
-            if updated:
-                cur.execute(
-                    "INSERT INTO event_log (log_type, report_id, user_id, event, details) "
-                    "VALUES ('audit', %s, %s, 'rls_changed', jsonb_build_object('enabled', %s, 'roles', %s::text[]))",
-                    (report_id, actor_id, enabled, role_names),
-                )
-        conn.commit()
-    return updated
-
-
-def db_set_user_rls(user_id: int, pbi_username: str, roles: list[str]) -> bool:
-    """사용자 RLS 식별자(pbi_username)·역할 목록 변경. 반환: 대상 존재 여부."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE users SET pbi_username = %s, roles = %s, updated_at = NOW() WHERE id = %s",
-                (pbi_username, roles, user_id),
-            )
-            updated = cur.rowcount > 0
-        conn.commit()
-    return updated
-
-
-def db_get_report_rls(report_id: int):
-    """보고서 RLS 현황 (편집 모달 초기값)."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT rls_enabled AS enabled, rls_role_names AS role_names FROM reports WHERE id = %s",
-                (report_id,),
-            )
-            return cur.fetchone()
-
-
 # ── v4: 시스템 자가진단 ──────────────────────────────────────────────────────
 
 def db_system_stats() -> dict:
-    """자가진단 수치: 실패 잡·신선도 실패·로그 적재량을 한 쿼리로."""
+    """자가진단 수치: 실패 잡·로그 적재량·활성 보고서를 한 쿼리로."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1410,51 +1227,9 @@ def db_system_stats() -> dict:
                     (SELECT COUNT(*) FROM upload_jobs
                      WHERE status IN ('failed','unknown','db_failed')
                        AND created_at >= NOW() - INTERVAL '7 days')     AS failed_jobs_7d,
-                    (SELECT COUNT(DISTINCT pbi_dataset_id) FROM reports
-                     WHERE refresh_last_status = 'Failed')                AS failing_datasets,
                     (SELECT COUNT(*) FROM event_log WHERE log_type='activity') AS activity_rows,
                     (SELECT COUNT(*) FROM reports WHERE status='active') AS active_reports"""
             )
             return dict(cur.fetchone())
 
 
-# ── v5: 서버 오류 추적 ────────────────────────────────────────────────────────
-
-def db_log_error(
-    error_code: str, http_status: int, message: str | None,
-    username: str | None, path: str | None, detail: str | None,
-) -> None:
-    """5xx 오류 1건 기록. main.py 전역 예외 핸들러에서만 호출된다."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO event_log (log_type, event, http_status, message, username, path, detail) "
-                "VALUES ('error', %s, %s, %s, %s, %s, %s)",
-                (error_code, http_status, message, username, path, detail),
-            )
-        conn.commit()
-
-
-def db_get_recent_errors(limit: int = 20) -> list:
-    """관리자 현황용: 최근 서버 오류 목록 (최신순)."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, event AS error_code, http_status, message, username, path, detail, created_at "
-                "FROM event_log WHERE log_type = 'error' ORDER BY created_at DESC LIMIT %s",
-                (limit,),
-            )
-            return cur.fetchall()
-
-
-def db_cleanup_error_log() -> int:
-    """보존 기간(app_config: error_log_retention_days) 초과분 삭제. 일 1회 백그라운드 실행."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM event_log WHERE log_type = 'error' AND created_at < NOW() - %s * INTERVAL '1 day'",
-                (config.ERROR_LOG_RETENTION_DAYS,),
-            )
-            deleted = cur.rowcount
-        conn.commit()
-    return deleted

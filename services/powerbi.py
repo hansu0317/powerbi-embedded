@@ -83,9 +83,7 @@ def _build_embed_response(
         "embed_url":   embed_url,
         "expires_at":  expires_at,
         "report_id":   pbi_report_id,
-        "dataset_id":  report_row["pbi_dataset_id"],  # 신선도 배지 조회용
         "report_name": report_row["name"],
-        "rls_enabled": bool(report_row["rls_enabled"]),  # 뷰어에 "개인화된 데이터" 배지 표시용
         "settings": {
             "default_page":    report_row["default_page"],
             "enable_filter":   report_row["enable_filter"],
@@ -160,21 +158,12 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
                     dataset_info = resp.json()
 
             body = {"accessLevel": "view"}
-            identity_required = (
-                report_row["rls_enabled"]
-                or dataset_info is None
-                or dataset_info.get("isEffectiveIdentityRequired")
-            )
-            if identity_required:
+            # 데이터셋에 RLS 역할이 정의돼 있으면 Power BI가 identity를 강제한다
+            # (없이 보내면 400). 우리 쪽 설정은 없고, 사용자의 users.roles를 그대로 쓴다.
+            if dataset_info is None or dataset_info.get("isEffectiveIdentityRequired"):
                 identity = {"username": pbi_username, "datasets": [dataset_id]}
-                roles_required = (
-                    report_row["rls_enabled"]
-                    or dataset_info is None
-                    or dataset_info.get("isEffectiveIdentityRolesRequired")
-                )
-                if roles_required:
-                    configured_roles = report_row["rls_role_names"]
-                    identity["roles"] = configured_roles or list(roles or [])
+                if dataset_info is None or dataset_info.get("isEffectiveIdentityRolesRequired"):
+                    identity["roles"] = list(roles or [])
                 body["identities"] = [identity]
 
             resp = await client.post(f"{report_api}/reports/{pbi_report_id}/GenerateToken", headers=headers, json=body)
@@ -221,11 +210,6 @@ async def _fetch_dashboard_token(
         dash_info = resp.json()
 
         body = {"accessLevel": "view"}
-        if report_row["rls_enabled"]:
-            body["identities"] = [{
-                "username": pbi_username,
-                "roles": report_row["rls_role_names"] or list(roles or []),
-            }]
 
         resp = await client.post(f"{dash_api}/dashboards/{dashboard_id}/GenerateToken", headers=headers, json=body)
         if resp.status_code != 200:

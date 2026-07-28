@@ -812,6 +812,44 @@ def _v10_consolidate_schema(cur):
     cur.execute("DROP TABLE IF EXISTS user_recent_reports")
 
 
+def _v11_drop_removed_feature_columns(cur):
+    """제거된 기능들의 컬럼·설정 정리.
+
+    관리 화면에서 RLS 설정·신선도 관제·서버 오류 목록·기본 보고서 기능을 걷어내면서
+    그 데이터를 담던 컬럼도 함께 정리한다. RLS 자체가 사라진 것은 아니다 —
+    데이터셋에 역할이 정의돼 있으면 Power BI가 identity를 강제하므로(없으면 400),
+    임베드 시 users.roles를 그대로 실어 보내는 최소 경로는 코드에 남아 있다.
+    """
+    # RLS 설정(보고서별 on/off·역할 지정) — users.roles만으로 충분해짐
+    cur.execute("ALTER TABLE reports DROP COLUMN IF EXISTS rls_enabled")
+    cur.execute("ALTER TABLE reports DROP COLUMN IF EXISTS rls_role_names")
+
+    # 신선도 관제 — Fabric에서 직접 확인 가능해 중복이었다
+    for col in ("refresh_last_status", "refresh_last_success_at", "refresh_last_attempt_at",
+                "refresh_failure_reason", "refresh_consecutive_failures",
+                "refresh_auto_retries_today", "refresh_retry_date"):
+        cur.execute(f"ALTER TABLE reports DROP COLUMN IF EXISTS {col}")
+
+    # 기본 보고서(접속 시 자동 열기)
+    cur.execute("ALTER TABLE users DROP COLUMN IF EXISTS default_report_id")
+
+    # 서버 오류 로그 — 파일 로그(logs/server.log)로 일원화
+    cur.execute("DELETE FROM event_log WHERE log_type = 'error'")
+    cur.execute("ALTER TABLE event_log DROP CONSTRAINT IF EXISTS event_log_log_type_check")
+    cur.execute(
+        """ALTER TABLE event_log ADD CONSTRAINT event_log_log_type_check
+           CHECK (log_type IN ('activity', 'audit', 'login'))"""
+    )
+    cur.execute("DROP INDEX IF EXISTS event_log_error_created_idx")
+    cur.execute("DROP INDEX IF EXISTS event_log_error_code_idx")
+
+    # 쓰이지 않게 된 런타임 설정
+    cur.execute(
+        "DELETE FROM app_config WHERE key IN "
+        "('refresh_auto_retry_max', 'error_log_retention_days', 'max_embed_rls_roles')"
+    )
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
@@ -823,6 +861,7 @@ MIGRATIONS = [
     (8, _v8_config_desc_fix),
     (9, _v9_drop_dead_permission_columns),
     (10, _v10_consolidate_schema),
+    (11, _v11_drop_removed_feature_columns),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]
