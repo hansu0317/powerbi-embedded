@@ -60,8 +60,6 @@ class AppError(Enum):
     CONFIG_VALUE_INVALID = (400, "CONFIG_VALUE_INVALID",  "설정 값은 정수여야 합니다: '{value}'")
     CONFIG_KEY_UNKNOWN   = (400, "CONFIG_KEY_UNKNOWN",    "알 수 없는 설정 키입니다: '{key}'")
     CONFIG_VALUE_OUT_OF_RANGE = (400, "CONFIG_VALUE_OUT_OF_RANGE", "'{key}' 값은 {min}~{max} 범위여야 합니다.")
-    RLS_TOO_MANY_ROLES   = (400, "RLS_TOO_MANY_ROLES",    "RLS 역할은 최대 {max}개까지 지정할 수 있습니다.")
-    RLS_IDENTIFIER_REQUIRED = (400, "RLS_IDENTIFIER_REQUIRED", "PBI 사용자명(RLS 식별자)은 비울 수 없습니다.")
 
     # ── 외부 서비스 오류 ──────────────────────────────────────────────────────
     TOKEN_FAILED         = (500, "TOKEN_FAILED",          "Azure AD 토큰 발급 실패: {detail}")
@@ -83,7 +81,7 @@ class AppError(Enum):
 
     # ── 서버/DB ───────────────────────────────────────────────────────────────
     DB_UNAVAILABLE       = (503, "DB_UNAVAILABLE",        "데이터베이스를 사용할 수 없습니다.")
-    UPLOAD_INTERNAL      = (500, "UPLOAD_INTERNAL",       "업로드 처리 중 오류가 발생했습니다. 관리자 로그를 확인하세요.")
+    UPLOAD_INTERNAL      = (500, "UPLOAD_INTERNAL",       "업로드 처리 중 오류가 발생했습니다. 서버 로그를 확인하세요.")
     UPLOAD_DB_FAILED     = (500, "UPLOAD_DB_FAILED",
                             "Fabric 게시에는 성공했지만 게이트웨이 DB 등록에 실패했습니다. "
                             "같은 파일을 다시 올리지 말고 관리자에게 로그의 Report ID를 전달해 주세요.")
