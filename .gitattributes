@@ -1,0 +1,22 @@
+# 줄바꿈 고정 — Windows 개발 PC에서 클론해도 스크립트가 깨지지 않도록.
+# git이 .sh를 CRLF로 바꾸면 리눅스·WSL에서 "bad interpreter" 오류로 실행되지 않는다.
+
+* text=auto eol=lf
+
+# 리눅스에서 실행되는 것은 반드시 LF
+*.sh        text eol=lf
+*.py        text eol=lf
+
+# Windows PowerShell은 CRLF가 자연스럽다
+*.ps1       text eol=crlf
+
+# 바이너리 — git이 내용을 건드리지 않게
+*.pbix      binary
+*.pptx      binary
+*.docx      binary
+*.pdf       binary
+*.png       binary
+*.jpg       binary
+*.ico       binary
+*.woff2     binary
+*.dump      binary
