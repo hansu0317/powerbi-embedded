@@ -41,12 +41,13 @@ export interface UploadAccepted {
 }
 
 export async function uploadPbix(
-  file: File, csrf: string, reportName?: string, description?: string,
+  file: File, csrf: string, reportName?: string, description?: string, folder?: string,
 ): Promise<UploadAccepted> {
   const fd = new FormData();
   fd.append("file", file);
   if (reportName) fd.append("report_name", reportName);
   if (description) fd.append("report_description", description);
+  if (folder) fd.append("folder", folder);
   const res = await fetch("/api/upload", {
     method: "POST",
     body: fd,
@@ -210,18 +211,6 @@ export async function adminDeleteReport(reportId: number, csrf: string) {
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(extractDetail(j, res.statusText));
   return j as { deleted: boolean; pbi_warning?: string };
-}
-
-export async function adminRefreshDataset(reportId: number, csrf: string) {
-  const res = await fetch(`/api/admin/reports/${reportId}/refresh`, {
-    method: "POST",
-    headers: { "X-CSRF-Token": csrf },
-  });
-  if (!res.ok) {
-    const j = await res.json().catch(() => ({}));
-    throw new Error(extractDetail(j, "알 수 없는 오류"));
-  }
-  return res.json();
 }
 
 export interface AccessUser {

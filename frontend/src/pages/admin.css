@@ -455,3 +455,122 @@
   cursor: pointer;
 }
 .rls-toggle input { width: 16px; height: 16px; accent-color: var(--sage-deep); }
+
+/* ── CSV 일괄 등록 모달 ─────────────────────────────────────────────
+   설명이 한 덩어리로 뭉쳐 읽기 어려웠던 것을 '작성 → 선택' 2단계로 나눈다.
+   컬럼 설명은 문장 대신 표로 두어 필수/선택이 한눈에 구분되게 한다. */
+.ad-bulk-lead {
+  margin: 0 0 16px;
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.ad-bulk-step { display: flex; gap: 12px; margin-bottom: 18px; }
+.ad-bulk-step:last-of-type { margin-bottom: 4px; }
+
+.ad-bulk-num {
+  flex: none;
+  width: 22px; height: 22px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--sage-deep);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.ad-bulk-body { flex: 1; min-width: 0; }
+.ad-bulk-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.ad-bulk-code {
+  font-family: ui-monospace, Consolas, Menlo, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--sage-bg);
+  border: 1px solid var(--sage-light);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.ad-bulk-cols {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  margin-bottom: 12px;
+}
+.ad-bulk-cols th,
+.ad-bulk-cols td {
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.ad-bulk-cols tr:last-child th,
+.ad-bulk-cols tr:last-child td { border-bottom: none; }
+.ad-bulk-cols th {
+  width: 8.5rem;
+  font-family: ui-monospace, Consolas, Menlo, monospace;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ad-bulk-cols td:nth-child(2) { width: 3.2rem; color: var(--ink-soft); }
+.ad-bulk-cols td.req { color: var(--sage-deep); font-weight: 700; }
+.ad-bulk-cols td:last-child { color: var(--ink-soft); line-height: 1.5; }
+.ad-bulk-cols code {
+  font-size: 0.72rem;
+  background: var(--sage-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.ad-bulk-drop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1.5px dashed var(--sage-light);
+  border-radius: 8px;
+  background: var(--sage-bg);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ad-bulk-drop:hover { border-color: var(--sage-deep); }
+.ad-bulk-drop:focus-within { outline: 2px solid var(--sage-deep); outline-offset: 2px; }
+.ad-bulk-drop input[type="file"] { display: none; }
+.ad-bulk-drop .icn { color: var(--sage-deep); flex: none; }
+.ad-bulk-dropname {
+  flex: 1;
+  font-size: 0.84rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ad-bulk-size { font-size: 0.75rem; color: var(--ink-soft); flex: none; }
+
+.ad-bulk-error {
+  margin: 12px 0 0;
+  font-size: 0.82rem;
+  color: #b3403c;
+}
+
+.ad-bulk-summary { display: flex; gap: 8px; margin: 0 0 12px; }
+.ad-bulk-summary span {
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+.ad-bulk-summary .ok   { background: var(--sage-bg);  color: var(--sage-deep); }
+.ad-bulk-summary .fail { background: #fdecec;        color: #b3403c; }
+.ad-bulk-summary .none { background: var(--surface-2, #f1f3f6); color: var(--ink-soft); }

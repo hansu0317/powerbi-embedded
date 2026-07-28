@@ -41,7 +41,6 @@ import {
   adminGetGroupMembers,
   adminGetGroups,
   adminImportPbi,
-  adminRefreshDataset,
   adminSetAccess,
   adminSetConfig,
   adminSetGroupAccess,
@@ -736,47 +735,83 @@ function BulkAddUsersModal({
       <div className="ad-modal-body">
         {!result && (
           <>
-            <p className="muted" style={{ marginTop: 0 }}>
-              헤더: <code>username,password,display_name,pbi_username,roles,groups,is_admin,can_upload</code>
-              <br />
-              roles·groups는 세미콜론(;)으로 여러 값을 구분합니다. groups에 적은 그룹은
-              미리 만들어져 있어야 하며, 그 그룹에 이미 부여된 보고서 열람 권한을 그대로 받습니다.
-              나머지 칸은 비워도 됩니다 (pbi_username→아이디, roles→도메인, is_admin→false, can_upload→true).
+            <p className="ad-bulk-lead">
+              CSV 한 장으로 여러 계정을 한 번에 만듭니다. 행마다 독립 처리되므로
+              일부가 실패해도 나머지는 그대로 등록됩니다.
             </p>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              style={{ marginBottom: 12 }}
-              onClick={() => {
-                const csv =
-                  "username,password,display_name,pbi_username,roles,groups,is_admin,can_upload\n" +
-                  "user01,TempPass123!,홍길동,,도메인,영업팀,false,true\n";
-                const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = "사용자_일괄등록_템플릿.csv";
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                URL.revokeObjectURL(url);
-              }}
-            >
-              <Download size={14} className="icn" /> 템플릿 다운로드
-            </button>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-            {error && <p style={{ color: "var(--danger, #c0392b)" }}>오류: {error}</p>}
+
+            <div className="ad-bulk-step">
+              <span className="ad-bulk-num">1</span>
+              <div className="ad-bulk-body">
+                <div className="ad-bulk-title">템플릿을 받아 작성합니다</div>
+                <div className="ad-bulk-code">
+                  username,password,display_name,pbi_username,roles,groups,is_admin,can_upload
+                </div>
+                <table className="ad-bulk-cols">
+                  <tbody>
+                    <tr><th>username</th><td className="req">필수</td><td>로그인 아이디</td></tr>
+                    <tr><th>password</th><td className="req">필수</td><td>초기 비밀번호 (8자 이상)</td></tr>
+                    <tr><th>display_name</th><td className="req">필수</td><td>화면에 표시할 이름</td></tr>
+                    <tr><th>pbi_username</th><td>선택</td><td>RLS 식별자 — 비우면 아이디를 사용</td></tr>
+                    <tr><th>roles</th><td>선택</td><td>RLS 역할 — 비우면 <code>도메인</code>. 여러 개는 <code>;</code>로 구분</td></tr>
+                    <tr><th>groups</th><td>선택</td><td>소속 그룹 — <b>미리 만들어져 있어야</b> 하며, 그 그룹의 보고서 열람 권한을 그대로 상속</td></tr>
+                    <tr><th>is_admin</th><td>선택</td><td>관리자 여부 — 비우면 <code>false</code></td></tr>
+                    <tr><th>can_upload</th><td>선택</td><td>업로드 허용 — 비우면 <code>true</code></td></tr>
+                  </tbody>
+                </table>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    const csv =
+                      "username,password,display_name,pbi_username,roles,groups,is_admin,can_upload\n" +
+                      "user01,TempPass123!,홍길동,,도메인,영업팀,false,true\n";
+                    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "사용자_일괄등록_템플릿.csv";
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  <Download size={14} className="icn" /> 템플릿 다운로드
+                </button>
+              </div>
+            </div>
+
+            <div className="ad-bulk-step">
+              <span className="ad-bulk-num">2</span>
+              <div className="ad-bulk-body">
+                <div className="ad-bulk-title">작성한 파일을 선택합니다</div>
+                <label className="ad-bulk-drop">
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  />
+                  <Upload size={18} className="icn" />
+                  <span className="ad-bulk-dropname">
+                    {file ? file.name : "클릭해서 .csv 파일 선택"}
+                  </span>
+                  {file && (
+                    <span className="ad-bulk-size">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+                  )}
+                </label>
+              </div>
+            </div>
+
+            {error && <p className="ad-bulk-error">오류: {error}</p>}
           </>
         )}
         {result && (
           <>
-            <p>
-              생성 <b>{result.created}</b>건 · 실패 <b>{result.failed}</b>건
-            </p>
+            <div className="ad-bulk-summary">
+              <span className="ok">성공 {result.created}건</span>
+              <span className={result.failed ? "fail" : "none"}>실패 {result.failed}건</span>
+            </div>
             <div className="card-table" style={{ maxHeight: 320, overflow: "auto" }}>
               <table>
                 <thead>
@@ -889,16 +924,6 @@ function ReportsSection({
     }
   };
 
-  const doRefresh = async (r: AdminReport) => {
-    if (!confirm(`'${r.name}' 데이터셋을 새로고침 하시겠습니까?`)) return;
-    try {
-      await adminRefreshDataset(r.id, csrf);
-      showToast(`'${r.name}' 새로고침 요청 완료 (PBI가 백그라운드 처리)`, "ok");
-    } catch (e) {
-      showToast("새로고침 실패: " + (e as Error).message, "err");
-    }
-  };
-
   return (
     <section>
       <div className="ad-section-head">
@@ -979,11 +1004,6 @@ function ReportsSection({
                   >
                     권한
                   </button>
-                  {r.pbi_dataset_id && (
-                    <button className="btn btn-primary btn-sm" onClick={() => doRefresh(r)}>
-                      새로고침
-                    </button>
-                  )}
                   {r.status !== "deleted" && (
                     <button className="btn btn-danger btn-sm" onClick={() => doDelete(r)}>
                       삭제

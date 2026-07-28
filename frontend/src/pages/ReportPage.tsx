@@ -239,7 +239,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 onGoUpload={() => setView("upload")}
               />
             )}
-            {view === "upload" && canUpload && <UploadView csrf={csrf_token} />}
+            {view === "upload" && canUpload && <UploadView csrf={csrf_token} user={user} />}
           </main>
         </div>
       )}
@@ -1275,11 +1275,12 @@ const STATUS_LABELS: Record<string, string> = {
   pbi_succeeded: "DB 등록 중",
 };
 
-function UploadView({ csrf }: { csrf: string }) {
+function UploadView({ csrf, user }: { csrf: string; user: SessionUser }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [reportName, setReportName] = useState("");
   const [description, setDescription] = useState("");
+  const [folder, setFolder] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ msg: string; tone: "" | "ok" | "err" }>(
     { msg: "", tone: "" },
@@ -1298,7 +1299,7 @@ function UploadView({ csrf }: { csrf: string }) {
     setBusy(true);
     setStatus({ msg: `'${file.name}' 전송 중...`, tone: "" });
     try {
-      const accepted = await uploadPbix(file, csrf, reportName.trim(), description.trim());
+      const accepted = await uploadPbix(file, csrf, reportName.trim(), description.trim(), folder.trim());
       const jobId = accepted.job_id;
       const name = accepted.report_name;
       setStatus({ msg: `'${name}' PBI 게시 중... (보통 30초~2분)`, tone: "" });
@@ -1344,6 +1345,24 @@ function UploadView({ csrf }: { csrf: string }) {
             onChange={(e) => setReportName(e.target.value)}
             disabled={busy}
           />
+        </div>
+
+        <div className="rp-field">
+          <label>폴더 (선택)</label>
+          <input
+            placeholder="예: 영업/월간  —  비워 두면 내 계정 폴더에 바로 저장됩니다"
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            maxLength={120}
+            disabled={busy}
+          />
+          <span className="rp-field-hint">
+            저장 위치 :  {user.username}
+            {folder.trim()
+              ? "/" + folder.split("/").map((p) => p.trim()).filter(Boolean).join("/")
+              : ""}
+            /{reportName.trim() || "보고서명"}
+          </span>
         </div>
 
         <div className="rp-field">

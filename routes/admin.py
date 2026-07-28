@@ -34,7 +34,7 @@ from services.fabric import (
     sync_pbi_reports, fetch_pbi_folders_and_reports, fetch_pbi_folders_and_dashboards, LOOP_HEARTBEAT,
 )
 from services.powerbi import (
-    pbi_delete_report, pbi_delete_dataset, pbi_refresh_dataset, invalidate_embed_cache,
+    pbi_delete_report, pbi_delete_dataset, invalidate_embed_cache,
 )
 
 router = APIRouter()
@@ -165,7 +165,6 @@ CONFIG_LIMITS = {
     "embed_token_lifetime_min":   (5, 60),
     "pbi_token_cache_margin_sec": (0, 3600),
     "activity_log_retention_days": (7, 3650),
-    "refresh_auto_retry_max":     (0, 8),      # Pro refresh 한도 8회/일 이내
     "error_log_retention_days":  (7, 3650),
 }
 
@@ -500,25 +499,6 @@ async def api_admin_sync_status(user: dict = Depends(require_admin_user)):
         "moved": moved,
         "removed": removed,
     }
-
-
-@router.post("/api/admin/reports/{report_id}/refresh")
-async def api_admin_refresh_dataset(report_id: int, user: dict = Depends(require_admin_csrf)):
-    """보고서의 데이터셋 새로고침을 PBI에 요청한다."""
-    report = await asyncio.to_thread(db_get_report, report_id)
-    if not report:
-        raise AppError.REPORT_NOT_FOUND.http()
-    dataset_id   = report.get("pbi_dataset_id")
-    workspace_id = config.resolve_workspace_id(report.get("pbi_workspace_id"))
-    if not dataset_id:
-        raise AppError.REPORT_NOT_FOUND.http()
-    try:
-        await pbi_refresh_dataset(workspace_id, dataset_id)
-        logger.info("DATASET REFRESH | admin=%s | report_id=%d | dataset=%s", user["username"], report_id, dataset_id)
-        return {"status": "accepted"}
-    except Exception as exc:
-        logger.warning("DATASET REFRESH FAIL | admin=%s | dataset=%s | error=%s", user["username"], dataset_id, exc)
-        raise AppError.REPORT_FETCH_FAILED.http(detail=str(exc))
 
 
 @router.get("/api/admin/reports/{report_id}/access")

@@ -248,6 +248,7 @@ async def api_upload(
     file: UploadFile = File(...),
     report_name: str = Form(""),
     report_description: str = Form(""),
+    folder: str = Form(""),
 ):
     """파일 수신 후 즉시 job_id 반환. 실제 PBI 게시는 백그라운드에서 진행."""
     verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
@@ -264,8 +265,13 @@ async def api_upload(
                 user["username"], name, job_id, "갱신" if is_update else "신규")
     ip = get_client_ip(request)
 
+    # 카테고리(사이드바 폴더 트리) = 내 계정 아래 하위 경로.
+    # 소유가 흐려지지 않도록 항상 username을 최상위로 두고, 입력한 경로를 그 아래에 붙인다.
+    sub = "/".join(p.strip() for p in folder.split("/") if p.strip())[:120]
+    category = f"{user['username']}/{sub}" if sub else user["username"]
+
     asyncio.create_task(_process_upload(user, name, pbix_bytes, file_size, job_id, ip,
-                                        report_description.strip()[:500] or None))
+                                        report_description.strip()[:500] or None, category))
     return {"job_id": job_id, "report_name": name, "status": "accepted", "is_update": is_update}
 
 
@@ -328,14 +334,14 @@ async def _read_and_validate_pbix(
 
 
 async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str,
-                          description: str | None = None):
+                          description: str | None = None, category: str | None = None):
     """백그라운드 태스크 진입점 — 어떤 예외도 잡을 '진행 중' 상태로 남기지 않는다.
 
     알려진 실패는 _run_upload 각 지점이 잡 상태(failed/conflict/unknown 등)를 기록한 뒤
     HTTPException으로 탈출한다. 그 밖의 예상 밖 예외가 새면 잡이 publishing/accepted로
     남아 서버 재시작 전까지 같은 이름 재업로드가 409로 막히므로, 여기서 failed 처리한다."""
     try:
-        await _run_upload(user, name, pbix_bytes, file_size, job_id, ip, description)
+        await _run_upload(user, name, pbix_bytes, file_size, job_id, ip, description, category)
     except HTTPException as exc:
         # 잡 상태는 발생 지점에서 이미 기록됨. 이 태스크는 백그라운드라 main.py의
         # 전역 예외 핸들러가 못 잡으므로 5xx만 서버 로그에 남긴다.
@@ -353,7 +359,7 @@ async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: i
 
 
 async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str,
-                      description: str | None = None):
+                      description: str | None = None, category: str | None = None):
     """실제 게시 파이프라인 오케스트레이터: 파일 검증·예약은 호출자(api_upload)에서 완료된 상태로 진입.
 
     각 단계는 실패 시 잡 상태(failed/conflict/unknown 등)를 스스로 기록한 뒤 HTTPException으로 탈출한다.
@@ -383,7 +389,7 @@ async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, 
     await _move_to_user_folder(user, pbi_report_id, dataset_ids)
 
     # 5) 게이트웨이 DB 등록 + 완료 처리
-    await _register_uploaded_report(user, name, pbi_report_id, dataset_ids, pbi_display_name, job_id, description)
+    await _register_uploaded_report(user, name, pbi_report_id, dataset_ids, pbi_display_name, job_id, description, category)
     # 활동 기록은 실패한 업로드가 "업로드"로 남지 않도록 완료 시점에만 남긴다
     await asyncio.to_thread(db_log_activity, user["id"], user["username"], "report_upload", None, name, ip)
     logger.info("UPLOAD OK  | user=%-12s | ip=%s | report=%s", user["username"], ip, name)
@@ -469,6 +475,7 @@ async def _move_to_user_folder(user: dict, pbi_report_id: str, dataset_ids: list
 async def _register_uploaded_report(
     user: dict, name: str, pbi_report_id: str, dataset_ids: list[str],
     pbi_display_name: str, job_id: int, description: str | None = None,
+    category: str | None = None,
 ):
     """게이트웨이 DB에 보고서를 등록하고 잡을 completed로 마감한다. DB 실패는 db_failed로 기록."""
     try:
@@ -476,7 +483,7 @@ async def _register_uploaded_report(
             db_register_report, name, pbi_report_id, user["id"],
             dataset_ids[0] if dataset_ids else None,
             WORKSPACE_ID, pbi_display_name,
-            user["username"],  # Fabric 폴더명 = username → 사이드바 폴더 트리에 반영
+            category or user["username"],  # 사이드바 폴더 트리 경로 (기본: 내 계정)
             description,
         )
     except psycopg2.Error as exc:

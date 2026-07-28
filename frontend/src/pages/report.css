@@ -830,3 +830,13 @@
 
 /* ── v7: 보고서 콘텐츠 업데이트 버튼 ──────────────────── */
 .rp-toolbar-update-btn { margin-left: 4px; }
+
+/* 업로드 폼 — 저장 위치 미리보기 (폴더 입력에 따라 실시간으로 바뀐다) */
+.rp-field-hint {
+  display: block;
+  margin-top: 6px;
+  font-family: ui-monospace, Consolas, Menlo, monospace;
+  font-size: 0.74rem;
+  color: var(--sage-deep);
+  word-break: break-all;
+}
