@@ -1287,6 +1287,10 @@ function UploadView({ csrf }: { csrf: string }) {
 
   const submit = async () => {
     const file = fileRef.current?.files?.[0];
+    if (!reportName.trim()) {
+      setStatus({ msg: "보고서 명을 입력해 주세요.", tone: "err" });
+      return;
+    }
     if (!file) {
       setStatus({ msg: ".pbix 파일을 선택해 주세요.", tone: "err" });
       return;
@@ -1331,9 +1335,11 @@ function UploadView({ csrf }: { csrf: string }) {
       <h1 className="rp-page-title">보고서 등록</h1>
       <div className="rp-form-card">
         <div className="rp-field">
-          <label>보고서 명</label>
+          <label>
+            보고서 명 <span className="rp-req">*</span>
+          </label>
           <input
-            placeholder="비워 두면 파일명이 보고서 이름이 됩니다"
+            placeholder="목록에 표시될 이름 (같은 이름으로 다시 올리면 최신본으로 교체됩니다)"
             value={reportName}
             onChange={(e) => setReportName(e.target.value)}
             disabled={busy}
@@ -1377,7 +1383,8 @@ function UploadView({ csrf }: { csrf: string }) {
 
         <div className="rp-upload-note">
           <Info size={15} className="icn" /> 업로드한 보고서는 본인 폴더로 자동
-          분류됩니다. RLS가 필요하면 관리자에게 요청하세요.
+          분류됩니다. <b>이미 등록한 것과 같은 이름으로 올리면 새로 만들지 않고 그
+          보고서를 최신본으로 교체합니다.</b>
         </div>
 
         {status.msg && (

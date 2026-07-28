@@ -29,7 +29,6 @@ class AppError(Enum):
     USER_NOT_FOUND       = (404, "USER_NOT_FOUND",        "사용자를 찾을 수 없거나 admin 계정은 변경 불가합니다.")
 
     # ── 충돌 ──────────────────────────────────────────────────────────────────
-    REPORT_NAME_CONFLICT = (409, "REPORT_NAME_CONFLICT",  "'{name}'은(는) 이미 등록된 보고서입니다. 다른 이름을 사용해 주세요.")
     UPLOAD_IN_PROGRESS   = (409, "UPLOAD_IN_PROGRESS",    "'{name}' 보고서를 이미 처리 중이거나 등록했습니다.")
     UPLOAD_NAME_CONFLICT = (409, "UPLOAD_NAME_CONFLICT",  "'{name}' 보고서 등록 중 이름 충돌이 발생했습니다. 다른 이름으로 다시 올려주세요.")
     IMPORT_NAME_CONFLICT = (409, "IMPORT_NAME_CONFLICT",  "워크스페이스에 같은 이름의 항목이 있습니다. 기존 항목은 변경하지 않았습니다.")

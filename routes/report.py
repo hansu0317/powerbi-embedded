@@ -3,7 +3,6 @@ import asyncio
 import io
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 import httpx
 import psycopg2
@@ -259,14 +258,15 @@ async def api_upload(
         logger.warning("UPLOAD DENY | user=%-12s | 업로드 권한 없음", user["username"])
         raise AppError.FORBIDDEN_UPLOAD.http()
 
-    name, pbix_bytes, file_size = await _read_and_validate_pbix(file, report_name, user["id"])
-    job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name)
-    logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s", user["username"], name, job_id)
+    name, pbix_bytes, file_size, is_update = await _read_and_validate_pbix(file, report_name, user["id"])
+    job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name, is_update)
+    logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s | %s",
+                user["username"], name, job_id, "갱신" if is_update else "신규")
     ip = get_client_ip(request)
 
     asyncio.create_task(_process_upload(user, name, pbix_bytes, file_size, job_id, ip,
                                         report_description.strip()[:500] or None))
-    return {"job_id": job_id, "report_name": name, "status": "accepted"}
+    return {"job_id": job_id, "report_name": name, "status": "accepted", "is_update": is_update}
 
 
 @router.get("/api/upload/status/{job_id}")
@@ -310,17 +310,21 @@ async def _validate_pbix_file(file: UploadFile) -> tuple[bytes, int]:
 
 async def _read_and_validate_pbix(
     file: UploadFile, report_name: str, user_id: int
-) -> tuple[str, bytes, int]:
-    """신규 업로드용 파일 검증 후 (report_name, pbix_bytes, file_size) 반환."""
+) -> tuple[str, bytes, int, bool]:
+    """업로드 파일 검증 후 (report_name, pbix_bytes, file_size, is_update) 반환.
+
+    같은 이름의 내 보고서가 이미 있으면 오류가 아니라 '갱신'으로 처리한다 —
+    Power BI 게시도 덮어쓰기(CreateOrOverwrite)이고 db_register_report도 기존 행을
+    재사용하므로, 사용자가 같은 이름으로 다시 올리면 자연스럽게 최신본으로 교체된다.
+    """
     if not file.filename or not file.filename.lower().endswith(".pbix"):
         raise AppError.FILE_WRONG_TYPE.http()
-    name = report_name.strip() or Path(file.filename).stem.strip()
+    name = report_name.strip()
     if not name or len(name) > config.REPORT_NAME_MAX_LEN:
         raise AppError.NAME_INVALID.http(max=config.REPORT_NAME_MAX_LEN)
-    if await asyncio.to_thread(db_find_report, user_id, name):
-        raise AppError.REPORT_NAME_CONFLICT.http(name=name)
+    is_update = bool(await asyncio.to_thread(db_find_report, user_id, name))
     pbix_bytes, file_size = await _validate_pbix_file(file)
-    return name, pbix_bytes, file_size
+    return name, pbix_bytes, file_size, is_update
 
 
 async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str,

@@ -369,18 +369,23 @@ def db_reserve_update(actor_id: int, target_report_id: int, report_name: str) ->
     return row["id"]
 
 
-def db_reserve_upload(user_id: int, report_name: str) -> int:
-    """업로드 예약. DB 제약으로 다중 프로세스 경합을 막는다."""
+def db_reserve_upload(user_id: int, report_name: str, is_update: bool = False) -> int:
+    """업로드 예약. DB 제약으로 다중 프로세스 경합을 막는다.
+
+    is_update=True(같은 이름의 내 보고서를 다시 올리는 경우)면 개인 보고서 개수
+    한도는 검사하지 않는다 — 새 보고서가 생기는 게 아니라 기존 것을 갱신하기 때문이다.
+    """
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(%s)", (user_id,))
-            cur.execute(
-                "SELECT COUNT(*) AS count FROM reports "
-                "WHERE owner_id = %s AND report_type = 'personal' AND status <> 'deleted'",
-                (user_id,),
-            )
-            if cur.fetchone()["count"] >= config.MAX_PERSONAL_REPORTS:
-                raise AppError.RATE_PERSONAL_MAX.http(max=config.MAX_PERSONAL_REPORTS)
+            if not is_update:
+                cur.execute(
+                    "SELECT COUNT(*) AS count FROM reports "
+                    "WHERE owner_id = %s AND report_type = 'personal' AND status <> 'deleted'",
+                    (user_id,),
+                )
+                if cur.fetchone()["count"] >= config.MAX_PERSONAL_REPORTS:
+                    raise AppError.RATE_PERSONAL_MAX.http(max=config.MAX_PERSONAL_REPORTS)
             cur.execute(
                 "SELECT COUNT(*) AS count FROM upload_jobs WHERE user_id = %s AND created_at >= CURRENT_DATE",
                 (user_id,),
@@ -768,11 +773,31 @@ def db_import_pbi_item(
     보고서와 대시보드는 등록 절차가 같고 세 가지만 다르다:
       report_type, tab_type(뷰어 임베드 분기 신호), 그리고 대시보드는
       pbi_dataset_id가 없다(여러 데이터셋의 타일 모음이라 단일 ID가 없음).
+
+    이름이 '계정__보고서명' 형식이고 그 계정이 존재하면 개인 보고서로 복원한다
+    (DB 재구축 후 가져오기에서 개인 보고서가 전부 공용이 되는 것을 막는다).
     """
-    report_type = "dashboard" if is_dashboard else "managed"
     tab_type    = "dashboard" if is_dashboard else "report"
     dataset_id  = None if is_dashboard else pbi_dataset_id
     audit_event = "dashboard_imported" if is_dashboard else "managed_report_imported"
+
+    # PBI 표시 이름이 '계정__보고서명' 규칙이면 원래 개인 보고서였다는 뜻이다.
+    # DB를 새로 구축하고 가져오기를 하면 이 정보가 없어 전부 공용이 돼버리므로,
+    # 접두사의 계정이 실제로 존재할 때만 개인 보고서로 되돌린다.
+    owner_id, display_name = None, name
+    if not is_dashboard and "__" in name:
+        prefix, _, rest = name.partition("__")
+        if prefix and rest:
+            with db_conn() as probe:
+                with probe.cursor() as pcur:
+                    pcur.execute("SELECT id FROM users WHERE username = %s", (prefix,))
+                    row = pcur.fetchone()
+            if row:
+                owner_id, display_name = row["id"], rest
+
+    report_type = "dashboard" if is_dashboard else ("personal" if owner_id else "managed")
+    if owner_id:
+        audit_event = "personal_report_restored"
 
     with db_conn() as conn:
         with conn.cursor() as cur:
@@ -791,17 +816,25 @@ def db_import_pbi_item(
                 """INSERT INTO reports (
                        name, report_type, owner_id, status, category, created_by, updated_by,
                        pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id, tab_type
-                   ) VALUES (%s, %s, NULL, 'active', %s, %s, %s, %s, %s, %s, %s, %s)
+                   ) VALUES (%s, %s, %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (name, report_type, category, actor_id, actor_id,
+                (display_name, report_type, owner_id, category, actor_id, actor_id,
                  pbi_item_id, pbi_workspace_id, dataset_id, folder_id, tab_type),
             )
             report_id = cur.fetchone()["id"]
+            if owner_id:
+                # 소유자에게 열람 권한을 돌려준다 (업로드 시 부여했던 것과 동일)
+                cur.execute(
+                    """INSERT INTO user_reports (user_id, report_id, can_view, granted_by)
+                       VALUES (%s, %s, TRUE, %s)
+                       ON CONFLICT (user_id, report_id) DO UPDATE SET can_view = TRUE""",
+                    (owner_id, report_id, actor_id),
+                )
             cur.execute(
                 """INSERT INTO event_log (log_type, report_id, user_id, event, details)
                    VALUES ('audit', %s, %s, %s,
                            jsonb_build_object('pbi_item_id', %s, 'name', %s, 'category', %s))""",
-                (report_id, actor_id, audit_event, pbi_item_id, name, category),
+                (report_id, actor_id, audit_event, pbi_item_id, display_name, category),
             )
         conn.commit()
     return True
