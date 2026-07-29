@@ -864,6 +864,40 @@ def _v12_drop_unused_report_columns(cur):
         cur.execute(f"ALTER TABLE reports DROP COLUMN IF EXISTS {col}")
 
 
+def _v13_rls_security_mapping(cur):
+    """동적 RLS용 사용자 매핑 컬럼 추가 (RLS 적용 준비 — 가설 B).
+
+    동적 RLS는 PBIX에 역할을 딱 하나만 두고, DAX가 USERNAME()으로 현재 사용자를
+    알아내 '보안 테이블'에서 그 사람의 조회 범위를 찾는 방식이다. 역할을 조직 수만큼
+    만들 필요가 없어 사람·부서가 늘어도 PBIX를 다시 게시하지 않는다.
+
+    보안 테이블 자체는 PBIX가 읽는 데이터 원천(SQL Server/Databricks 등)에 있어야 하고,
+    게이트웨이는 그 내용의 원본(누가 어느 소속이고 어디까지 보는가)을 관리한다.
+    scripts/export_rls_security_table.py가 이 컬럼들로 보안 테이블 DDL과 데이터를 만든다.
+
+    - department : 소속. 부서 단위 필터의 기준값
+    - data_scope : 조회 범위
+        'self'       본인 행만
+        'department' 소속 부서 전체
+        'all'        전사 (임원·관리자)
+
+    식별자는 기존 users.pbi_username을 그대로 쓴다 — 이 값이 GenerateToken의
+    identity.username으로 나가고 DAX의 USERNAME()이 받는다. RLS를 켤 때는 이 값을
+    보안 테이블의 키(사번 등)와 정확히 일치시켜야 한다.
+    """
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR(60)")
+    cur.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS data_scope VARCHAR(16) NOT NULL DEFAULT 'self'"
+    )
+    cur.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_data_scope_check")
+    cur.execute(
+        """ALTER TABLE users ADD CONSTRAINT users_data_scope_check
+           CHECK (data_scope IN ('self', 'department', 'all'))"""
+    )
+    # 관리자는 기본적으로 전사 조회 — 운영 중 권한 공백을 만들지 않기 위한 초기값
+    cur.execute("UPDATE users SET data_scope = 'all' WHERE is_admin")
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
@@ -877,6 +911,7 @@ MIGRATIONS = [
     (10, _v10_consolidate_schema),
     (11, _v11_drop_removed_feature_columns),
     (12, _v12_drop_unused_report_columns),
+    (13, _v13_rls_security_mapping),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

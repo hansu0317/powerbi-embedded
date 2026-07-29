@@ -184,7 +184,7 @@ Power BI REST 호출도 `routes/`가 직접 하지 않고 `services/`를 거친�
 
 | 테이블 | 내용 |
 |---|---|
-| `users` | 계정 (bcrypt 해시, 역할, 관리자·업로드 권한) |
+| `users` | 계정 (bcrypt 해시, 역할, 관리자·업로드 권한, RLS 매핑) |
 | `reports` | 보고서 본체 + PBI 연결 정보 (18컬럼) |
 | `user_reports` | 개인 열람 권한 |
 | `groups` / `user_groups` / `group_reports` | 그룹 단위 권한 |
@@ -220,15 +220,86 @@ Pro 공유 용량에서의 App-Owns-Data 임베딩은 Microsoft가 **개발·테
 직원 대상 상시 운영은 Azure Power BI Embedded(A SKU) 또는 Fabric F64+ 배정이 필요하다.
 용량을 배정해도 **코드·DB는 수정하지 않는다** — 워크스페이스에 용량만 붙이면 된다.
 
-**RLS** — 관리 UI는 제공하지 않는다. 데이터셋에 역할이 정의돼 있으면 Power BI가 identity를 강제하므로,
-`users.roles` 값을 그대로 전달하는 최소 경로만 유지한다.
-사용자의 역할명이 PBIX의 실제 역할명과 다르면 **토큰은 발급되지만 렌더링이 실패**한다
-(`Failed to open the MSOLAP connection`).
-
 **기존 Power BI 항목은 수정·이동·삭제하지 않는다.** 업로드는 신규 생성만 한다.
 업로드된 보고서는 `계정__보고서명` 형식으로 게시되며, 이 접두사가 소유자 추적의 근거다.
 
 **퇴사자는 삭제가 아니라 비활성화로 처리한다.** 화면에 계정 삭제 기능을 두지 않은 것도 같은 이유다.
+
+---
+
+## RLS (행 수준 보안) — 준비 상태와 적용 절차
+
+**두 계층을 구분해야 한다.**
+
+| 계층 | 통제 대상 | 담당 | 상태 |
+|---|---|---|---|
+| 1층 | 어떤 **보고서**가 보이는가 | 게이트웨이 DB | **동작 중** |
+| 2층 | 보고서 안에서 어떤 **행**이 보이는가 | Power BI RLS | 준비 완료, 미적용 |
+
+1층은 개인 부여(`user_reports`)와 그룹 부여(`group_reports`)의 OR 판정으로 이미 동작한다.
+2층(RLS)은 **보고서마다 선택**이다 — PBIX에 역할이 정의된 데이터셋에만 적용되고,
+없으면 Power BI가 identity를 요구하지 않아 그냥 열린다.
+
+### 채택 방식 — 동적 RLS
+
+역할을 조직 수만큼 만드는 대신 **역할 하나**만 두고, DAX가 `USERNAME()`으로 사용자를
+알아내 보안 테이블에서 조회 범위를 찾는다. 사람이나 부서가 늘어도 **PBIX를 다시 게시하지 않는다.**
+
+정적 RLS(역할=부서)로는 "개인별 데이터 권한"을 표현할 수 없다 — 사람 수만큼 역할을
+만들어야 하기 때문이다. 그래서 동적 방식을 택했다.
+
+### 데이터 흐름
+
+```
+게이트웨이 users          →  보안 테이블(데이터 원천)  →  PBIX 역할 DAX
+ pbi_username(식별자)         user_key                    USERNAME()으로 조회
+ department(소속)             department
+ data_scope(범위)             data_scope
+```
+
+`users.data_scope` 값은 세 가지다.
+
+| 값 | 의미 |
+|---|---|
+| `self` | 본인 행만 (기본값) |
+| `department` | 소속 부서 전체 |
+| `all` | 전사 — 관리자는 마이그레이션에서 이 값으로 초기화된다 |
+
+### 적용 절차
+
+**1. 식별자 맞추기** — `users.pbi_username`을 보안 테이블 키(사번 등)로 바꾼다.
+   기본값인 이메일 그대로면 DAX가 매칭하지 못한다.
+
+**2. 소속·범위 입력** — `users.department`, `users.data_scope`를 채운다.
+
+**3. 보안 테이블 생성** — 아래 스크립트가 DDL과 INSERT문을 만들어 준다.
+   출력물을 **데이터 원천(SQL Server·Databricks 등)에서** 실행한다.
+
+```bash
+python3 scripts/export_rls_security_table.py            # SQL 출력
+python3 scripts/export_rls_security_table.py --csv      # CSV 출력
+python3 scripts/export_rls_security_table.py --ddl-only # DDL·DAX 안내만
+```
+
+식별자가 이메일이거나 `department`가 비어 있으면 **경고를 함께 출력**한다.
+
+**4. PBIX 작업** — Power BI Desktop에서 보안 테이블을 모델에 추가하고,
+   역할 하나를 만들어 `--ddl-only` 출력의 DAX를 붙인다. 재게시.
+
+**5. 검증** — 보고서 하나로 시범 적용하고 **브라우저에서 실제 렌더링까지** 확인한다.
+   토큰 발급 성공은 검증이 아니다.
+
+> **주의** — 역할명·식별자가 어긋나면 토큰은 정상 발급되고 **렌더링만 실패**한다
+> (`Failed to open the MSOLAP connection`). 매핑이 없으면 빈 화면이 나온다.
+> 시범 적용 때 일부러 틀린 값도 한 번 넣어 보면 증상을 미리 알 수 있다.
+
+### 되돌리기
+
+RLS 적용 직전 상태에 `rls-before` 태그가 있다.
+
+```bash
+git show rls-before      # 그 시점 상태 확인
+```
 
 ---
 
