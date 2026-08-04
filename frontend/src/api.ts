@@ -190,6 +190,25 @@ export async function adminBulkAddUsers(file: File, csrf: string): Promise<BulkA
   return j as BulkAddResult;
 }
 
+export interface EditUserPayload {
+  display_name: string;
+  pbi_username: string;
+  roles: string;          // 콤마 구분 문자열 (add-user 폼과 동일 형식)
+  department: string;
+  data_scope: "self" | "department" | "all";
+}
+
+export async function adminEditUser(userId: number, payload: EditUserPayload, csrf: string) {
+  const res = await fetch(`/api/admin/users/${userId}/edit`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "사용자 정보 수정 실패"));
+  return j;
+}
+
 export async function adminToggleUser(userId: number, csrf: string) {
   const res = await fetch(`/api/admin/users/${userId}/toggle-active`, {
     method: "POST",
@@ -215,7 +234,9 @@ export interface AccessUser {
   username: string;
   display_name: string;
   is_admin: boolean;
-  can_view: boolean;
+  direct: boolean | null;  // true=직접 허용, false=명시적 차단, null=개별 설정 없음
+  via_group: boolean;      // 소속 그룹으로 부여된 권한이 있는지
+  can_view: boolean;       // 최종 열람 가능 여부 (차단이 그룹 권한보다 우선)
 }
 
 export interface UserReportRow {

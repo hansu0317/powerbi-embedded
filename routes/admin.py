@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 import config
 from config import WORKSPACE_ID
 from database import (
-    db_admin_get_stats, db_admin_get_users, db_admin_add_user,
+    db_admin_get_stats, db_admin_get_users, db_admin_add_user, db_admin_update_user,
     db_admin_toggle_user_active, db_admin_get_reports,
     db_admin_soft_delete_report, db_admin_get_upload_jobs,
     db_import_pbi_item,
@@ -150,7 +150,7 @@ async def api_admin_set_group_access(
 
 
 # 설정 키별 허용 범위 — 관리자 실수로 서비스를 마비시키는 값(0 한도, 폴링 폭주 등)을 차단한다.
-# 키 추가 시 여기와 마이그레이션 시드에 함께 등록할 것.
+# 키 추가 시 여기와 scripts/init_schema.py의 APP_CONFIG_DEFAULTS에 함께 등록할 것.
 CONFIG_LIMITS = {
     "max_pbix_size_mb":           (1, 1024),   # PBI Import API 자체 한도 1GB
     "max_uploads_per_day":        (1, 100),
@@ -180,7 +180,7 @@ async def api_admin_get_config(user: dict = Depends(require_admin_user)):
 async def api_admin_set_config(request: Request, user: dict = Depends(require_admin_csrf)):
     """런타임 설정 변경 — 저장 즉시 재시작 없이 반영된다.
 
-    키는 마이그레이션이 시드한 것만 허용하고, 값은 정수만 받는다(현재 키 전부 정수)."""
+    키는 init_schema.py가 시드한 것만 허용하고, 값은 정수만 받는다(현재 키 전부 정수)."""
     body = await json_body(request)
     key, value = str(body.get("key", "")), str(body.get("value", "")).strip()
     if key not in CONFIG_LIMITS:
@@ -211,6 +211,9 @@ async def api_admin_get_reports(user: dict = Depends(require_admin_user)):
     return {"reports": reports}
 
 
+DATA_SCOPES = ("self", "department", "all")
+
+
 @router.post("/api/admin/users/add")
 async def api_admin_add_user(
     request: Request,
@@ -222,12 +225,16 @@ async def api_admin_add_user(
     is_admin: bool = Form(False),
     can_upload: bool = Form(True),
     group_ids: str = Form(""),
+    department: str = Form(""),
+    data_scope: str = Form("self"),
     csrf: str = Form(),
     user: dict = Depends(require_admin_user),
 ):
     verify_csrf(request, csrf)
     if len(password) < config.PASSWORD_MIN_LEN:
         raise AppError.PASSWORD_TOO_SHORT.http(min=config.PASSWORD_MIN_LEN)
+    if data_scope not in DATA_SCOPES:
+        raise AppError.DATA_SCOPE_INVALID.http()
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     # 폼은 콤마 구분 문자열로 받고 DB에는 TEXT[] 배열로 저장한다
     role_list = [r.strip() for r in roles.split(",") if r.strip()] or ["도메인"]
@@ -236,6 +243,7 @@ async def api_admin_add_user(
         new_id = await asyncio.to_thread(
             db_admin_add_user, username, pw_hash, display_name,
             pbi_username or username, role_list, is_admin, can_upload, group_id_list,
+            department.strip() or None, data_scope,
         )
     except psycopg2.errors.UniqueViolation:
         raise AppError.USER_ALREADY_EXISTS.http(username=username)
@@ -244,6 +252,42 @@ async def api_admin_add_user(
         user["username"], username, new_id, group_id_list,
     )
     return {"id": new_id, "username": username}
+
+
+@router.post("/api/admin/users/{user_id}/edit")
+async def api_admin_edit_user(
+    request: Request, user_id: int, user: dict = Depends(require_admin_csrf),
+):
+    """표시 이름·RLS 매핑(pbi_username·roles·department·data_scope) 수정.
+
+    비밀번호·아이디·관리자 권한·업로드 권한은 각각 별도 경로(add 시 지정, toggle-*)에서
+    다룬다 — 이 엔드포인트는 RLS 운영 중 바뀌는 값(부서 이동 등)을 위한 것.
+    body: {display_name, pbi_username, roles, department, data_scope}"""
+    body = await json_body(request)
+    display_name = str(body.get("display_name", "")).strip()
+    pbi_username = str(body.get("pbi_username", "")).strip()
+    if not display_name or not pbi_username:
+        raise AppError.BODY_INVALID.http()
+    data_scope = str(body.get("data_scope", "self")).strip()
+    if data_scope not in DATA_SCOPES:
+        raise AppError.DATA_SCOPE_INVALID.http()
+    roles_raw = str(body.get("roles", ""))
+    role_list = [r.strip() for r in roles_raw.split(",") if r.strip()] or ["도메인"]
+    department = str(body.get("department", "")).strip() or None
+
+    updated = await asyncio.to_thread(
+        db_admin_update_user, user_id, display_name, pbi_username, role_list, department, data_scope,
+    )
+    if not updated:
+        raise AppError.USER_NOT_FOUND.http()
+    logger.info(
+        "ADMIN EDIT USER | admin=%s | user_id=%s | department=%s | data_scope=%s",
+        user["username"], user_id, department, data_scope,
+    )
+    return {
+        "user_id": user_id, "display_name": display_name, "pbi_username": pbi_username,
+        "roles": role_list, "department": department, "data_scope": data_scope,
+    }
 
 
 def _parse_csv_bool(value: str, default: bool) -> bool:
@@ -273,12 +317,17 @@ def _bulk_add_one(row: dict, group_map: dict[str, int]) -> tuple[str, str | None
     is_admin = _parse_csv_bool(row.get("is_admin") or "", False)
     can_upload = _parse_csv_bool(row.get("can_upload") or "", True)
     pbi_username = (row.get("pbi_username") or "").strip() or username
+    department = (row.get("department") or "").strip() or None
+    data_scope = (row.get("data_scope") or "self").strip() or "self"
+    if data_scope not in DATA_SCOPES:
+        return "error", f"data_scope는 self/department/all 중 하나여야 합니다: '{data_scope}'"
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
     try:
         db_admin_add_user(
             username, pw_hash, display_name, pbi_username,
             role_list, is_admin, can_upload, group_id_list,
+            department, data_scope,
         )
     except psycopg2.errors.UniqueViolation:
         return "error", f"'{username}' 아이디가 이미 존재합니다."

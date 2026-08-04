@@ -144,15 +144,22 @@ def db_get_user(username: str):
 
 # ── 보고서 ────────────────────────────────────────────────────────────────────
 
-# 열람 가능 판정: 직접 부여(user_reports) OR 소속 그룹에 부여(group_reports).
+# 열람 가능 판정: (직접 부여 OR 그룹 부여) AND NOT 개별 명시 차단.
+# user_reports 행의 의미: 행 없음=개별 설정 없음(그룹 결과를 그대로 따름), TRUE=직접 허용,
+# FALSE=명시적 차단 — 그룹으로 부여됐어도 이 차단이 최우선으로 이긴다(그룹 멤버 중 특정
+# 1명만 제외하고 싶을 때 이 행 하나만 FALSE로 넣으면 됨. db_set_report_access 참고).
 # 아래 3곳(db_get_reports, db_can_view_report, db_admin_get_users)에서 동일하게 쓰이며,
 # 모두 사용자 별칭 u, 보고서 별칭 r을 전제로 한다.
 _CAN_VIEW_REPORT_SQL = """(
+                    NOT EXISTS (SELECT 1 FROM user_reports udeny
+                                WHERE udeny.user_id = u.id AND udeny.report_id = r.id AND NOT udeny.can_view)
+                AND (
                        EXISTS (SELECT 1 FROM user_reports ur
                                WHERE ur.user_id = u.id AND ur.report_id = r.id AND ur.can_view)
                     OR EXISTS (SELECT 1 FROM user_groups ug
                                JOIN group_reports gr ON gr.group_id = ug.group_id
-                               WHERE ug.user_id = u.id AND gr.report_id = r.id AND gr.can_view))"""
+                               WHERE ug.user_id = u.id AND gr.report_id = r.id AND gr.can_view)
+                    ))"""
 
 
 def db_get_reports(username: str) -> list:
@@ -660,6 +667,7 @@ def db_admin_get_users() -> list:
             cur.execute(
                 f"""SELECT u.id, u.username, u.display_name, u.pbi_username, u.roles,
                           u.is_admin, u.is_active, u.can_upload, u.last_login_at, u.created_at,
+                          u.department, u.data_scope,
                           (SELECT COUNT(*) FROM reports r
                            WHERE r.status = 'active' AND {_CAN_VIEW_REPORT_SQL}
                           ) AS report_count
@@ -697,13 +705,16 @@ def db_get_user_report_list(user_id: int) -> list:
 
 def db_admin_add_user(username: str, pw_hash: str, display_name: str,
                       pbi_username: str, roles: list[str], is_admin: bool,
-                      can_upload: bool = True, group_ids: list[int] | None = None) -> int:
+                      can_upload: bool = True, group_ids: list[int] | None = None,
+                      department: str | None = None, data_scope: str = "self") -> int:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO users (username, password, display_name, pbi_username, roles, is_admin, can_upload) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                (username, pw_hash, display_name, pbi_username, roles, is_admin, can_upload),
+                "INSERT INTO users (username, password, display_name, pbi_username, roles, is_admin, "
+                "can_upload, department, data_scope) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (username, pw_hash, display_name, pbi_username, roles, is_admin,
+                 can_upload, department, data_scope),
             )
             row = cur.fetchone()
             user_id = row["id"]
@@ -714,6 +725,25 @@ def db_admin_add_user(username: str, pw_hash: str, display_name: str,
                 )
         conn.commit()
     return user_id
+
+
+def db_admin_update_user(user_id: int, display_name: str, pbi_username: str,
+                         roles: list[str], department: str | None, data_scope: str) -> bool:
+    """사용자 표시정보·RLS 매핑(pbi_username·roles·department·data_scope) 수정.
+
+    admin 계정은 제외한다 — 스키마 초기화(init_schema.py)가 보장한 data_scope='all'이
+    실수로 좁아지는 것을 막는다(toggle_active·toggle_upload와 동일한 보호 원칙)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE users SET display_name = %s, pbi_username = %s, roles = %s,
+                       department = %s, data_scope = %s, updated_at = NOW()
+                   WHERE id = %s AND username != 'admin' RETURNING id""",
+                (display_name, pbi_username, roles, department, data_scope, user_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return row is not None
 
 
 def db_admin_toggle_user_active(user_id: int):
@@ -888,17 +918,33 @@ def db_admin_get_upload_jobs(limit: int = 30) -> list:
 
 
 def db_get_report_access(report_id: int) -> list:
-    """보고서에 대한 모든 활성 사용자의 열람 권한 현황을 반환한다."""
+    """보고서에 대한 모든 활성 사용자의 열람 권한 현황을 반환한다.
+
+    direct: 개별 user_reports 행의 값 — true(직접 허용) / false(명시적 차단) / null(개별 설정 없음).
+    via_group: 소속 그룹 중 하나라도 이 보고서에 권한이 있는지.
+    can_view: 최종 열람 가능 여부(_CAN_VIEW_REPORT_SQL과 동일 규칙 — 차단이 그룹 권한보다 우선)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT u.id, u.username, u.display_name, u.is_admin,
-                          COALESCE(ur.can_view, FALSE) AS can_view
+                          ur.can_view AS direct,
+                          COALESCE(vg.via_group, FALSE) AS via_group,
+                          CASE
+                              WHEN ur.can_view = FALSE THEN FALSE
+                              ELSE COALESCE(ur.can_view, FALSE) OR COALESCE(vg.via_group, FALSE)
+                          END AS can_view
                    FROM users u
                    LEFT JOIN user_reports ur ON ur.user_id = u.id AND ur.report_id = %s
+                   LEFT JOIN LATERAL (
+                       SELECT TRUE AS via_group
+                       FROM user_groups ug
+                       JOIN group_reports gr ON gr.group_id = ug.group_id
+                       WHERE ug.user_id = u.id AND gr.report_id = %s AND gr.can_view
+                       LIMIT 1
+                   ) vg ON TRUE
                    WHERE u.is_active = TRUE
                    ORDER BY u.is_admin DESC, u.username""",
-                (report_id,),
+                (report_id, report_id),
             )
             return cur.fetchall()
 
@@ -906,24 +952,25 @@ def db_get_report_access(report_id: int) -> list:
 def db_set_report_access(report_id: int, user_id: int, can_view: bool, granted_by: int) -> None:
     """보고서에 대한 특정 사용자의 열람 권한을 설정한다.
 
+    can_view=False는 단순히 "부여 안 함"이 아니라 명시적 차단이다 — 이 행이 있으면
+    소속 그룹으로 부여된 권한이 있어도 이 사용자만 못 보게 우선 적용된다
+    (_CAN_VIEW_REPORT_SQL 참고). 그래서 그룹으로만 권한이 있던(개별 행이 아예 없던)
+    사용자를 차단할 때도 UPSERT로 새 행을 만들어야 한다 — UPDATE만 하면 기존 행이
+    없을 때 아무 효과가 없다.
+
     없는 보고서·사용자 ID면 FK 위반이 나는데, 이는 서버 장애가 아니라 잘못된 요청이므로
     404로 변환한다 (그대로 두면 500).
     """
     with db_conn() as conn:
         with conn.cursor() as cur:
           try:
-            if can_view:
-                cur.execute(
-                    """INSERT INTO user_reports (user_id, report_id, can_view, granted_by)
-                       VALUES (%s, %s, TRUE, %s)
-                       ON CONFLICT (user_id, report_id) DO UPDATE SET can_view = TRUE, granted_by = EXCLUDED.granted_by""",
-                    (user_id, report_id, granted_by),
-                )
-            else:
-                cur.execute(
-                    "UPDATE user_reports SET can_view = FALSE WHERE user_id = %s AND report_id = %s",
-                    (user_id, report_id),
-                )
+            cur.execute(
+                """INSERT INTO user_reports (user_id, report_id, can_view, granted_by)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (user_id, report_id) DO UPDATE
+                   SET can_view = EXCLUDED.can_view, granted_by = EXCLUDED.granted_by""",
+                (user_id, report_id, can_view, granted_by),
+            )
           except psycopg2.errors.ForeignKeyViolation as exc:
             conn.rollback()
             raise AppError.REPORT_NOT_FOUND.http() from exc
@@ -1057,7 +1104,7 @@ def db_set_report_group_access(report_id: int, group_id: int, can_view: bool, gr
 def db_update_app_config(key: str, value: str) -> bool:
     """존재하는 app_config 키의 값을 갱신한다. 없는 키는 거부(False).
 
-    키 생성은 마이그레이션 시드에서만 한다 — 오타 키가 조용히 쌓이는 것을 방지."""
+    키 생성은 init_schema.py의 APP_CONFIG_DEFAULTS에서만 한다 — 오타 키가 조용히 쌓이는 것을 방지."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(

@@ -57,6 +57,8 @@ export interface AdminUser {
   can_upload: boolean;
   report_count: number;
   last_login_at: string | null;
+  department: string | null;
+  data_scope: "self" | "department" | "all";
 }
 
 export interface AdminReport {

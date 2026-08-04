@@ -30,6 +30,7 @@ import {
   UserReportRow,
   adminGetUserReports,
   adminAddUser,
+  adminEditUser,
   adminBulkAddUsers,
   adminCreateGroup,
   adminDeleteGroup,
@@ -247,6 +248,11 @@ export default function AdminPage({ data }: { data: AdminData }) {
                     showToast("오류: " + (e as Error).message, "err");
                   }
                 }}
+                onEdited={(updated) =>
+                  setUsers((prev) =>
+                    prev.map((u) => (u.id === updated.id ? updated : u)),
+                  )
+                }
               />
             )}
             {section === "reports" && (
@@ -412,6 +418,7 @@ function UsersSection({
   onAdd,
   onToggle,
   onToggleUpload,
+  onEdited,
 }: {
   users: AdminUser[];
   csrf: string;
@@ -419,11 +426,13 @@ function UsersSection({
   onAdd: () => void;
   onToggle: (id: number) => void;
   onToggleUpload: (id: number) => void;
+  onEdited: (user: AdminUser) => void;
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
   const pageSize = useFitRows(tableRef, 40, 38);
   const { pageItems, page, totalPages, total, setPage } = usePaged(users, pageSize);
   const [reportsUser, setReportsUser] = useState<AdminUser | null>(null);
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [showBulk, setShowBulk] = useState(false);
   return (
     <section>
@@ -526,12 +535,20 @@ function UsersSection({
                 </td>
                 <td className="ad-actions-cell">
                   {u.username !== "admin" && (
-                    <button
-                      className="btn btn-warn btn-sm"
-                      onClick={() => onToggle(u.id)}
-                    >
-                      활성/비활성
-                    </button>
+                    <>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setEditingUser(u)}
+                      >
+                        수정
+                      </button>
+                      <button
+                        className="btn btn-warn btn-sm"
+                        onClick={() => onToggle(u.id)}
+                      >
+                        활성/비활성
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -542,6 +559,19 @@ function UsersSection({
       <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
       {reportsUser && (
         <UserReportsModal user={reportsUser} onClose={() => setReportsUser(null)} />
+      )}
+      {editingUser && (
+        <EditUserModal
+          user={editingUser}
+          csrf={csrf}
+          onClose={() => setEditingUser(null)}
+          onSaved={(u) => {
+            onEdited(u);
+            setEditingUser(null);
+            showToast("사용자 정보가 수정되었습니다.", "ok");
+          }}
+          onError={(m) => showToast("오류: " + m, "err")}
+        />
       )}
     </section>
   );
@@ -646,6 +676,16 @@ function AddUserModal({
               <Field label="역할 (RLS)">
                 <input name="roles" defaultValue="도메인" />
               </Field>
+              <Field label="부서 (RLS 조회범위)">
+                <input name="department" placeholder="예: 영업팀 (data_scope=department일 때 기준)" />
+              </Field>
+              <Field label="데이터 조회 범위 (RLS)">
+                <select name="data_scope" defaultValue="self">
+                  <option value="self">본인 것만</option>
+                  <option value="department">소속 부서 전체</option>
+                  <option value="all">전사</option>
+                </select>
+              </Field>
               <Field label="관리자 권한">
                 <select name="is_admin" defaultValue="false">
                   <option value="false">일반 사용자</option>
@@ -702,6 +742,100 @@ function AddUserModal({
   );
 }
 
+function EditUserModal({
+  user,
+  csrf,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  user: AdminUser;
+  csrf: string;
+  onClose: () => void;
+  onSaved: (user: AdminUser) => void;
+  onError: (msg: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [displayName, setDisplayName] = useState(user.display_name);
+  const [pbiUsername, setPbiUsername] = useState(user.pbi_username);
+  const [roles, setRoles] = useState(user.roles.join(", "));
+  const [department, setDepartment] = useState(user.department ?? "");
+  const [dataScope, setDataScope] = useState<"self" | "department" | "all">(user.data_scope);
+
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await adminEditUser(
+        user.id,
+        { display_name: displayName, pbi_username: pbiUsername, roles, department, data_scope: dataScope },
+        csrf,
+      );
+      onSaved({
+        ...user,
+        display_name: displayName,
+        pbi_username: pbiUsername,
+        roles: roles.split(",").map((r) => r.trim()).filter(Boolean),
+        department: department.trim() || null,
+        data_scope: dataScope,
+      });
+    } catch (err) {
+      onError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={<>사용자 수정 — {user.username}</>} wide onClose={onClose}>
+      <form onSubmit={submit}>
+        <div className="ad-modal-body">
+          <div className="ad-form-grid">
+            <Field label="표시 이름 *">
+              <input
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                required
+                autoFocus
+              />
+            </Field>
+            <Field label="PBI 사용자명 (RLS 식별자) *">
+              <input value={pbiUsername} onChange={(e) => setPbiUsername(e.target.value)} required />
+            </Field>
+            <Field label="역할 (RLS)">
+              <input value={roles} onChange={(e) => setRoles(e.target.value)} />
+            </Field>
+            <Field label="부서 (RLS 조회범위)">
+              <input
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+                placeholder="예: 영업팀 (data_scope=department일 때 기준)"
+              />
+            </Field>
+            <Field label="데이터 조회 범위 (RLS)">
+              <select
+                value={dataScope}
+                onChange={(e) => setDataScope(e.target.value as typeof dataScope)}
+              >
+                <option value="self">본인 것만</option>
+                <option value="department">소속 부서 전체</option>
+                <option value="all">전사</option>
+              </select>
+            </Field>
+          </div>
+        </div>
+        <div className="ad-modal-footer">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            취소
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? "저장 중..." : "저장"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function BulkAddUsersModal({
   csrf,
   onClose,
@@ -745,7 +879,7 @@ function BulkAddUsersModal({
               <div className="ad-bulk-body">
                 <div className="ad-bulk-title">템플릿을 받아 작성합니다</div>
                 <div className="ad-bulk-code">
-                  username,password,display_name,pbi_username,roles,groups,is_admin,can_upload
+                  username,password,display_name,pbi_username,roles,groups,is_admin,can_upload,department,data_scope
                 </div>
                 <table className="ad-bulk-cols">
                   <tbody>
@@ -757,6 +891,8 @@ function BulkAddUsersModal({
                     <tr><th>groups</th><td>선택</td><td>소속 그룹 — <b>미리 만들어져 있어야</b> 하며, 그 그룹의 보고서 열람 권한을 그대로 상속</td></tr>
                     <tr><th>is_admin</th><td>선택</td><td>관리자 여부 — 비우면 <code>false</code></td></tr>
                     <tr><th>can_upload</th><td>선택</td><td>업로드 허용 — 비우면 <code>true</code></td></tr>
+                    <tr><th>department</th><td>선택</td><td>부서 — 데이터 RLS에서 <code>data_scope=department</code>일 때 기준값</td></tr>
+                    <tr><th>data_scope</th><td>선택</td><td>데이터 조회 범위 <code>self</code>/<code>department</code>/<code>all</code> — 비우면 <code>self</code></td></tr>
                   </tbody>
                 </table>
                 <button
@@ -764,8 +900,8 @@ function BulkAddUsersModal({
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
                     const csv =
-                      "username,password,display_name,pbi_username,roles,groups,is_admin,can_upload\n" +
-                      "user01,TempPass123!,홍길동,,도메인,영업팀,false,true\n";
+                      "username,password,display_name,pbi_username,roles,groups,is_admin,can_upload,department,data_scope\n" +
+                      "user01,TempPass123!,홍길동,,도메인,영업팀,false,true,영업팀,department\n";
                     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
@@ -1264,6 +1400,14 @@ function AccessModal({
                   <span className="ad-access-name">{u.display_name}</span>
                   <span className="ad-access-id">{u.username}</span>
                   {u.is_admin && <span className="pill admin">관리자</span>}
+                  {!u.is_admin && u.via_group && (
+                    <span
+                      className={`pill ${u.direct === false ? "inactive" : "active"}`}
+                      title="소속 그룹으로도 이 보고서 열람 권한이 있습니다"
+                    >
+                      그룹경유{u.direct === false ? " · 차단됨" : ""}
+                    </span>
+                  )}
                 </div>
                 {u.is_admin ? (
                   <span className="ad-access-always" title="관리자는 권한과 무관하게 모든 보고서를 봅니다">
@@ -1272,9 +1416,14 @@ function AccessModal({
                 ) : (
                   <button
                     className={`btn btn-sm ${u.can_view ? "btn-danger" : "btn-primary"}`}
+                    title={
+                      u.can_view && u.via_group
+                        ? "그룹으로 부여된 권한이 있어도 이 사람만 예외로 차단합니다"
+                        : undefined
+                    }
                     onClick={() => setAccess(u.id, !u.can_view)}
                   >
-                    {u.can_view ? "해제" : "부여"}
+                    {u.can_view ? "차단" : "허용"}
                   </button>
                 )}
               </div>

@@ -898,6 +898,38 @@ def _v13_rls_security_mapping(cur):
     cur.execute("UPDATE users SET data_scope = 'all' WHERE is_admin")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# v14 — RLS 보안 테이블을 뷰로 직접 제공 (2026-07)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _v14_rls_security_view(cur):
+    """동적 RLS 보안 테이블을 게이트웨이 Postgres 뷰로 직접 제공한다.
+
+    이 프로젝트의 보고서(.pbix)는 직원이 직접 업로드하므로 데이터 원천이
+    보고서마다 제각각(개인 Excel 추출본 등)이라, scripts/export_rls_security_table.py가
+    전제하는 "고정된 외부 데이터 원천(SQL Server 등)"이 없는 경우가 많다.
+
+    Power BI는 한 모델에 여러 데이터 원천을 결합할 수 있으므로, 보안 테이블만
+    Power BI Desktop에서 PostgreSQL 커넥터로 이 뷰에 직접 연결하면 export
+    스크립트로 복사·붙여넣기 하는 수동 동기화 없이 새로고침만으로 항상 최신
+    department/data_scope가 반영된다. export 스크립트는 외부 데이터 원천에
+    반드시 넣어야 하는 경우(예: Power BI Desktop에서 이 DB로 네트워크 연결이
+    안 되는 환경)를 위한 대안 경로로 계속 남겨둔다.
+
+    password 등 민감 컬럼은 뷰 정의에 없어 뷰 조회만으로는 노출되지 않는다.
+    다만 이 격리를 실제로 강제하려면(기본 앱 계정이 아닌 별도 최소권한 계정으로
+    한정) 읽기전용 role을 만들어 이 뷰에만 SELECT를 부여해야 한다 — CREATE ROLE은
+    superuser 권한이 필요해 이 마이그레이션(앱 DB 계정 실행)에 포함하지 않는다.
+    """
+    cur.execute("DROP VIEW IF EXISTS v_rls_user_scope")
+    cur.execute(
+        """CREATE VIEW v_rls_user_scope AS
+           SELECT pbi_username AS user_key, department, data_scope
+           FROM users
+           WHERE is_active = TRUE"""
+    )
+
+
 MIGRATIONS = [
     (1, _v1_baseline),
     (2, _v2_groups),
@@ -912,6 +944,7 @@ MIGRATIONS = [
     (11, _v11_drop_removed_feature_columns),
     (12, _v12_drop_unused_report_columns),
     (13, _v13_rls_security_mapping),
+    (14, _v14_rls_security_view),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]
