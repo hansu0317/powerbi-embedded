@@ -28,21 +28,14 @@ rotate_log() {
 }
 
 start() {
-    # 선택 인자: DB 목표 버전 (예: `server.sh start v2` 또는 `start 2`)
-    # 미지정 시 최신 버전까지 적용. DB_TARGET_VERSION 환경변수로도 지정 가능.
-    DB_TARGET="$1"
     if [ -f "$PID_FILE" ] && kill -0 "$(cat $PID_FILE)" 2>/dev/null; then
         echo "이미 실행 중입니다. (PID: $(cat $PID_FILE))"
         return
     fi
     mkdir -p "$LOG_DIR"
-    MIGRATE_ARGS=""
-    if [ -n "$DB_TARGET" ]; then
-        MIGRATE_ARGS="--target ${DB_TARGET#v}"   # 'v2' → '2'
-        echo "DB 마이그레이션 목표: v${DB_TARGET#v}"
-    fi
-    if ! $PYTHON "$PROJECT_ROOT/scripts/migrate_report_meta.py" $MIGRATE_ARGS; then
-        echo "DB 마이그레이션 실패. PostgreSQL과 .env 설정을 확인하세요."
+    # DB 스키마 확인/생성 (버전 이력 없는 단일 스크립트 — 매번 실행해도 안전)
+    if ! $PYTHON "$PROJECT_ROOT/scripts/init_schema.py"; then
+        echo "DB 스키마 초기화 실패. PostgreSQL과 .env 설정을 확인하세요."
         return 1
     fi
     rotate_log
@@ -103,11 +96,9 @@ status() {
 }
 
 case "$1" in
-    start)   start "$2" ;;
+    start)   start ;;
     stop)    stop ;;
-    restart) stop; sleep 1; start "$2" ;;
+    restart) stop; sleep 1; start ;;
     status)  status ;;
-    *)       echo "사용법: $0 {start|stop|restart|status} [DB버전]"
-             echo "  예: $0 start        # DB를 최신 버전까지 마이그레이션 후 시작"
-             echo "      $0 start v1     # DB를 v1까지만 적용하고 시작" ;;
+    *)       echo "사용법: $0 {start|stop|restart|status}" ;;
 esac

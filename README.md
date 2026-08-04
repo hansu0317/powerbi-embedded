@@ -55,13 +55,12 @@ bash scripts/server.sh start
 curl http://127.0.0.1:8247/health     # {"status":"ok", ...}
 ```
 
-스키마 마이그레이션은 `server.sh`가 **기동 전 자동 실행**한다. 수동 실행은 `python3 scripts/migrate_report_meta.py`.
+DB 스키마 확인/생성은 `server.sh`가 **기동 전 자동 실행**한다. 수동 실행은 `python3 scripts/init_schema.py`.
 
 ### 서버 제어
 
 ```bash
 bash scripts/server.sh start|stop|restart|status
-bash scripts/server.sh start v10      # DB를 특정 버전까지만 적용하고 기동
 tail -f logs/server.log
 ```
 
@@ -116,8 +115,7 @@ pip install -r requirements.txt
 
 cd frontend; npm install; npm run build; cd ..
 
-.\scripts\server.ps1          # 마이그레이션 후 기동 (Ctrl+C 종료)
-.\scripts\server.ps1 v10      # 특정 스키마 버전까지만 적용
+.\scripts\server.ps1          # 스키마 확인 후 기동 (Ctrl+C 종료)
 ```
 
 ---
@@ -170,7 +168,7 @@ services/fabric.py   PBI↔DB 동기화, 시작 시 복구
 frontend/          React + TypeScript 소스 (사람이 편집)
 static/dist/       npm run build 산출물 (브라우저가 받는 것)
 templates/         Jinja HTML 셸 — 서버가 __BOOTSTRAP__ 주입
-scripts/           마이그레이션·서버 제어·보조 스크립트
+scripts/           스키마 초기화·서버 제어·보조 스크립트
 ```
 
 **규칙** — `routes/`는 SQL을 직접 쓰지 않고 `database.py`의 `db_*`만 호출한다.
@@ -180,28 +178,28 @@ Power BI REST 호출도 `routes/`가 직접 하지 않고 `services/`를 거친�
 
 ## 데이터베이스
 
-테이블 11개. 스키마 버전은 `schema_migrations`에 기록된다 (현재 **v12**).
+테이블 10개 + 뷰 1개. `scripts/init_schema.py` 하나가 전체 스키마를 정의한다 (버전 이력 없음 — 자세한 배경은 아래 "스키마 변경 규칙" 참고).
 
-| 테이블 | 내용 |
+| 테이블/뷰 | 내용 |
 |---|---|
 | `users` | 계정 (bcrypt 해시, 역할, 관리자·업로드 권한, RLS 매핑) |
 | `reports` | 보고서 본체 + PBI 연결 정보 (18컬럼) |
-| `user_reports` | 개인 열람 권한 |
+| `user_reports` | 개인 열람 권한 (`can_view`: NULL=설정없음/TRUE=허용/FALSE=명시적 차단) |
 | `groups` / `user_groups` / `group_reports` | 그룹 단위 권한 |
 | `upload_jobs` | 업로드 상태 머신 (재시작 복구용) |
 | `user_report_marks` | 즐겨찾기 · 최근 본 |
 | `event_log` | 활동 · 관리 감사 · 로그인 시도 (`log_type`으로 구분) |
 | `app_config` | 런타임 설정 |
-| `schema_migrations` | 적용된 스키마 버전 |
+| `v_rls_user_scope` (뷰) | Power BI RLS 보안 테이블 — `users`의 `pbi_username/department/data_scope`만 노출 |
 
-**열람 가능 판정** = 직접 부여(`user_reports`) **OR** 소속 그룹 부여(`group_reports`).
+**열람 가능 판정** = (직접 부여(`user_reports`) **OR** 소속 그룹 부여(`group_reports`)) **AND NOT** 개별 명시 차단.
 관리자는 권한 확인을 건너뛴다. 이 판정 SQL은 `database.py`의 `_CAN_VIEW_REPORT_SQL` **한 곳**에서만 관리한다.
 
 ### 스키마 변경 규칙 (중요)
 
-`scripts/migrate_report_meta.py`의 `MIGRATIONS`에 `(버전, 함수)`로만 추가한다.
+`scripts/init_schema.py`가 전체 스키마를 `CREATE TABLE IF NOT EXISTS`로 선언한다 — 서버 시작마다 실행돼도 안전하다 (2026-08~, 그 이전엔 `schema_migrations`로 버전을 추적하는 `scripts/migrate_report_meta.py`를 썼으나, 운영 DB가 1개뿐이고 변경이 드물다는 전제로 단순화했다. 과거 이력이 궁금하면 그 파일을 참고).
 
-- **적용된 버전 함수는 절대 수정하지 않는다.** 고칠 것이 있으면 다음 버전을 추가한다.
+- **이 파일을 계속 고쳐 쓰지 않는다.** 새 변경사항은 배포 시 관리자가 직접 실행하는 별도 SQL로 처리한다.
 - 다운그레이드는 지원하지 않는다 — 되돌리려면 백업 복원뿐이다.
 - **스키마 변경 전에는 반드시 백업**한다.
 
