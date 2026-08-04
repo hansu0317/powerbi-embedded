@@ -19,6 +19,9 @@ docs/
 pdfpptx/
 *.docx
 
+# 다른 회사 RLS 참고 자료 (실제 사내망 IP·테이블명 포함 — 절대 커밋 금지)
+example/
+
 # Python 캐시
 __pycache__/
 *.pyc
