@@ -193,30 +193,6 @@ def db_get_report(report_id: int):
             return cur.fetchone()
 
 
-# ── GET 필터 (PoC) ───────────────────────────────────────────────────────────
-# 진짜 RLS(users.roles 기반, services/powerbi.py)와 별개 — 필터 창에서 지울 수 있는
-# 표시 편의 기능이다. reports.filter_table/column/key가 전부 NULL이면 미적용.
-#
-# filter_key는 "이 보고서가 어떤 종류의 필터를 쓰는지"를 코드가 아니라 데이터로
-# 다루기 위한 값이다(예: 'company_code', 'factory_code') — 고객사마다 기준이
-# 달라도(관계사 코드든 공장 코드든) 코드를 새로 짤 필요 없이 reports.filter_key +
-# user_filter_values에 값만 채우면 된다. scripts/set_report_filter.py 참고.
-
-def db_get_user_filter_values(user_id: int, filter_key: str) -> list:
-    """사용자가 배정받은 filter_key 종류의 값 전부 (예: filter_key='company_code'면
-    그 사람이 볼 수 있는 관계사 코드 전부)."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT value
-                   FROM user_filter_values
-                   WHERE user_id = %s AND filter_key = %s
-                   ORDER BY value""",
-                (user_id, filter_key),
-            )
-            return [row["value"] for row in cur.fetchall()]
-
-
 def db_find_report(owner_id: int, name: str):
     """같은 이름의 '살아있는' 보고서 조회. deleted 상태는 재사용 가능."""
     with db_conn() as conn:

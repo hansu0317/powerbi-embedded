@@ -50,17 +50,16 @@ export interface EmbedResponse {
   refresh_status?: string | null; // Completed | Failed | NotRefreshable | ...
   rls_enabled?: boolean; // true면 이 보고서는 역할별로 다른 행이 보일 수 있음
 
-  // GET 필터 (PoC) — reports.filter_table/column/key가 설정된 보고서 + 사용자에게
-  // 배정된 값이 있을 때만 내려온다. 진짜 RLS(위 rls_enabled)와는 별개로, 필터 창에서
-  // 사용자가 지울 수 있는 표시 편의 기능이다. key는 "관계사 코드"처럼 특정 개념에
-  // 고정하지 않기 위한 값(예: company_code, factory_code — 고객사마다 다를 수 있음).
-  // 선택 UI 없음 — values 전부를 IN 필터로 한 번에 적용한다(한 사람이 여러 값에
-  // 해당될 수 있고, 그럴 땐 전부 보여야 하므로 하나만 고르게 하지 않는다).
+  // GET 필터 (PoC) — reports.filter_table/column/key가 설정된 보고서 + 사용자
+  // (users.filter_key/filter_value)의 key가 일치할 때만 내려온다. 진짜 RLS(위
+  // rls_enabled)와는 별개로, 필터 창에서 사용자가 지울 수 있는 표시 편의 기능이다.
+  // key는 "관계사 코드"처럼 특정 개념에 고정하지 않기 위한 값(예: company_code,
+  // factory_code — 고객사마다 다를 수 있음). 한 사용자 한 값만 지원한다.
   get_filter?: {
     key: string;
     table: string;
     column: string;
-    values: string[];
+    value: string;
   };
 
   settings?: {

@@ -37,15 +37,13 @@ const powerbi = new pbi.service.Service(
 // 제거(X) 버튼을 숨길 수 있다는 점이 다르다 — 그래도 진짜 RLS는 아니다
 // (브라우저 devtools로 SDK를 직접 호출하면 여전히 우회 가능).
 //
-// 선택 UI(드롭다운) 없음 — 한 사용자가 여러 값에 해당될 수 있고(예: 서진오토모티브=AMT,
-// 에코플라스틱=ECO 둘 다 소속), 그런 경우 하나만 고르게 하면 안 되고 배정된 값 전부가
-// 한꺼번에 보여야 한다. 그래서 values 배열을 통째로 넣는 IN 필터로 적용한다.
-function buildGetFilter(table: string, column: string, values: string[]): pbi.models.IBasicFilter {
+// 선택 UI(드롭다운) 없음, 한 사용자 한 값만 지원한다(users.filter_value 단일 컬럼).
+function buildGetFilter(table: string, column: string, value: string): pbi.models.IBasicFilter {
   return {
     $schema: "http://powerbi.com/product/schema#basic",
     target: { table, column },
     operator: "In",
-    values,
+    values: [value],
     filterType: pbi.models.FilterType.Basic,
     // 필터 창에서 사용자가 제거(X)하지 못하게 잠근다 — 그래도 진짜 RLS는 아님(주석 위 참고).
     displaySettings: { isLockedInViewMode: true },
@@ -954,7 +952,7 @@ function ReportPanel({
         // 콘솔에도 남긴다. F12 → Console 탭에서 확인.
         const gf = !isDashboard && d.get_filter ? d.get_filter : null;
         if (gf) {
-          console.info(`[get-filter] report ${id}: ${gf.key} ${gf.table}/${gf.column} IN`, gf.values);
+          console.info(`[get-filter] report ${id}: ${gf.key} ${gf.table}/${gf.column} eq`, gf.value);
         }
         // 대시보드는 페이지·필터창 개념이 없어 report 전용 설정을 넣으면 SDK가
         // 무시하거나 오류를 낼 수 있다 — 타입별로 별도 config를 만든다 (v6).
@@ -972,7 +970,7 @@ function ReportPanel({
               embedUrl: d.embed_url,
               accessToken: d.embed_token,
               tokenType: pbi.models.TokenType.Embed,
-              filters: gf ? [buildGetFilter(gf.table, gf.column, gf.values)] : undefined,
+              filters: gf ? [buildGetFilter(gf.table, gf.column, gf.value)] : undefined,
               // 보고서별 차등 설정이 필요 없어 상수로 고정한다 (예전 DB 컬럼은 v12에서 제거).
               //  · 네이티브 페이지 탭·필터창은 둘 다 끈다 — 대신 페이지는 상단 툴바의
               //    드롭다운(onPagesReady/onPageChange)으로 대체한다. 여러 장짜리
