@@ -46,9 +46,15 @@ from routes import auth, report, admin
 
 # Windows 콘솔/파일 리다이렉트 기본 인코딩(cp949)에서도 한글이 안 깨지도록 강제.
 # Linux는 이미 UTF-8이라 no-op.
+#
+# utf-8-sig(BOM 포함)를 쓰는 이유 — server.ps1은 로그를 파일로 리다이렉트하는데,
+# 그 파일을 나중에 PowerShell Get-Content 등으로 열어보면 파일 맨 앞에 "이거 UTF-8"
+# 표시(BOM)가 없는 한 시스템 기본 코드페이지(cp949)로 잘못 짐작해 한글이 깨진다
+# (위 SetConsoleOutputCP는 "지금 떠 있는 콘솔 화면"에만 효과가 있고, 나중에 파일을
+# 열어보는 경우엔 적용 안 됨 — 별개 문제). BOM은 스트림 맨 앞에 한 번만 붙는다.
 for _stream in (sys.stdout, sys.stderr):
     try:
-        _stream.reconfigure(encoding="utf-8")
+        _stream.reconfigure(encoding="utf-8-sig")
     except (AttributeError, ValueError):
         pass
 
