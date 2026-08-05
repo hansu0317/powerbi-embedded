@@ -22,7 +22,7 @@ from database import (
     db_fail_stuck_upload_job,
     db_log_activity, db_get_popular_report_ids,
     db_get_user_activity_log, db_reserve_update,
-    db_get_user_company_codes,
+    db_get_user_filter_values,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip, json_body
 from errors import AppError, extract_code_message
@@ -179,35 +179,41 @@ async def api_embed(request: Request, report_id: int):
         db_log_activity, user["id"], user["username"], "report_view",
         report_id, result.get("report_name"), ip, 30,
     )
-    company_filter = await _build_company_filter(user, report_id)
-    if company_filter:
-        result["company_filter"] = company_filter
+    get_filter = await _build_get_filter(user, report_id)
+    if get_filter:
+        result["get_filter"] = get_filter
         logger.info(
-            "COMPANY_FILTER APPLY | user=%-12s | report_id=%s | %s/%s IN %s",
-            user["username"], report_id,
-            company_filter["table"], company_filter["column"], company_filter["codes"],
+            "GET_FILTER APPLY | user=%-12s | report_id=%s | key=%s | %s/%s IN %s",
+            user["username"], report_id, get_filter["key"],
+            get_filter["table"], get_filter["column"], get_filter["values"],
         )
     return result
 
 
-async def _build_company_filter(user: dict, report_id: int) -> dict | None:
-    """관계사 코드(AMT/ECO 등) GET 필터 설정 조립 (PoC — 진짜 RLS 아님, users.roles
-    기반 RLS와 별개). reports.filter_table/column이 설정된 보고서에서만, 그리고
-    사용자가 하나 이상의 company_code를 배정받았을 때만 값을 반환한다.
+async def _build_get_filter(user: dict, report_id: int) -> dict | None:
+    """GET 필터 설정 조립 (PoC — 진짜 RLS 아님, users.roles 기반 RLS와 별개).
+    reports.filter_table/column/key가 전부 설정된 보고서에서만, 그리고 사용자가
+    그 filter_key 값을 하나 이상 배정받았을 때만 값을 반환한다.
 
-    선택 UI(드롭다운) 없음 — 사용자가 배정받은 코드 전부를 IN 필터로 한 번에
-    적용한다(서진오토모티브=AMT, 에코플라스틱=ECO처럼 한 사람이 여러 관계사
-    소속일 수 있고, 그럴 땐 둘 다 보여야지 하나만 골라 보여주면 안 되기 때문)."""
+    filter_key는 "관계사 코드"처럼 특정 개념에 코드를 고정하지 않기 위한 값이다 —
+    고객사마다 기준이 다를 수 있어서(관계사 코드, 공장 코드 등) 어떤 종류의 필터인지를
+    데이터(reports.filter_key)로 다룬다. scripts/set_report_filter.py 참고.
+
+    선택 UI(드롭다운) 없음 — 사용자가 배정받은 값 전부를 IN 필터로 한 번에 적용한다
+    (서진오토모티브=AMT, 에코플라스틱=ECO처럼 한 사람이 여러 관계사 소속일 수 있고,
+    그럴 땐 둘 다 보여야지 하나만 골라 보여주면 안 되기 때문)."""
     report_row = await asyncio.to_thread(db_get_report, report_id)
-    if not report_row or not report_row["filter_table"] or not report_row["filter_column"]:
+    if not report_row or not report_row["filter_table"] or not report_row["filter_column"] \
+            or not report_row["filter_key"]:
         return None
-    codes = await asyncio.to_thread(db_get_user_company_codes, user["id"])
-    if not codes:
+    values = await asyncio.to_thread(db_get_user_filter_values, user["id"], report_row["filter_key"])
+    if not values:
         return None
     return {
+        "key":    report_row["filter_key"],
         "table":  report_row["filter_table"],
         "column": report_row["filter_column"],
-        "codes":  [c["company_code"] for c in codes],
+        "values": values,
     }
 
 

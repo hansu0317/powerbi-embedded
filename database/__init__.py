@@ -21,7 +21,7 @@ from database.reports import (
     db_get_reports, db_get_all_active_reports, db_get_user_favorites, db_set_favorite,
     db_get_user_recents, db_add_recent, db_get_pbi_report_map, db_hard_delete_report,
     db_can_view_report, db_get_report, db_find_report,
-    db_get_user_company_codes, db_user_has_company_code,
+    db_get_user_filter_values,
 )
 from database.uploads import (
     db_reserve_update, db_reserve_upload, db_count_other_reports_using_dataset,
@@ -54,7 +54,7 @@ __all__ = [
     "db_get_reports", "db_get_all_active_reports", "db_get_user_favorites", "db_set_favorite",
     "db_get_user_recents", "db_add_recent", "db_get_pbi_report_map", "db_hard_delete_report",
     "db_can_view_report", "db_get_report", "db_find_report",
-    "db_get_user_company_codes", "db_user_has_company_code",
+    "db_get_user_filter_values",
     "db_reserve_update", "db_reserve_upload", "db_count_other_reports_using_dataset",
     "db_fail_stuck_upload_job", "db_fail_stale_publishing_jobs", "db_get_upload_job",
     "db_update_upload_job", "db_register_report", "db_get_synced_reports",

@@ -185,7 +185,7 @@ def db_get_report(report_id: int):
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id,
                           r.pbi_report_id, r.pbi_dataset_id, r.pbi_workspace_id,
-                          r.tab_type, r.filter_table, r.filter_column
+                          r.tab_type, r.filter_table, r.filter_column, r.filter_key
                    FROM reports r
                    WHERE r.id = %s""",
                 (report_id,),
@@ -193,34 +193,28 @@ def db_get_report(report_id: int):
             return cur.fetchone()
 
 
-# ── 관계사 코드 GET 필터 (PoC) ────────────────────────────────────────────────
+# ── GET 필터 (PoC) ───────────────────────────────────────────────────────────
 # 진짜 RLS(users.roles 기반, services/powerbi.py)와 별개 — 필터 창에서 지울 수 있는
-# 표시 편의 기능이다. reports.filter_table/column이 둘 다 NULL이면 미적용.
+# 표시 편의 기능이다. reports.filter_table/column/key가 전부 NULL이면 미적용.
+#
+# filter_key는 "이 보고서가 어떤 종류의 필터를 쓰는지"를 코드가 아니라 데이터로
+# 다루기 위한 값이다(예: 'company_code', 'factory_code') — 고객사마다 기준이
+# 달라도(관계사 코드든 공장 코드든) 코드를 새로 짤 필요 없이 reports.filter_key +
+# user_filter_values에 값만 채우면 된다. scripts/set_report_filter.py 참고.
 
-def db_get_user_company_codes(user_id: int) -> list:
-    """사용자가 선택할 수 있는 관계사 코드 목록. is_default 행이 먼저 온다."""
+def db_get_user_filter_values(user_id: int, filter_key: str) -> list:
+    """사용자가 배정받은 filter_key 종류의 값 전부 (예: filter_key='company_code'면
+    그 사람이 볼 수 있는 관계사 코드 전부)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT company_code, is_default
-                   FROM user_company_codes
-                   WHERE user_id = %s
-                   ORDER BY is_default DESC, company_code""",
-                (user_id,),
+                """SELECT value
+                   FROM user_filter_values
+                   WHERE user_id = %s AND filter_key = %s
+                   ORDER BY value""",
+                (user_id, filter_key),
             )
-            return cur.fetchall()
-
-
-def db_user_has_company_code(user_id: int, company_code: str) -> bool:
-    """company_code 쿼리 파라미터를 클라이언트가 임의로 보냈을 때 검증용 —
-    사용자가 실제로 배정받은 코드인지 확인한다."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT 1 FROM user_company_codes WHERE user_id = %s AND company_code = %s",
-                (user_id, company_code),
-            )
-            return cur.fetchone() is not None
+            return [row["value"] for row in cur.fetchall()]
 
 
 def db_find_report(owner_id: int, name: str):
