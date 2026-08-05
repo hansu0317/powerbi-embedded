@@ -50,6 +50,17 @@ export interface EmbedResponse {
   refresh_status?: string | null; // Completed | Failed | NotRefreshable | ...
   rls_enabled?: boolean; // true면 이 보고서는 역할별로 다른 행이 보일 수 있음
 
+  // 관계사 코드(AMT/ECO 등) GET 필터 (PoC) — reports.filter_table/column이 설정된
+  // 보고서 + 사용자에게 배정된 company_code가 있을 때만 내려온다. 진짜 RLS(위
+  // rls_enabled)와는 별개로, 필터 창에서 사용자가 지울 수 있는 표시 편의 기능이다.
+  // 선택 UI 없음 — codes 전부를 IN 필터로 한 번에 적용한다(한 사람이 여러
+  // 관계사 소속일 수 있고, 그럴 땐 전부 보여야 하므로 하나만 고르게 하지 않는다).
+  company_filter?: {
+    table: string;
+    column: string;
+    codes: string[];
+  };
+
   settings?: {
     tab_type?: string; // "dashboard" | "report" — 대시보드 임베드 분기용
   };

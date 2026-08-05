@@ -32,6 +32,26 @@ const powerbi = new pbi.service.Service(
   pbi.factories.routerFactory,
 );
 
+// 관계사 코드(AMT/ECO 등) GET 필터 (PoC) — JS SDK의 공식 filters 설정으로 적용한다.
+// URL 문자열에 &filter=...를 붙이는 방식과 결과는 같지만, isLockedInViewMode로
+// 필터 창의 제거(X) 버튼을 숨길 수 있다는 점이 다르다 — 그래도 진짜 RLS는 아니다
+// (브라우저 devtools로 SDK를 직접 호출하면 여전히 우회 가능).
+//
+// 선택 UI(드롭다운) 없음 — 한 사용자가 여러 관계사 소속일 수 있고(예: 서진오토모티브=AMT,
+// 에코플라스틱=ECO 둘 다), 그런 경우 하나만 고르게 하면 안 되고 배정된 코드 전부가
+// 한꺼번에 보여야 한다. 그래서 values에 codes 배열을 통째로 넣는 IN 필터로 적용한다.
+function buildCompanyFilter(table: string, column: string, codes: string[]): pbi.models.IBasicFilter {
+  return {
+    $schema: "http://powerbi.com/product/schema#basic",
+    target: { table, column },
+    operator: "In",
+    values: codes,
+    filterType: pbi.models.FilterType.Basic,
+    // 필터 창에서 사용자가 제거(X)하지 못하게 잠근다 — 그래도 진짜 RLS는 아님(주석 위 참고).
+    displaySettings: { isLockedInViewMode: true },
+  };
+}
+
 type View = "my" | "all" | "upload";
 interface OpenTab {
   id: number;
@@ -927,6 +947,15 @@ function ReportPanel({
         if (cancelled || !el) return;
         const s = d.settings || {};
         const isDashboard = s.tab_type === "dashboard";
+        // 관계사 코드(AMT/ECO 등) GET 필터 (PoC) — 대시보드는 지원 안 함(필터 개념 자체가 없음).
+        // 선택 UI 없이 배정된 codes 전부를 IN 필터로 조용히 적용한다.
+        // 서버 로그(COMPANY_FILTER APPLY)는 "우리가 브라우저에 뭘 내려보냈다"까지만 알 수 있고,
+        // 그 이후(브라우저가 실제로 적용했는지)는 서버가 볼 수 없다 — 그래서 여기 브라우저
+        // 콘솔에도 남긴다. F12 → Console 탭에서 확인.
+        const cf = !isDashboard && d.company_filter ? d.company_filter : null;
+        if (cf) {
+          console.info(`[company-filter] report ${id}: ${cf.table}/${cf.column} IN`, cf.codes);
+        }
         // 대시보드는 페이지·필터창 개념이 없어 report 전용 설정을 넣으면 SDK가
         // 무시하거나 오류를 낼 수 있다 — 타입별로 별도 config를 만든다 (v6).
         const config: pbi.IEmbedConfiguration = isDashboard
@@ -943,6 +972,7 @@ function ReportPanel({
               embedUrl: d.embed_url,
               accessToken: d.embed_token,
               tokenType: pbi.models.TokenType.Embed,
+              filters: cf ? [buildCompanyFilter(cf.table, cf.column, cf.codes)] : undefined,
               // 보고서별 차등 설정이 필요 없어 상수로 고정한다 (예전 DB 컬럼은 v12에서 제거).
               //  · 네이티브 페이지 탭·필터창은 둘 다 끈다 — 대신 페이지는 상단 툴바의
               //    드롭다운(onPagesReady/onPageChange)으로 대체한다. 여러 장짜리

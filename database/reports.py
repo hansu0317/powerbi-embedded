@@ -185,12 +185,42 @@ def db_get_report(report_id: int):
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id,
                           r.pbi_report_id, r.pbi_dataset_id, r.pbi_workspace_id,
-                          r.tab_type
+                          r.tab_type, r.filter_table, r.filter_column
                    FROM reports r
                    WHERE r.id = %s""",
                 (report_id,),
             )
             return cur.fetchone()
+
+
+# ── 관계사 코드 GET 필터 (PoC) ────────────────────────────────────────────────
+# 진짜 RLS(users.roles 기반, services/powerbi.py)와 별개 — 필터 창에서 지울 수 있는
+# 표시 편의 기능이다. reports.filter_table/column이 둘 다 NULL이면 미적용.
+
+def db_get_user_company_codes(user_id: int) -> list:
+    """사용자가 선택할 수 있는 관계사 코드 목록. is_default 행이 먼저 온다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT company_code, is_default
+                   FROM user_company_codes
+                   WHERE user_id = %s
+                   ORDER BY is_default DESC, company_code""",
+                (user_id,),
+            )
+            return cur.fetchall()
+
+
+def db_user_has_company_code(user_id: int, company_code: str) -> bool:
+    """company_code 쿼리 파라미터를 클라이언트가 임의로 보냈을 때 검증용 —
+    사용자가 실제로 배정받은 코드인지 확인한다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM user_company_codes WHERE user_id = %s AND company_code = %s",
+                (user_id, company_code),
+            )
+            return cur.fetchone() is not None
 
 
 def db_find_report(owner_id: int, name: str):

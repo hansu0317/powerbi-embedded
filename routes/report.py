@@ -22,6 +22,7 @@ from database import (
     db_fail_stuck_upload_job,
     db_log_activity, db_get_popular_report_ids,
     db_get_user_activity_log, db_reserve_update,
+    db_get_user_company_codes,
 )
 from deps import current_user, csrf_token, verify_csrf, get_client_ip, json_body
 from errors import AppError, extract_code_message
@@ -178,7 +179,36 @@ async def api_embed(request: Request, report_id: int):
         db_log_activity, user["id"], user["username"], "report_view",
         report_id, result.get("report_name"), ip, 30,
     )
+    company_filter = await _build_company_filter(user, report_id)
+    if company_filter:
+        result["company_filter"] = company_filter
+        logger.info(
+            "COMPANY_FILTER APPLY | user=%-12s | report_id=%s | %s/%s IN %s",
+            user["username"], report_id,
+            company_filter["table"], company_filter["column"], company_filter["codes"],
+        )
     return result
+
+
+async def _build_company_filter(user: dict, report_id: int) -> dict | None:
+    """관계사 코드(AMT/ECO 등) GET 필터 설정 조립 (PoC — 진짜 RLS 아님, users.roles
+    기반 RLS와 별개). reports.filter_table/column이 설정된 보고서에서만, 그리고
+    사용자가 하나 이상의 company_code를 배정받았을 때만 값을 반환한다.
+
+    선택 UI(드롭다운) 없음 — 사용자가 배정받은 코드 전부를 IN 필터로 한 번에
+    적용한다(서진오토모티브=AMT, 에코플라스틱=ECO처럼 한 사람이 여러 관계사
+    소속일 수 있고, 그럴 땐 둘 다 보여야지 하나만 골라 보여주면 안 되기 때문)."""
+    report_row = await asyncio.to_thread(db_get_report, report_id)
+    if not report_row or not report_row["filter_table"] or not report_row["filter_column"]:
+        return None
+    codes = await asyncio.to_thread(db_get_user_company_codes, user["id"])
+    if not codes:
+        return None
+    return {
+        "table":  report_row["filter_table"],
+        "column": report_row["filter_column"],
+        "codes":  [c["company_code"] for c in codes],
+    }
 
 
 async def _report_pbi_ids(user: dict, report_id: int) -> tuple[str, str]:
