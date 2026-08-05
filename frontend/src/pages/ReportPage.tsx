@@ -694,6 +694,16 @@ function MyReportsView({
     reportRefs.current[rid] = { report, isDashboard };
   }, []);
 
+  // 네이티브 페이지 탭(하단)을 껐기 때문에, 페이지가 여러 장이면 상단 드롭다운으로 대체한다.
+  const [pagesByReport, setPagesByReport] = useState<Record<number, { name: string; displayName: string }[]>>({});
+  const [activePageByReport, setActivePageByReport] = useState<Record<number, string>>({});
+  const onPagesReady = useCallback((rid: number, pages: { name: string; displayName: string }[]) => {
+    setPagesByReport((prev) => ({ ...prev, [rid]: pages }));
+  }, []);
+  const onPageChange = useCallback((rid: number, pageName: string) => {
+    setActivePageByReport((prev) => ({ ...prev, [rid]: pageName }));
+  }, []);
+
   // React 훅은 조건부로 호출하면 안 된다 — tabs가 빈 상태(→ 아래 조기 return)에서
   // 첫 보고서를 열면(tabs.length 0→1) 이 컴포넌트가 이전 렌더보다 훅을 하나 더 호출하게 돼
   // "Rendered more hooks than during the previous render"로 화면 전체가 하얗게 죽는다.
@@ -755,6 +765,26 @@ function MyReportsView({
               </button>
             </div>
           )}
+          {!activeEntry?.isDashboard && activeTab && (pagesByReport[activeTab.id]?.length ?? 0) > 1 && (
+            <select
+              className="rp-page-select"
+              title="페이지 이동"
+              value={activePageByReport[activeTab.id] || ""}
+              onChange={(e) => {
+                const pageName = e.target.value;
+                activeEntry?.report
+                  .setPage(pageName)
+                  .then(() => onPageChange(activeTab.id, pageName))
+                  .catch(() => {});
+              }}
+            >
+              {pagesByReport[activeTab.id].map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.displayName}
+                </option>
+              ))}
+            </select>
+          )}
           <button className="rp-report-toolbar-fav" title="전체화면" onClick={goFullscreen}>
             <Maximize size={16} className="icn" />
             <span className="rp-toolbar-label">전체화면</span>
@@ -780,7 +810,14 @@ function MyReportsView({
       )}
       <div className="rp-panels">
         {tabs.map((t) => (
-          <ReportPanel key={t.id} id={t.id} active={t.id === active} onReady={onReady} />
+          <ReportPanel
+            key={t.id}
+            id={t.id}
+            active={t.id === active}
+            onReady={onReady}
+            onPagesReady={onPagesReady}
+            onPageChange={onPageChange}
+          />
         ))}
       </div>
       {/* 탭 바 — 하단 */}
@@ -849,10 +886,14 @@ function ReportPanel({
   id,
   active,
   onReady,
+  onPagesReady,
+  onPageChange,
 }: {
   id: number;
   active: boolean;
   onReady: (rid: number, report: pbi.Report, isDashboard: boolean) => void;
+  onPagesReady: (rid: number, pages: { name: string; displayName: string }[]) => void;
+  onPageChange: (rid: number, pageName: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
@@ -903,27 +944,48 @@ function ReportPanel({
               accessToken: d.embed_token,
               tokenType: pbi.models.TokenType.Embed,
               // 보고서별 차등 설정이 필요 없어 상수로 고정한다 (예전 DB 컬럼은 v12에서 제거).
-              //  · 페이지 탭은 켠다 — 여러 장짜리 보고서(예: 8장)에서 탭이 없으면
-              //    첫 페이지 외에는 접근할 방법이 아예 없다.
-              //  · 필터창은 '보이되 접힘' — 평소엔 자리를 차지하지 않고, 필요한 사람만
-              //    펼쳐 쓴다. 완전히 숨기면 필터 기능이 없는 줄 알게 된다.
+              //  · 네이티브 페이지 탭·필터창은 둘 다 끈다 — 대신 페이지는 상단 툴바의
+              //    드롭다운(onPagesReady/onPageChange)으로 대체한다. 여러 장짜리
+              //    보고서도 이 드롭다운으로 전부 이동 가능하니 접근성 손실은 없다.
               settings: {
-                navContentPaneEnabled: true,
-                filterPaneEnabled: true,
+                navContentPaneEnabled: false,
+                filterPaneEnabled: false,
                 layoutType: pbi.models.LayoutType.Custom,
                 customLayout: {
                   displayOption: pbi.models.DisplayOption.FitToPage,
                 },
                 panes: {
-                  pageNavigation: { visible: true },
-                  filters: { visible: true, expanded: false },
+                  pageNavigation: { visible: false },
+                  filters: { visible: false },
                 },
+                // 시각화 우측 상단에 뜨는 드릴 업/다운 아이콘 제거
+                commands: [
+                  { drill: { displayOption: pbi.models.CommandDisplayOption.Hidden } },
+                ],
               },
             };
         const report = powerbi.embed(el, config);
         scheduleRenew(report, d.expires_at);
         onReady(id, report as pbi.Report, isDashboard);
-        report.on("loaded", () => !cancelled && setLoading(false));
+        report.on("loaded", async () => {
+          if (cancelled) return;
+          setLoading(false);
+          if (isDashboard) return;
+          try {
+            const pages = await (report as pbi.Report).getPages();
+            if (cancelled) return;
+            onPagesReady(id, pages.map((p) => ({ name: p.name, displayName: p.displayName })));
+            const activePage = pages.find((p) => p.isActive) || pages[0];
+            if (activePage) onPageChange(id, activePage.name);
+          } catch {
+            /* 페이지 목록 조회 실패 — 드롭다운 없이도 보고서 자체는 정상 표시됨 */
+          }
+        });
+        report.on("pageChanged", (ev: any) => {
+          if (cancelled) return;
+          const name = ev?.page?.name;
+          if (name) onPageChange(id, name);
+        });
         report.on("error", (ev: any) => {
           if (cancelled) return;
           setLoading(false);

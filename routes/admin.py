@@ -50,17 +50,30 @@ async def api_sync_pbi(user: dict = Depends(require_admin_csrf)):
     return summary
 
 
-@router.get("/admin", response_class=HTMLResponse)
-async def admin_page(request: Request, user: dict = Depends(require_admin_user)):
+async def _build_admin_context(user: dict) -> dict:
+    """admin.html(SSR)과 /api/admin/bootstrap(탭 토큰 재조회)이 공유하는 데이터 조립.
+    이유는 routes/report.py의 _build_report_context 주석 참고 — 같은 원리."""
     stats   = await asyncio.to_thread(db_admin_get_stats)
     users   = await asyncio.to_thread(db_admin_get_users)
     reports = await asyncio.to_thread(db_admin_get_reports)
     jobs    = await asyncio.to_thread(db_admin_get_upload_jobs)
+    return {"user": user, "stats": stats, "users": users, "reports": reports, "jobs": jobs}
+
+
+@router.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request, user: dict = Depends(require_admin_user)):
+    ctx = await _build_admin_context(user)
     return templates.TemplateResponse(request, "admin.html", {
-        "user": user, "stats": stats, "users": users,
-        "reports": reports, "jobs": jobs,
+        **ctx,
         "csrf_token": csrf_token(request),
     })
+
+
+@router.get("/api/admin/bootstrap")
+async def api_admin_bootstrap(request: Request, user: dict = Depends(require_admin_user)):
+    """탭 토큰 기준으로 admin.html의 부트스트랩 데이터를 다시 받는 JSON 버전."""
+    ctx = await _build_admin_context(user)
+    return {**ctx, "csrf_token": csrf_token(request)}
 
 
 @router.get("/api/admin/users/{user_id}/reports")

@@ -31,7 +31,11 @@
 }
 .ad-sync-close:hover { background: #f3e4b8; }
 
-/* 한 화면에 맞춤(스크롤 없음): 표 영역이 남는 높이를 채우고 페이저는 하단 */
+/* 표(사용자·보고서 등) 화면은 useFitRows가 행 수를 미리 맞춰서 원래도 이 높이를
+   넘지 않는다 — 그래서 세로 스크롤은 사실상 안 생긴다. 하지만 설정처럼 내용이
+   페이지네이션 없이 그냥 쌓이는 화면은 높이를 못 맞추므로, overflow: hidden이면
+   화면 밖으로 넘친 카드(고급 설정 등)가 스크롤조차 없이 통째로 사라진다.
+   그래서 세로는 auto로 열어둔다 — 표 화면엔 영향 없고, 설정처럼 넘치는 화면만 스크롤된다. */
 .ad-content {
   padding: 22px 28px;
   min-width: 0;
@@ -39,7 +43,8 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .ad-content > section {
   flex: 1;
@@ -50,7 +55,11 @@
 .ad-content > section > h2 { flex-shrink: 0; }
 .ad-content > section > .ad-stat-grid,
 .ad-content > section > .ad-section-head { flex-shrink: 0; }
-.ad-content > section > .card-table { flex: 1; min-height: 0; overflow: hidden; }
+/* overflow: hidden 하나로 세로·가로를 같이 막으면 표가 화면보다 넓을 때(사용자 관리의
+   "액션" 열 등) 스크롤도 없이 화면 밖으로 조용히 잘려버린다. 세로는 의도대로 막되
+   (스크롤 대신 useFitRows가 행 수를 맞추고 .rp-pager로 넘김), 가로는 .card-table
+   자체의 overflow-x: auto(theme.css)가 실제로 동작하도록 따로 풀어준다. */
+.ad-content > section > .card-table { flex: 1; min-height: 0; overflow-y: hidden; overflow-x: auto; }
 .ad-content > section > .rp-pager { flex-shrink: 0; margin-top: 12px; }
 .ad-content h2 { font-size: 1.1rem; font-weight: 800; color: var(--ink); margin-bottom: 14px; }
 

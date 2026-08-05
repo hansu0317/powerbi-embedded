@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import config
-from config import PBI_API, WORKSPACE_ID
+from config import WORKSPACE_ID
 from database import (
     db_get_reports, db_get_all_active_reports, db_can_view_report, db_find_report,
     db_reserve_upload, db_update_upload_job, db_get_upload_job, db_register_report,
@@ -38,11 +38,13 @@ templates = Jinja2Templates(directory="templates")
 logger = logging.getLogger("powerbi-gateway")
 
 
-@router.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    user = await current_user(request)
-    if not user:
-        return RedirectResponse("/login", status_code=302)
+async def _build_report_context(user: dict) -> dict:
+    """report.html(SSR)과 /api/bootstrap(탭 토큰 재조회)이 공유하는 데이터 조립.
+
+    /api/bootstrap이 왜 필요한가 — 같은 브라우저의 다른 탭에서 다른 계정으로 로그인하면
+    공유 쿠키가 덮어써진다. 이 탭이 새로고침되면 SSR은 그 순간의(잘못된) 쿠키를 읽어
+    엉뚱한 사람 데이터로 렌더링하므로, 프론트가 자기 탭 토큰과 SSR 결과가 다른 걸
+    감지하면 이 함수와 동일한 데이터를 이 엔드포인트로 다시 받아 뒤엎는다(main.tsx)."""
     if user.get("is_admin"):
         report_list = await asyncio.to_thread(db_get_all_active_reports)
     else:
@@ -59,15 +61,39 @@ async def index(request: Request):
         for row in ranking if row["report_id"] in visible_ids
     ][:5]
 
-    return templates.TemplateResponse(request, "report.html", {
+    return {
         "user":      user,
         "reports":   report_list,
         "favorites": favorites,
         "recents":   recents,
         "popular":   popular,
-        "csrf_token": csrf_token(request),
         "marketing_portal_url": config.MARKETING_PORTAL_URL,
+    }
+
+
+@router.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    user = await current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    ctx = await _build_report_context(user)
+    return templates.TemplateResponse(request, "report.html", {
+        **ctx,
+        "csrf_token": csrf_token(request),
     })
+
+
+@router.get("/api/bootstrap")
+async def api_bootstrap(request: Request):
+    """탭 토큰 기준으로 report.html의 부트스트랩 데이터를 다시 받는 JSON 버전.
+
+    main.tsx가 SSR 결과(window.__BOOTSTRAP__)와 이 탭이 들고 있는 토큰의 소유자가
+    다를 때만 호출한다 — 정상 상황(불일치 없음)에서는 아예 호출되지 않는다."""
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    ctx = await _build_report_context(user)
+    return {**ctx, "csrf_token": csrf_token(request)}
 
 
 async def _require_viewable_report(user: dict, report_id: int, error: AppError = AppError.REPORT_NOT_FOUND):
@@ -85,8 +111,8 @@ async def _require_viewable_report(user: dict, report_id: int, error: AppError =
 @router.post("/api/favorites/{report_id}")
 async def api_set_favorite(request: Request, report_id: int):
     """즐겨찾기 추가/해제. body: {"favorite": true|false}"""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     user = await current_user(request)
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     if not user:
         raise AppError.NOT_AUTHENTICATED.http()
     await _require_viewable_report(user, report_id)
@@ -102,8 +128,8 @@ async def api_set_favorite(request: Request, report_id: int):
 @router.post("/api/recents/{report_id}")
 async def api_add_recent(request: Request, report_id: int):
     """최근 본 보고서 기록."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     user = await current_user(request)
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     if not user:
         raise AppError.NOT_AUTHENTICATED.http()
     await _require_viewable_report(user, report_id)
@@ -186,8 +212,8 @@ async def api_download_pbix(request: Request, report_id: int):
 @router.post("/api/reports/{report_id}/export/pptx")
 async def api_export_pptx_start(request: Request, report_id: int):
     """PPTX 내보내기 시작 (v6). 전용 용량(Premium/Embedded/Fabric) 필요 — Pro는 503."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     user = await current_user(request)
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     if not user:
         raise AppError.NOT_AUTHENTICATED.http()
     workspace_id, pbi_report_id = await _report_pbi_ids(user, report_id)
@@ -251,8 +277,8 @@ async def api_upload(
     folder: str = Form(""),
 ):
     """파일 수신 후 즉시 job_id 반환. 실제 PBI 게시는 백그라운드에서 진행."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     user = await current_user(request)
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     if not user:
         raise AppError.NOT_AUTHENTICATED.http()
     if not user.get("is_admin") and not user.get("can_upload"):
@@ -504,8 +530,8 @@ async def api_update_report_content(request: Request, report_id: int, file: Uplo
 
     권한: 보고서 소유자 또는 admin만 — 열람 권한(can_view)과는 완전히 별개 체크다.
     can_view이 있어도 소유자·admin이 아니면 이 API는 쓸 수 없다."""
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     user = await current_user(request)
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     if not user:
         raise AppError.NOT_AUTHENTICATED.http()
 

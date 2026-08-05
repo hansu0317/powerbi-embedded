@@ -2,6 +2,39 @@
 // CSRF 토큰은 서버가 부트스트랩으로 내려준 값을 X-CSRF-Token 헤더로 전달한다.
 import type { AdminReport } from "./bootstrap";
 
+// ── 탭 전용 로그인 토큰 ────────────────────────────────────────────────────
+// 세션 쿠키는 브라우저 전체가 공유해서, 같은 브라우저의 다른 탭에서 다른 계정으로
+// 로그인하면 이 탭까지 그 계정으로 덮어써진다. sessionStorage는 탭마다 독립이라
+// 여기 저장한 토큰을 매 요청 Authorization 헤더로 보내면 탭별로 로그인이 분리된다.
+const AUTH_TOKEN_KEY = "auth-token";
+const AUTH_USER_KEY  = "auth-user";
+
+export function getAuthToken(): string | null {
+  return sessionStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function getAuthUser(): string | null {
+  return sessionStorage.getItem(AUTH_USER_KEY);
+}
+
+export function setAuthToken(token: string, username: string) {
+  sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+  sessionStorage.setItem(AUTH_USER_KEY, username);
+}
+
+export function clearAuthToken() {
+  sessionStorage.removeItem(AUTH_TOKEN_KEY);
+  sessionStorage.removeItem(AUTH_USER_KEY);
+}
+
+function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const token = getAuthToken();
+  if (!token) return fetch(input, init);
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  return fetch(input, { ...init, headers });
+}
+
 function extractDetail(j: any, fallback: string): string {
   const detail = j?.detail;
   if (typeof detail === "object" && detail) return detail.message || fallback;
@@ -23,7 +56,7 @@ export interface EmbedResponse {
 }
 
 export async function fetchEmbed(reportId: number): Promise<EmbedResponse> {
-  const res = await fetch(`/api/embed/${reportId}`);
+  const res = await authFetch(`/api/embed/${reportId}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(extractDetail(err, "알 수 없는 오류"));
@@ -45,7 +78,7 @@ export async function uploadPbix(
   if (reportName) fd.append("report_name", reportName);
   if (description) fd.append("report_description", description);
   if (folder) fd.append("folder", folder);
-  const res = await fetch("/api/upload", {
+  const res = await authFetch("/api/upload", {
     method: "POST",
     body: fd,
     headers: { "X-CSRF-Token": csrf },
@@ -64,7 +97,7 @@ export interface UploadStatus {
 }
 
 export async function fetchUploadStatus(jobId: number, csrf: string): Promise<UploadStatus> {
-  const res = await fetch(`/api/upload/status/${jobId}`, {
+  const res = await authFetch(`/api/upload/status/${jobId}`, {
     headers: { "X-CSRF-Token": csrf },
   });
   const data = await res.json().catch(() => ({}));
@@ -75,7 +108,7 @@ export async function fetchUploadStatus(jobId: number, csrf: string): Promise<Up
 // ── 즐겨찾기 / 최근 본 보고서 (DB 영속) ──────────────────────────────────────
 
 export async function setFavorite(reportId: number, favorite: boolean, csrf: string) {
-  await fetch(`/api/favorites/${reportId}`, {
+  await authFetch(`/api/favorites/${reportId}`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
     body: JSON.stringify({ favorite }),
@@ -83,7 +116,7 @@ export async function setFavorite(reportId: number, favorite: boolean, csrf: str
 }
 
 export async function recordRecent(reportId: number, csrf: string) {
-  await fetch(`/api/recents/${reportId}`, {
+  await authFetch(`/api/recents/${reportId}`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf },
   });
@@ -92,7 +125,7 @@ export async function recordRecent(reportId: number, csrf: string) {
 // ── 인증 ──────────────────────────────────────────────────────────────────────
 
 export async function logout(csrf: string) {
-  await fetch("/logout", {
+  await authFetch("/logout", {
     method: "POST",
     headers: { "X-CSRF-Token": csrf },
   });
@@ -111,13 +144,13 @@ export interface SyncStatus {
 }
 
 export async function adminSyncStatus(): Promise<SyncStatus> {
-  const res = await fetch("/api/admin/sync-status");
+  const res = await authFetch("/api/admin/sync-status");
   if (!res.ok) return { available: false, drift: false };
   return res.json();
 }
 
 export async function adminImportPbi(csrf: string) {
-  const res = await fetch("/api/admin/import-pbi", {
+  const res = await authFetch("/api/admin/import-pbi", {
     method: "POST",
     headers: { "X-CSRF-Token": csrf },
   });
@@ -134,14 +167,14 @@ export interface AppConfigRow {
 }
 
 export async function adminGetConfig(): Promise<AppConfigRow[]> {
-  const res = await fetch("/api/admin/config");
+  const res = await authFetch("/api/admin/config");
   if (!res.ok) throw new Error("설정 조회 실패");
   const j = await res.json();
   return j.config as AppConfigRow[];
 }
 
 export async function adminSetConfig(key: string, value: string, csrf: string) {
-  const res = await fetch("/api/admin/config", {
+  const res = await authFetch("/api/admin/config", {
     method: "POST",
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
     body: JSON.stringify({ key, value }),
@@ -152,14 +185,14 @@ export async function adminSetConfig(key: string, value: string, csrf: string) {
 }
 
 export async function adminFetchReports(): Promise<AdminReport[]> {
-  const res = await fetch("/api/admin/reports");
+  const res = await authFetch("/api/admin/reports");
   if (!res.ok) throw new Error("보고서 목록 조회 실패");
   const j = await res.json();
   return j.reports as AdminReport[];
 }
 
 export async function adminAddUser(form: FormData) {
-  const res = await fetch("/api/admin/users/add", { method: "POST", body: form });
+  const res = await authFetch("/api/admin/users/add", { method: "POST", body: form });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
     throw new Error(extractDetail(j, res.statusText));
@@ -184,7 +217,7 @@ export async function adminBulkAddUsers(file: File, csrf: string): Promise<BulkA
   const form = new FormData();
   form.set("file", file);
   form.set("csrf", csrf);
-  const res = await fetch("/api/admin/users/bulk-import", { method: "POST", body: form });
+  const res = await authFetch("/api/admin/users/bulk-import", { method: "POST", body: form });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(extractDetail(j, res.statusText));
   return j as BulkAddResult;
@@ -199,7 +232,7 @@ export interface EditUserPayload {
 }
 
 export async function adminEditUser(userId: number, payload: EditUserPayload, csrf: string) {
-  const res = await fetch(`/api/admin/users/${userId}/edit`, {
+  const res = await authFetch(`/api/admin/users/${userId}/edit`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -210,7 +243,7 @@ export async function adminEditUser(userId: number, payload: EditUserPayload, cs
 }
 
 export async function adminToggleUser(userId: number, csrf: string) {
-  const res = await fetch(`/api/admin/users/${userId}/toggle-active`, {
+  const res = await authFetch(`/api/admin/users/${userId}/toggle-active`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf },
   });
@@ -220,7 +253,7 @@ export async function adminToggleUser(userId: number, csrf: string) {
 }
 
 export async function adminDeleteReport(reportId: number, csrf: string) {
-  const res = await fetch(`/api/admin/reports/${reportId}/delete`, {
+  const res = await authFetch(`/api/admin/reports/${reportId}/delete`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf },
   });
@@ -248,7 +281,7 @@ export interface UserReportRow {
 }
 
 export async function adminGetUserReports(userId: number): Promise<UserReportRow[]> {
-  const res = await fetch(`/api/admin/users/${userId}/reports`);
+  const res = await authFetch(`/api/admin/users/${userId}/reports`);
   if (!res.ok) throw new Error("열람 보고서 조회 실패");
   return (await res.json()).reports as UserReportRow[];
 }
@@ -280,13 +313,13 @@ export interface GroupAccess {
 }
 
 export async function adminGetGroups(): Promise<AdminGroup[]> {
-  const res = await fetch("/api/admin/groups");
+  const res = await authFetch("/api/admin/groups");
   if (!res.ok) throw new Error("그룹 목록 조회 실패");
   return (await res.json()).groups as AdminGroup[];
 }
 
 export async function adminCreateGroup(name: string, description: string, csrf: string) {
-  const res = await fetch("/api/admin/groups", {
+  const res = await authFetch("/api/admin/groups", {
     method: "POST",
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
     body: JSON.stringify({ name, description }),
@@ -297,7 +330,7 @@ export async function adminCreateGroup(name: string, description: string, csrf: 
 }
 
 export async function adminDeleteGroup(groupId: number, csrf: string) {
-  const res = await fetch(`/api/admin/groups/${groupId}/delete`, {
+  const res = await authFetch(`/api/admin/groups/${groupId}/delete`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf },
   });
@@ -306,7 +339,7 @@ export async function adminDeleteGroup(groupId: number, csrf: string) {
 }
 
 export async function adminGetGroupMembers(groupId: number): Promise<GroupMember[]> {
-  const res = await fetch(`/api/admin/groups/${groupId}/members`);
+  const res = await authFetch(`/api/admin/groups/${groupId}/members`);
   if (!res.ok) throw new Error("멤버 목록 조회 실패");
   return (await res.json()).members as GroupMember[];
 }
@@ -314,7 +347,7 @@ export async function adminGetGroupMembers(groupId: number): Promise<GroupMember
 export async function adminSetGroupMember(
   groupId: number, userId: number, member: boolean, csrf: string,
 ) {
-  const res = await fetch(`/api/admin/groups/${groupId}/members/${userId}`, {
+  const res = await authFetch(`/api/admin/groups/${groupId}/members/${userId}`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
     body: JSON.stringify({ member }),
@@ -324,7 +357,7 @@ export async function adminSetGroupMember(
 }
 
 export async function adminGetGroupAccess(reportId: number): Promise<GroupAccess[]> {
-  const res = await fetch(`/api/admin/reports/${reportId}/group-access`);
+  const res = await authFetch(`/api/admin/reports/${reportId}/group-access`);
   if (!res.ok) throw new Error("그룹 권한 조회 실패");
   return (await res.json()).groups as GroupAccess[];
 }
@@ -332,7 +365,7 @@ export async function adminGetGroupAccess(reportId: number): Promise<GroupAccess
 export async function adminSetGroupAccess(
   reportId: number, groupId: number, canView: boolean, csrf: string,
 ) {
-  const res = await fetch(`/api/admin/reports/${reportId}/group-access/${groupId}`, {
+  const res = await authFetch(`/api/admin/reports/${reportId}/group-access/${groupId}`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
     body: JSON.stringify({ can_view: canView }),
@@ -342,7 +375,7 @@ export async function adminSetGroupAccess(
 }
 
 export async function adminGetAccess(reportId: number): Promise<AccessUser[]> {
-  const res = await fetch(`/api/admin/reports/${reportId}/access`);
+  const res = await authFetch(`/api/admin/reports/${reportId}/access`);
   if (!res.ok) throw new Error("권한 목록 조회 실패");
   const j = await res.json();
   return j.users as AccessUser[];
@@ -354,7 +387,7 @@ export async function adminSetAccess(
   canView: boolean,
   csrf: string,
 ) {
-  const res = await fetch(`/api/admin/reports/${reportId}/access/${userId}`, {
+  const res = await authFetch(`/api/admin/reports/${reportId}/access/${userId}`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
     body: JSON.stringify({ can_view: canView }),
@@ -366,7 +399,7 @@ export async function adminSetAccess(
 // ── 권한 매트릭스 / 로그 / 편의 (v3) ─────────────────────────────────────────
 
 export async function adminToggleUpload(userId: number, csrf: string) {
-  const res = await fetch(`/api/admin/users/${userId}/toggle-upload`, {
+  const res = await authFetch(`/api/admin/users/${userId}/toggle-upload`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf },
   });
@@ -403,7 +436,7 @@ export async function adminGetLogs(
   type: "activity" | "audit",
   filters: { username?: string; event?: string; date_from?: string; date_to?: string },
 ): Promise<LogRow[]> {
-  const res = await fetch(`/api/admin/logs?${logQueryString(type, filters)}`);
+  const res = await authFetch(`/api/admin/logs?${logQueryString(type, filters)}`);
   if (!res.ok) throw new Error("로그 조회 실패");
   return (await res.json()).rows as LogRow[];
 }
@@ -425,7 +458,7 @@ export interface SystemStatus {
 }
 
 export async function adminGetSystemStatus(): Promise<SystemStatus> {
-  const res = await fetch("/api/admin/system-status");
+  const res = await authFetch("/api/admin/system-status");
   if (!res.ok) throw new Error("시스템 상태 조회 실패");
   return res.json();
 }
@@ -440,7 +473,7 @@ export interface MyActivityRow {
 }
 
 export async function fetchMyActivity(): Promise<MyActivityRow[]> {
-  const res = await fetch("/api/user/activity");
+  const res = await authFetch("/api/user/activity");
   if (!res.ok) throw new Error("활동 로그 조회 실패");
   return (await res.json()).activity as MyActivityRow[];
 }
@@ -452,7 +485,7 @@ export async function startReportUpdate(
 ): Promise<UploadAccepted> {
   const fd = new FormData();
   fd.append("file", file);
-  const res = await fetch(`/api/reports/${reportId}/update-content`, {
+  const res = await authFetch(`/api/reports/${reportId}/update-content`, {
     method: "POST",
     body: fd,
     headers: { "X-CSRF-Token": csrf },

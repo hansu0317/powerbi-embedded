@@ -70,6 +70,11 @@ function Start-Server {
     }
     New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
+    # Start-Process가 자식 프로세스의 리다이렉트 출력을 읽을 때 콘솔 코드페이지(한글 Windows는
+    # cp949)를 쓰기 때문에, Python이 UTF-8로 써도 여기서 다시 깨진다. 두 쪽 다 UTF-8로 맞춘다.
+    try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+    $env:PYTHONUTF8 = "1"
+
     # 서버 시작 전 DB 스키마 확인/생성 (server.sh와 동일한 순서)
     & $Python (Join-Path $ProjectRoot "scripts\init_schema.py")
     if ($LASTEXITCODE -ne 0) {

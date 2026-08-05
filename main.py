@@ -14,6 +14,7 @@
 """
 import asyncio
 import logging
+import sys
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
@@ -30,11 +31,32 @@ from errors import AppError, extract_code_message
 from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
 from routes import auth, report, admin
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+# Windows 콘솔/파일 리다이렉트 기본 인코딩(cp949)에서도 한글이 안 깨지도록 강제.
+# Linux는 이미 UTF-8이라 no-op.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
+
+class _UpToInfoFilter(logging.Filter):
+    """WARNING 이상은 걸러내 stdout 핸들러에서 제외 — stderr 핸들러가 대신 받는다."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno <= logging.INFO
+
+
+_log_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+_stdout_handler = logging.StreamHandler(sys.stdout)
+_stdout_handler.setFormatter(_log_formatter)
+_stdout_handler.addFilter(_UpToInfoFilter())
+
+_stderr_handler = logging.StreamHandler(sys.stderr)
+_stderr_handler.setLevel(logging.WARNING)
+_stderr_handler.setFormatter(_log_formatter)
+
+logging.basicConfig(level=logging.INFO, handlers=[_stdout_handler, _stderr_handler])
 logger = logging.getLogger("powerbi-gateway")
 
 

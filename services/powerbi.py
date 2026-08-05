@@ -147,8 +147,10 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
 
             dataset_id   = report_info.get("datasetId", "")
             dataset_info = None
+            dataset_get_status = None
             if dataset_id:
                 resp = await client.get(f"{report_api}/datasets/{dataset_id}", headers=headers)
+                dataset_get_status = resp.status_code
                 if resp.status_code == 200:
                     dataset_info = resp.json()
 
@@ -163,8 +165,23 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
 
             resp = await client.post(f"{report_api}/reports/{pbi_report_id}/GenerateToken", headers=headers, json=body)
             if resp.status_code != 200:
+                logger.info(
+                    "PBI RLS-DEBUG | user=%s | dataset GET status=%s isEffectiveIdentityRequired=%s | "
+                    "GenerateToken REQ body=%s | GenerateToken RESP status=%s",
+                    pbi_username, dataset_get_status,
+                    dataset_info.get("isEffectiveIdentityRequired") if dataset_info else None,
+                    body, resp.status_code,
+                )
                 raise AppError.EMBED_TOKEN_FAILED.http(detail=resp.text)
             token_data = resp.json()
+            # GenerateToken 응답 본문(token 필드)은 실제 embed 인증정보라 원문으로 남기지 않는다 — expiration만 기록.
+            logger.info(
+                "PBI RLS-DEBUG | user=%s | dataset GET status=%s isEffectiveIdentityRequired=%s | "
+                "GenerateToken REQ body=%s | GenerateToken RESP status=%s expiration=%s",
+                pbi_username, dataset_get_status,
+                dataset_info.get("isEffectiveIdentityRequired") if dataset_info else None,
+                body, resp.status_code, token_data.get("expiration"),
+            )
 
         expires_at = _parse_token_expiry(token_data.get("expiration", ""))
         _set_cached_token(report_id, pbi_username, roles_key, token_data["token"], report_info["embedUrl"], expires_at)
@@ -245,17 +262,6 @@ async def pbi_rename_dataset(workspace_id: str, dataset_id: str, new_name: str) 
     """표준 PBI REST API로 데이터셋 이름을 변경한다. 409 시 ValueError('name_conflict:...') 발생."""
     url = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}"
     await _pbi_patch_name(url, new_name)
-
-
-async def pbi_refresh_dataset(workspace_id: str, dataset_id: str) -> None:
-    """데이터셋 새로고침 요청. 202 Accepted 이면 성공(비동기 처리)."""
-    resp = await _pbi_request(
-        "POST",
-        f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}/refreshes",
-        json={"notifyOption": "NoNotification"},
-    )
-    if resp.status_code not in (200, 202):
-        raise RuntimeError(f"refresh HTTP {resp.status_code}: {resp.text}")
 
 
 async def pbi_delete_report(workspace_id: str, report_id: str) -> None:

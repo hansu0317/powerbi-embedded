@@ -151,6 +151,7 @@ export default function AdminPage({ data }: { data: AdminData }) {
           <button
             className="topbar-btn primary"
             onClick={async () => {
+              sessionStorage.clear();
               await logout(csrf_token);
               window.location.href = "/login";
             }}

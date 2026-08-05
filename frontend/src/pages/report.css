@@ -800,6 +800,20 @@
 }
 .rp-toolbar-fitbtn:hover { background: #fff; color: var(--sage-deep); }
 
+.rp-page-select {
+  margin-left: 6px;
+  border: 1px solid var(--sage-bg);
+  background: var(--sage-bg);
+  border-radius: 7px;
+  padding: 5px 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  max-width: 180px;
+}
+.rp-page-select:hover { background: #fff; color: var(--sage-deep); }
+
 /* ── v6: 내 활동 모달 ─────────────────────────────────── */
 .rp-activity-modal { width: 480px; text-align: left; }
 .rp-activity-list {
