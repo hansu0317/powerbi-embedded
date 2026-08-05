@@ -1052,8 +1052,7 @@ function AllReportsView({
 
   const [preview, setPreview] = useState<ReportItem | null>(null);
 
-  const tableRef = useRef<HTMLDivElement>(null);
-  const pageSize = useFitRows(tableRef, 42, 44); // 화면 높이에 맞춰 행 수 자동
+  const [pageSize, tableRef] = useFitRows(42, 44); // 화면 높이에 맞춰 행 수 자동
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   useEffect(() => setPage(1), [query, pageSize]);

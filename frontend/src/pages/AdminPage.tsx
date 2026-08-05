@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -318,8 +318,7 @@ function OverviewSection({
   stats: AdminData["stats"];
   jobs: AdminJob[];
 }) {
-  const tableRef = useRef<HTMLDivElement>(null);
-  const fit = useFitRows(tableRef, 40, 38);
+  const [fit, tableRef] = useFitRows(40, 38);
   // 자가진단 — 페이지 로드 후 비동기 (실패해도 기존 현황은 그대로)
   const [sys, setSys] = useState<SystemStatus | null>(null);
   useEffect(() => {
@@ -429,8 +428,7 @@ function UsersSection({
   onToggleUpload: (id: number) => void;
   onEdited: (user: AdminUser) => void;
 }) {
-  const tableRef = useRef<HTMLDivElement>(null);
-  const pageSize = useFitRows(tableRef, 40, 38);
+  const [pageSize, tableRef] = useFitRows(40, 38);
   const { pageItems, page, totalPages, total, setPage } = usePaged(users, pageSize);
   const [reportsUser, setReportsUser] = useState<AdminUser | null>(null);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
@@ -1015,8 +1013,7 @@ function ReportsSection({
 }) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState("");
-  const tableRef = useRef<HTMLDivElement>(null);
-  const pageSize = useFitRows(tableRef, 40, 38);
+  const [pageSize, tableRef] = useFitRows(40, 38);
   const { pageItems, page, totalPages, total, setPage } = usePaged(reports, pageSize);
 
   const doImport = async () => {
@@ -1730,8 +1727,7 @@ function LogsSection() {
   const [rows, setRows] = useState<LogRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const tableRef = useRef<HTMLDivElement>(null);
-  const pageSize = useFitRows(tableRef, 40, 38);
+  const [pageSize, tableRef] = useFitRows(40, 38);
   const { pageItems, page, totalPages, total, setPage } = usePaged(rows || [], pageSize);
 
   const filters = { username, event, date_from: dateFrom, date_to: dateTo };
