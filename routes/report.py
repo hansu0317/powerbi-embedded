@@ -199,7 +199,21 @@ async def _build_get_filter(user: dict, report_id: int) -> dict | None:
     고객사마다 기준이 다를 수 있어서(관계사 코드, 공장 코드 등) 어떤 종류의 필터인지를
     데이터(reports.filter_key / users.filter_key)로 다룬다.
 
-    한 사용자 한 값만 지원한다(여러 값 배정은 지금 범위 밖 — users.filter_value 단일 컬럼)."""
+    한 사용자 한 값만 지원한다(여러 값 배정은 지금 범위 밖 — users.filter_value 단일 컬럼).
+
+    ── 값 채우는 방법 (스크립트 없음 — SQL 직접 실행) ──────────────────────────
+    보고서 하나에 필터 종류·테이블·컬럼 지정:
+        UPDATE reports SET filter_key = 'company_code', filter_table = 'DimPartner',
+                            filter_column = 'CompanyCode' WHERE name = '회계원가';
+    사용자 하나에 값 배정:
+        UPDATE users SET filter_key = 'company_code', filter_value = 'AMT'
+                          WHERE username = 'dev1';
+
+    ⚠ 반드시 고객사와 협의 후 값을 넣을 것 — 두 UPDATE 다 우리가 임의로 정할 수
+    없는 정보다. filter_table/column은 그 PBIX를 만든 사람만 아는 실제 데이터
+    모델 값이고, filter_value(회사·공장 배정)는 고객사 조직 정보다. 지금 테스트
+    계정(dev1=AMT, sales1=ECO)에 들어있는 값은 어디까지나 동작 확인용 임의값 —
+    실사용자에게 그대로 적용하면 안 된다."""
     if not user.get("filter_key") or not user.get("filter_value"):
         return None
     report_row = await asyncio.to_thread(db_get_report, report_id)
