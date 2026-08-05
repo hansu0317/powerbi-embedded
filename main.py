@@ -16,6 +16,19 @@ import asyncio
 import logging
 import sys
 
+# Windows 콘솔 자체의 코드페이지(한글 Windows 기본 cp949)를 UTF-8(65001)로 강제한다.
+# 아래 sys.stdout/stderr.reconfigure(encoding="utf-8")만으로는 부족하다 — 그건
+# "파이썬이 UTF-8 바이트를 내보낸다"만 보장할 뿐, 그 바이트를 받는 콘솔 창이
+# 여전히 cp949로 해석하면 화면엔 그대로 깨져 보인다(로그 파일 자체는 정상이어도).
+# 콘솔에 붙어 있지 않은 경우(서비스 실행 등)엔 실패해도 무해하므로 조용히 무시.
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        ctypes.windll.kernel32.SetConsoleCP(65001)
+    except Exception:
+        pass
+
 from fastapi import FastAPI, HTTPException
 from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
 from fastapi.requests import Request
