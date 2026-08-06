@@ -1469,9 +1469,12 @@ function UploadView({ csrf }: { csrf: string }) {
         </div>
 
         <div className="rp-upload-note">
-          <Info size={15} className="icn" /> 보고서 명은 파일명에서 자동으로 정해집니다
-          (예: <code>test0101.pbix</code> → "test0101"). <b>이미 등록한 것과 같은
-          파일명으로 올리면 새로 만들지 않고 그 보고서를 최신본으로 교체합니다.</b>
+          <Info size={15} className="icn" />
+          <span>
+            보고서 명은 파일명에서 자동으로 정해집니다
+            (예: <code>test0101.pbix</code> → "test0101"). <b>이미 등록한 것과 같은
+            파일명으로 올리면 새로 만들지 않고 그 보고서를 최신본으로 교체합니다.</b>
+          </span>
         </div>
 
         {status.msg && (
