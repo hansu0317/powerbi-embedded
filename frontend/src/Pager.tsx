@@ -10,6 +10,14 @@ import { useEffect, useState } from "react";
 // 호출되니 이 문제가 없다 — setState 함수는 리렌더 사이에도 항상 같은 참조라 그대로
 // 콜백 ref로 써도 안전하다. 호출부는 `const [rows, tableRef] = useFitRows(...)` 형태로
 // 쓰고 `ref={tableRef}`를 그대로 붙이면 된다.
+// SAFETY_MARGIN_PX — rowHeight 파라미터가 실제 렌더링 높이(패딩·줄간격·셀 안의
+// 뱃지 등)와 완전히 일치할 거라고 믿지 않는다. 1px만 어긋나도 여러 행에 걸쳐
+// 누적되면 마지막 행이 페이지네이션 바에 겹쳐 잘려 보인다("보고서 관리" 표에서
+// 실제로 발생). 계산 오차가 어느 쪽에서 나든 항상 "덜 채우는" 쪽으로 안전하게
+// 반올림되도록 여유 공간을 미리 빼둔다 — 행 하나 덜 보이는 것보다 겹쳐 잘리는
+// 게 훨씬 나쁘다.
+const SAFETY_MARGIN_PX = 10;
+
 export function useFitRows(rowHeight = 42, headerHeight = 42, min = 3) {
   const [rows, setRows] = useState(min);
   const [node, setNode] = useState<HTMLElement | null>(null);
@@ -17,7 +25,7 @@ export function useFitRows(rowHeight = 42, headerHeight = 42, min = 3) {
   useEffect(() => {
     if (!node) return;
     const calc = () => {
-      const avail = node.clientHeight - headerHeight;
+      const avail = node.clientHeight - headerHeight - SAFETY_MARGIN_PX;
       setRows(Math.max(min, Math.floor(avail / rowHeight)));
     };
     calc();
