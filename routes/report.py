@@ -321,11 +321,12 @@ async def api_user_activity(request: Request):
 async def api_upload(
     request: Request,
     file: UploadFile = File(...),
-    report_name: str = Form(""),
     report_description: str = Form(""),
-    folder: str = Form(""),
 ):
-    """파일 수신 후 즉시 job_id 반환. 실제 PBI 게시는 백그라운드에서 진행."""
+    """파일 수신 후 즉시 job_id 반환. 실제 PBI 게시는 백그라운드에서 진행.
+
+    보고서 명 입력·폴더 선택 없음(최대한 단순화) — 보고서 명은 파일명에서
+    확장자만 뗀 값, 카테고리(사이드바 폴더)는 항상 업로더 username."""
     user = await current_user(request)
     verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
     if not user:
@@ -334,19 +335,14 @@ async def api_upload(
         logger.warning("UPLOAD DENY | user=%-12s | 업로드 권한 없음", user["username"])
         raise AppError.FORBIDDEN_UPLOAD.http()
 
-    name, pbix_bytes, file_size, is_update = await _read_and_validate_pbix(file, report_name, user["id"])
+    name, pbix_bytes, file_size, is_update = await _read_and_validate_pbix(file, user["id"])
     job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name, is_update)
     logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s | %s",
                 user["username"], name, job_id, "갱신" if is_update else "신규")
     ip = get_client_ip(request)
 
-    # 카테고리(사이드바 폴더 트리) = 내 계정 아래 하위 경로.
-    # 소유가 흐려지지 않도록 항상 username을 최상위로 두고, 입력한 경로를 그 아래에 붙인다.
-    sub = "/".join(p.strip() for p in folder.split("/") if p.strip())[:120]
-    category = f"{user['username']}/{sub}" if sub else user["username"]
-
     asyncio.create_task(_process_upload(user, name, pbix_bytes, file_size, job_id, ip,
-                                        report_description.strip()[:500] or None, category))
+                                        report_description.strip()[:500] or None, user["username"]))
     return {"job_id": job_id, "report_name": name, "status": "accepted", "is_update": is_update}
 
 
@@ -390,13 +386,19 @@ async def _validate_pbix_file(file: UploadFile) -> tuple[bytes, int]:
 
 
 async def _read_and_validate_pbix(
-    file: UploadFile, report_name: str, user_id: int
+    file: UploadFile, user_id: int
 ) -> tuple[str, bytes, int, bool]:
     """업로드 파일 검증 후 (report_name, pbix_bytes, file_size, is_update) 반환.
 
+    보고서 명은 사용자가 따로 입력하지 않는다 — 파일명에서 확장자만 뗀 값을
+    그대로 쓴다("test0101.pbix" 업로드 → 보고서 명 "test0101"). 폴더 입력도 없다
+    (등록 폼을 최대한 단순하게 유지하려는 결정) — 카테고리는 항상 업로더 username.
+    Fabric/PBI 쪽 실제 게시 이름은 이 값 그대로 f"{username}__{name}"로 나간다
+    (기존과 동일, _run_upload 참고) — 여기서 바뀌는 건 "이 이름을 어디서 받아오냐"뿐이다.
+
     같은 이름의 내 보고서가 이미 있으면 오류가 아니라 '갱신'으로 처리한다 —
     Power BI 게시도 덮어쓰기(CreateOrOverwrite)이고 db_register_report도 기존 행을
-    재사용하므로, 사용자가 같은 이름으로 다시 올리면 자연스럽게 최신본으로 교체된다.
+    재사용하므로, 사용자가 같은 이름의 파일을 다시 올리면 자연스럽게 최신본으로 교체된다.
 
     단, GET 필터(reports.filter_table)가 설정된 보고서는 예외 — 이 경로(전체
     덮어쓰기)는 데이터셋 자체를 새로 만들어서, PBIX에 DimPartner/CompanyCode 같은
@@ -405,7 +407,7 @@ async def _read_and_validate_pbix(
     막고 데이터셋을 유지하는 /api/reports/{id}/update-content로 유도한다."""
     if not file.filename or not file.filename.lower().endswith(".pbix"):
         raise AppError.FILE_WRONG_TYPE.http()
-    name = report_name.strip()
+    name = file.filename[:-len(".pbix")].strip()
     if not name or len(name) > config.REPORT_NAME_MAX_LEN:
         raise AppError.NAME_INVALID.http(max=config.REPORT_NAME_MAX_LEN)
     existing = await asyncio.to_thread(db_find_report, user_id, name)

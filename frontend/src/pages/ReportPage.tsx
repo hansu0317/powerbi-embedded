@@ -257,7 +257,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
                 onGoUpload={() => setView("upload")}
               />
             )}
-            {view === "upload" && canUpload && <UploadView csrf={csrf_token} user={user} />}
+            {view === "upload" && canUpload && <UploadView csrf={csrf_token} />}
           </main>
         </div>
       )}
@@ -1368,12 +1368,16 @@ const STATUS_LABELS: Record<string, string> = {
   pbi_succeeded: "DB 등록 중",
 };
 
-function UploadView({ csrf, user }: { csrf: string; user: SessionUser }) {
+// 파일명에서 확장자만 뗀 값이 그대로 보고서 명이 된다(서버도 동일 로직 —
+// routes/report.py의 _read_and_validate_pbix). 여기서는 미리보기 용도로만 쓴다.
+function deriveReportName(fileName: string): string {
+  return fileName.toLowerCase().endsWith(".pbix") ? fileName.slice(0, -5) : fileName;
+}
+
+function UploadView({ csrf }: { csrf: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
-  const [reportName, setReportName] = useState("");
   const [description, setDescription] = useState("");
-  const [folder, setFolder] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ msg: string; tone: "" | "ok" | "err" }>(
     { msg: "", tone: "" },
@@ -1381,10 +1385,6 @@ function UploadView({ csrf, user }: { csrf: string; user: SessionUser }) {
 
   const submit = async () => {
     const file = fileRef.current?.files?.[0];
-    if (!reportName.trim()) {
-      setStatus({ msg: "보고서 명을 입력해 주세요.", tone: "err" });
-      return;
-    }
     if (!file) {
       setStatus({ msg: ".pbix 파일을 선택해 주세요.", tone: "err" });
       return;
@@ -1392,7 +1392,7 @@ function UploadView({ csrf, user }: { csrf: string; user: SessionUser }) {
     setBusy(true);
     setStatus({ msg: `'${file.name}' 전송 중...`, tone: "" });
     try {
-      const accepted = await uploadPbix(file, csrf, reportName.trim(), description.trim(), folder.trim());
+      const accepted = await uploadPbix(file, csrf, description.trim());
       const jobId = accepted.job_id;
       const name = accepted.report_name;
       setStatus({ msg: `'${name}' PBI 게시 중... (보통 30초~2분)`, tone: "" });
@@ -1430,47 +1430,6 @@ function UploadView({ csrf, user }: { csrf: string; user: SessionUser }) {
       <div className="rp-form-card">
         <div className="rp-field">
           <label>
-            보고서 명 <span className="rp-req">*</span>
-          </label>
-          <input
-            placeholder="목록에 표시될 이름 (같은 이름으로 다시 올리면 최신본으로 교체됩니다)"
-            value={reportName}
-            onChange={(e) => setReportName(e.target.value)}
-            disabled={busy}
-          />
-        </div>
-
-        <div className="rp-field">
-          <label>폴더 (선택)</label>
-          <input
-            placeholder="예: 영업/월간  —  비워 두면 내 계정 폴더에 바로 저장됩니다"
-            value={folder}
-            onChange={(e) => setFolder(e.target.value)}
-            maxLength={120}
-            disabled={busy}
-          />
-          <span className="rp-field-hint">
-            저장 위치 :  {user.username}
-            {folder.trim()
-              ? "/" + folder.split("/").map((p) => p.trim()).filter(Boolean).join("/")
-              : ""}
-            /{reportName.trim() || "보고서명"}
-          </span>
-        </div>
-
-        <div className="rp-field">
-          <label>보고서 설명 (선택)</label>
-          <input
-            placeholder="어떤 데이터를 보여주는 보고서인지 적어두면 검색·발견이 쉬워집니다"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            maxLength={500}
-            disabled={busy}
-          />
-        </div>
-
-        <div className="rp-field">
-          <label>
             Report 파일 선택 <span className="rp-req">(.pbix) *</span>
           </label>
           <div className="rp-filepick">
@@ -1491,12 +1450,28 @@ function UploadView({ csrf, user }: { csrf: string; user: SessionUser }) {
               onChange={(e) => setFileName(e.target.files?.[0]?.name || "")}
             />
           </div>
+          {fileName && (
+            <span className="rp-field-hint">
+              보고서 명 : {deriveReportName(fileName)} (파일명 그대로 사용됩니다)
+            </span>
+          )}
+        </div>
+
+        <div className="rp-field">
+          <label>보고서 설명 (선택)</label>
+          <input
+            placeholder="어떤 데이터를 보여주는 보고서인지 적어두면 검색·발견이 쉬워집니다"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            maxLength={500}
+            disabled={busy}
+          />
         </div>
 
         <div className="rp-upload-note">
-          <Info size={15} className="icn" /> 업로드한 보고서는 본인 폴더로 자동
-          분류됩니다. <b>이미 등록한 것과 같은 이름으로 올리면 새로 만들지 않고 그
-          보고서를 최신본으로 교체합니다.</b>
+          <Info size={15} className="icn" /> 보고서 명은 파일명에서 자동으로 정해집니다
+          (예: <code>test0101.pbix</code> → "test0101"). <b>이미 등록한 것과 같은
+          파일명으로 올리면 새로 만들지 않고 그 보고서를 최신본으로 교체합니다.</b>
         </div>
 
         {status.msg && (
