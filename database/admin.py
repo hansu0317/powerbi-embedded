@@ -100,18 +100,21 @@ def db_admin_add_user(username: str, pw_hash: str, display_name: str,
 
 
 def db_admin_update_user(user_id: int, display_name: str, pbi_username: str,
-                         roles: list[str], department: str | None, data_scope: str) -> bool:
-    """사용자 표시정보·RLS 매핑(pbi_username·roles·department·data_scope) 수정.
+                         roles: list[str]) -> bool:
+    """사용자 표시정보·RLS 매핑(pbi_username·roles) 수정.
 
-    admin 계정은 제외한다 — 스키마 초기화(init_schema.py)가 보장한 data_scope='all'이
-    실수로 좁아지는 것을 막는다(toggle_active·toggle_upload와 동일한 보호 원칙)."""
+    department/data_scope는 여기서 안 건드린다 — 지금 관리 화면에서 뺀 필드라
+    (동적 RLS 작업 보류 중, 값은 나중에 SQL로 직접 채울 수 있음) 이 함수가 계속
+    건드리면 다른 필드 수정할 때마다 매번 기본값으로 조용히 덮어써진다.
+
+    admin 계정은 제외한다 — 실수로 관리자 계정을 건드리는 걸 막는다
+    (toggle_active·toggle_upload와 동일한 보호 원칙)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """UPDATE users SET display_name = %s, pbi_username = %s, roles = %s,
-                       department = %s, data_scope = %s, updated_at = NOW()
+                """UPDATE users SET display_name = %s, pbi_username = %s, roles = %s, updated_at = NOW()
                    WHERE id = %s AND username != 'admin' RETURNING id""",
-                (display_name, pbi_username, roles, department, data_scope, user_id),
+                (display_name, pbi_username, roles, user_id),
             )
             row = cur.fetchone()
         conn.commit()
@@ -331,11 +334,20 @@ def db_set_report_access(report_id: int, user_id: int, can_view: bool, granted_b
     사용자를 차단할 때도 UPSERT로 새 행을 만들어야 한다 — UPDATE만 하면 기존 행이
     없을 때 아무 효과가 없다.
 
+    예외: 개인 보고서(reports.owner_id)의 소유자 본인 접근은 admin이라도 차단 못 한다.
+    막고 싶으면 이 권한 하나만 끄는 게 아니라 보고서 자체를 삭제/아카이브해야 한다 —
+    "보고서는 active로 남아있는데 만든 사람 본인만 못 보는" 상태가 더 헷갈리기 때문.
+
     없는 보고서·사용자 ID면 FK 위반이 나는데, 이는 서버 장애가 아니라 잘못된 요청이므로
     404로 변환한다 (그대로 두면 500).
     """
     with db_conn() as conn:
         with conn.cursor() as cur:
+          if not can_view:
+              cur.execute("SELECT owner_id FROM reports WHERE id = %s", (report_id,))
+              row = cur.fetchone()
+              if row and row["owner_id"] == user_id:
+                  raise AppError.OWNER_ACCESS_PROTECTED.http()
           try:
             cur.execute(
                 """INSERT INTO user_reports (user_id, report_id, can_view, granted_by)

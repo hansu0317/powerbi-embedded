@@ -239,8 +239,6 @@ export interface EditUserPayload {
   display_name: string;
   pbi_username: string;
   roles: string;          // 콤마 구분 문자열 (add-user 폼과 동일 형식)
-  department: string;
-  data_scope: "self" | "department" | "all";
 }
 
 export async function adminEditUser(userId: number, payload: EditUserPayload, csrf: string) {

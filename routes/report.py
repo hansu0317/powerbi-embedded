@@ -397,13 +397,21 @@ async def _read_and_validate_pbix(
     같은 이름의 내 보고서가 이미 있으면 오류가 아니라 '갱신'으로 처리한다 —
     Power BI 게시도 덮어쓰기(CreateOrOverwrite)이고 db_register_report도 기존 행을
     재사용하므로, 사용자가 같은 이름으로 다시 올리면 자연스럽게 최신본으로 교체된다.
-    """
+
+    단, GET 필터(reports.filter_table)가 설정된 보고서는 예외 — 이 경로(전체
+    덮어쓰기)는 데이터셋 자체를 새로 만들어서, PBIX에 DimPartner/CompanyCode 같은
+    필터 대상 테이블·컬럼이 없어지거나 RLS role 요구사항이 바뀌어도 우리 DB는
+    모른 채로 남는다(필터가 조용히 안 걸리게 됨, 에러 없음). 그래서 이 경우는
+    막고 데이터셋을 유지하는 /api/reports/{id}/update-content로 유도한다."""
     if not file.filename or not file.filename.lower().endswith(".pbix"):
         raise AppError.FILE_WRONG_TYPE.http()
     name = report_name.strip()
     if not name or len(name) > config.REPORT_NAME_MAX_LEN:
         raise AppError.NAME_INVALID.http(max=config.REPORT_NAME_MAX_LEN)
-    is_update = bool(await asyncio.to_thread(db_find_report, user_id, name))
+    existing = await asyncio.to_thread(db_find_report, user_id, name)
+    if existing and existing["filter_table"]:
+        raise AppError.UPLOAD_BLOCKED_GET_FILTER.http(name=name)
+    is_update = bool(existing)
     pbix_bytes, file_size = await _validate_pbix_file(file)
     return name, pbix_bytes, file_size, is_update
 

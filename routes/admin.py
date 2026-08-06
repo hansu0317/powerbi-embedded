@@ -271,35 +271,29 @@ async def api_admin_add_user(
 async def api_admin_edit_user(
     request: Request, user_id: int, user: dict = Depends(require_admin_csrf),
 ):
-    """표시 이름·RLS 매핑(pbi_username·roles·department·data_scope) 수정.
+    """표시 이름·RLS 매핑(pbi_username·roles) 수정.
 
     비밀번호·아이디·관리자 권한·업로드 권한은 각각 별도 경로(add 시 지정, toggle-*)에서
-    다룬다 — 이 엔드포인트는 RLS 운영 중 바뀌는 값(부서 이동 등)을 위한 것.
-    body: {display_name, pbi_username, roles, department, data_scope}"""
+    다룬다. department/data_scope는 여기서 안 다룬다(db_admin_update_user 참고 — 값을
+    바꾸고 싶으면 SQL로 직접).
+    body: {display_name, pbi_username, roles}"""
     body = await json_body(request)
     display_name = str(body.get("display_name", "")).strip()
     pbi_username = str(body.get("pbi_username", "")).strip()
     if not display_name or not pbi_username:
         raise AppError.BODY_INVALID.http()
-    data_scope = str(body.get("data_scope", "self")).strip()
-    if data_scope not in DATA_SCOPES:
-        raise AppError.DATA_SCOPE_INVALID.http()
     roles_raw = str(body.get("roles", ""))
     role_list = [r.strip() for r in roles_raw.split(",") if r.strip()] or ["도메인"]
-    department = str(body.get("department", "")).strip() or None
 
     updated = await asyncio.to_thread(
-        db_admin_update_user, user_id, display_name, pbi_username, role_list, department, data_scope,
+        db_admin_update_user, user_id, display_name, pbi_username, role_list,
     )
     if not updated:
         raise AppError.USER_NOT_FOUND.http()
-    logger.info(
-        "ADMIN EDIT USER | admin=%s | user_id=%s | department=%s | data_scope=%s",
-        user["username"], user_id, department, data_scope,
-    )
+    logger.info("ADMIN EDIT USER | admin=%s | user_id=%s", user["username"], user_id)
     return {
         "user_id": user_id, "display_name": display_name, "pbi_username": pbi_username,
-        "roles": role_list, "department": department, "data_scope": data_scope,
+        "roles": role_list,
     }
 
 

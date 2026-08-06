@@ -675,16 +675,6 @@ function AddUserModal({
               <Field label="역할 (RLS)">
                 <input name="roles" defaultValue="도메인" />
               </Field>
-              <Field label="부서 (RLS 조회범위)">
-                <input name="department" placeholder="예: 영업팀 (data_scope=department일 때 기준)" />
-              </Field>
-              <Field label="데이터 조회 범위 (RLS)">
-                <select name="data_scope" defaultValue="self">
-                  <option value="self">본인 것만</option>
-                  <option value="department">소속 부서 전체</option>
-                  <option value="all">전사</option>
-                </select>
-              </Field>
               <Field label="관리자 권한">
                 <select name="is_admin" defaultValue="false">
                   <option value="false">일반 사용자</option>
@@ -758,8 +748,6 @@ function EditUserModal({
   const [displayName, setDisplayName] = useState(user.display_name);
   const [pbiUsername, setPbiUsername] = useState(user.pbi_username);
   const [roles, setRoles] = useState(user.roles.join(", "));
-  const [department, setDepartment] = useState(user.department ?? "");
-  const [dataScope, setDataScope] = useState<"self" | "department" | "all">(user.data_scope);
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -767,7 +755,7 @@ function EditUserModal({
     try {
       await adminEditUser(
         user.id,
-        { display_name: displayName, pbi_username: pbiUsername, roles, department, data_scope: dataScope },
+        { display_name: displayName, pbi_username: pbiUsername, roles },
         csrf,
       );
       onSaved({
@@ -775,8 +763,6 @@ function EditUserModal({
         display_name: displayName,
         pbi_username: pbiUsername,
         roles: roles.split(",").map((r) => r.trim()).filter(Boolean),
-        department: department.trim() || null,
-        data_scope: dataScope,
       });
     } catch (err) {
       onError((err as Error).message);
@@ -802,23 +788,6 @@ function EditUserModal({
             </Field>
             <Field label="역할 (RLS)">
               <input value={roles} onChange={(e) => setRoles(e.target.value)} />
-            </Field>
-            <Field label="부서 (RLS 조회범위)">
-              <input
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                placeholder="예: 영업팀 (data_scope=department일 때 기준)"
-              />
-            </Field>
-            <Field label="데이터 조회 범위 (RLS)">
-              <select
-                value={dataScope}
-                onChange={(e) => setDataScope(e.target.value as typeof dataScope)}
-              >
-                <option value="self">본인 것만</option>
-                <option value="department">소속 부서 전체</option>
-                <option value="all">전사</option>
-              </select>
             </Field>
           </div>
         </div>
@@ -878,7 +847,7 @@ function BulkAddUsersModal({
               <div className="ad-bulk-body">
                 <div className="ad-bulk-title">템플릿을 받아 작성합니다</div>
                 <div className="ad-bulk-code">
-                  username,password,display_name,pbi_username,roles,groups,is_admin,can_upload,department,data_scope
+                  username,password,display_name,pbi_username,roles,groups,is_admin,can_upload
                 </div>
                 <table className="ad-bulk-cols">
                   <tbody>
@@ -890,8 +859,6 @@ function BulkAddUsersModal({
                     <tr><th>groups</th><td>선택</td><td>소속 그룹 — <b>미리 만들어져 있어야</b> 하며, 그 그룹의 보고서 열람 권한을 그대로 상속</td></tr>
                     <tr><th>is_admin</th><td>선택</td><td>관리자 여부 — 비우면 <code>false</code></td></tr>
                     <tr><th>can_upload</th><td>선택</td><td>업로드 허용 — 비우면 <code>true</code></td></tr>
-                    <tr><th>department</th><td>선택</td><td>부서 — 데이터 RLS에서 <code>data_scope=department</code>일 때 기준값</td></tr>
-                    <tr><th>data_scope</th><td>선택</td><td>데이터 조회 범위 <code>self</code>/<code>department</code>/<code>all</code> — 비우면 <code>self</code></td></tr>
                   </tbody>
                 </table>
                 <button
@@ -899,8 +866,8 @@ function BulkAddUsersModal({
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
                     const csv =
-                      "username,password,display_name,pbi_username,roles,groups,is_admin,can_upload,department,data_scope\n" +
-                      "user01,TempPass123!,홍길동,,도메인,영업팀,false,true,영업팀,department\n";
+                      "username,password,display_name,pbi_username,roles,groups,is_admin,can_upload\n" +
+                      "user01,TempPass123!,홍길동,,도메인,영업팀,false,true\n";
                     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
