@@ -35,23 +35,22 @@ def db_reserve_update(actor_id: int, target_report_id: int, report_name: str) ->
     return row["id"]
 
 
-def db_reserve_upload(user_id: int, report_name: str, is_update: bool = False) -> int:
+def db_reserve_upload(user_id: int, report_name: str) -> int:
     """업로드 예약. DB 제약으로 다중 프로세스 경합을 막는다.
 
-    is_update=True(같은 이름의 내 보고서를 다시 올리는 경우)면 개인 보고서 개수
-    한도는 검사하지 않는다 — 새 보고서가 생기는 게 아니라 기존 것을 갱신하기 때문이다.
-    """
+    일반 업로드는 항상 새 보고서를 만든다(같은 이름이 이미 있으면 라우트가 이
+    함수를 부르기 전에 거부함 — routes/report.py의 _read_and_validate_pbix
+    참고) — 그래서 개인 보고서 개수 한도는 매번 검사한다."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(%s)", (user_id,))
-            if not is_update:
-                cur.execute(
-                    "SELECT COUNT(*) AS count FROM reports "
-                    "WHERE owner_id = %s AND report_type = 'personal' AND status <> 'deleted'",
-                    (user_id,),
-                )
-                if cur.fetchone()["count"] >= config.MAX_PERSONAL_REPORTS:
-                    raise AppError.RATE_PERSONAL_MAX.http(max=config.MAX_PERSONAL_REPORTS)
+            cur.execute(
+                "SELECT COUNT(*) AS count FROM reports "
+                "WHERE owner_id = %s AND report_type = 'personal' AND status <> 'deleted'",
+                (user_id,),
+            )
+            if cur.fetchone()["count"] >= config.MAX_PERSONAL_REPORTS:
+                raise AppError.RATE_PERSONAL_MAX.http(max=config.MAX_PERSONAL_REPORTS)
             cur.execute(
                 "SELECT COUNT(*) AS count FROM upload_jobs WHERE user_id = %s AND created_at >= CURRENT_DATE",
                 (user_id,),

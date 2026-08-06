@@ -37,11 +37,10 @@ class AppError(Enum):
     GROUP_NOT_FOUND      = (404, "GROUP_NOT_FOUND",       "그룹을 찾을 수 없습니다.")
     GROUP_NAME_INVALID   = (400, "GROUP_NAME_INVALID",    "그룹 이름은 1~50자여야 합니다.")
     REPORT_ALREADY_DELETED = (404, "REPORT_ALREADY_DELETED", "보고서가 없거나 이미 삭제됐습니다.")
-    UPLOAD_BLOCKED_GET_FILTER = (409, "UPLOAD_BLOCKED_GET_FILTER",
-                                 "'{name}' 보고서는 GET 필터(관계사/공장 코드 등)가 설정돼 있어 "
-                                 "일반 재업로드로 덮어쓸 수 없습니다. 데이터셋을 유지하는 "
-                                 "'보고서 업데이트' 기능을 사용하세요 — 그렇지 않으면 필터가 "
-                                 "조용히 깨질 수 있습니다.")
+    REPORT_NAME_TAKEN = (409, "REPORT_NAME_TAKEN",
+                        "이미 '{name}' 이름의 보고서가 있습니다. 새 파일을 반영하려면 "
+                        "그 보고서를 열어서 '업데이트' 기능을 사용하세요 — 일반 업로드는 "
+                        "새 보고서를 만들 때만 씁니다.")
     OWNER_ACCESS_PROTECTED = (400, "OWNER_ACCESS_PROTECTED",
                               "본인이 업로드한 개인 보고서는 관리자도 소유자 본인의 열람 권한을 "
                               "차단할 수 없습니다. 접근을 막고 싶으면 보고서 자체를 삭제하세요.")
