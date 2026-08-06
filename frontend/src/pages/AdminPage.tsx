@@ -1321,8 +1321,8 @@ function AccessModal({
       await adminSetAccess(report.id, userId, canView, csrf);
       showToast(canView ? "열람 권한이 부여됐습니다." : "열람 권한이 해제됐습니다.", "ok");
       await load();
-    } catch {
-      showToast("오류가 발생했습니다.", "err");
+    } catch (err) {
+      showToast((err as Error).message, "err");
     }
   };
 
@@ -1331,8 +1331,8 @@ function AccessModal({
       await adminSetGroupAccess(report.id, groupId, canView, csrf);
       showToast(canView ? "그룹에 열람 권한이 부여됐습니다." : "그룹 열람 권한이 해제됐습니다.", "ok");
       await load();
-    } catch {
-      showToast("오류가 발생했습니다.", "err");
+    } catch (err) {
+      showToast((err as Error).message, "err");
     }
   };
 

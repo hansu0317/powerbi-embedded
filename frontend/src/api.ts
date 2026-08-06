@@ -178,8 +178,8 @@ export interface AppConfigRow {
 
 export async function adminGetConfig(): Promise<AppConfigRow[]> {
   const res = await authFetch("/api/admin/config");
-  if (!res.ok) throw new Error("설정 조회 실패");
-  const j = await res.json();
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "설정 조회 실패"));
   return j.config as AppConfigRow[];
 }
 
@@ -196,8 +196,8 @@ export async function adminSetConfig(key: string, value: string, csrf: string) {
 
 export async function adminFetchReports(): Promise<AdminReport[]> {
   const res = await authFetch("/api/admin/reports");
-  if (!res.ok) throw new Error("보고서 목록 조회 실패");
-  const j = await res.json();
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "보고서 목록 조회 실패"));
   return j.reports as AdminReport[];
 }
 
@@ -290,8 +290,9 @@ export interface UserReportRow {
 
 export async function adminGetUserReports(userId: number): Promise<UserReportRow[]> {
   const res = await authFetch(`/api/admin/users/${userId}/reports`);
-  if (!res.ok) throw new Error("열람 보고서 조회 실패");
-  return (await res.json()).reports as UserReportRow[];
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "열람 보고서 조회 실패"));
+  return j.reports as UserReportRow[];
 }
 
 // ── 그룹 (팀/부서 단위 권한) ─────────────────────────────────────────────────
@@ -322,8 +323,9 @@ export interface GroupAccess {
 
 export async function adminGetGroups(): Promise<AdminGroup[]> {
   const res = await authFetch("/api/admin/groups");
-  if (!res.ok) throw new Error("그룹 목록 조회 실패");
-  return (await res.json()).groups as AdminGroup[];
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "그룹 목록 조회 실패"));
+  return j.groups as AdminGroup[];
 }
 
 export async function adminCreateGroup(name: string, description: string, csrf: string) {
@@ -342,14 +344,16 @@ export async function adminDeleteGroup(groupId: number, csrf: string) {
     method: "POST",
     headers: { "X-CSRF-Token": csrf },
   });
-  if (!res.ok) throw new Error("그룹 삭제 실패");
-  return res.json();
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "그룹 삭제 실패"));
+  return j;
 }
 
 export async function adminGetGroupMembers(groupId: number): Promise<GroupMember[]> {
   const res = await authFetch(`/api/admin/groups/${groupId}/members`);
-  if (!res.ok) throw new Error("멤버 목록 조회 실패");
-  return (await res.json()).members as GroupMember[];
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "멤버 목록 조회 실패"));
+  return j.members as GroupMember[];
 }
 
 export async function adminSetGroupMember(
@@ -360,14 +364,16 @@ export async function adminSetGroupMember(
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
     body: JSON.stringify({ member }),
   });
-  if (!res.ok) throw new Error("멤버 변경 실패");
-  return res.json();
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "멤버 변경 실패"));
+  return j;
 }
 
 export async function adminGetGroupAccess(reportId: number): Promise<GroupAccess[]> {
   const res = await authFetch(`/api/admin/reports/${reportId}/group-access`);
-  if (!res.ok) throw new Error("그룹 권한 조회 실패");
-  return (await res.json()).groups as GroupAccess[];
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "그룹 권한 조회 실패"));
+  return j.groups as GroupAccess[];
 }
 
 export async function adminSetGroupAccess(
@@ -378,14 +384,15 @@ export async function adminSetGroupAccess(
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
     body: JSON.stringify({ can_view: canView }),
   });
-  if (!res.ok) throw new Error("그룹 권한 변경 실패");
-  return res.json();
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "그룹 권한 변경 실패"));
+  return j;
 }
 
 export async function adminGetAccess(reportId: number): Promise<AccessUser[]> {
   const res = await authFetch(`/api/admin/reports/${reportId}/access`);
-  if (!res.ok) throw new Error("권한 목록 조회 실패");
-  const j = await res.json();
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "권한 목록 조회 실패"));
   return j.users as AccessUser[];
 }
 
@@ -400,8 +407,9 @@ export async function adminSetAccess(
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
     body: JSON.stringify({ can_view: canView }),
   });
-  if (!res.ok) throw new Error("권한 변경 실패");
-  return res.json();
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "권한 변경 실패"));
+  return j;
 }
 
 // ── 권한 매트릭스 / 로그 / 편의 (v3) ─────────────────────────────────────────
@@ -445,8 +453,9 @@ export async function adminGetLogs(
   filters: { username?: string; event?: string; date_from?: string; date_to?: string },
 ): Promise<LogRow[]> {
   const res = await authFetch(`/api/admin/logs?${logQueryString(type, filters)}`);
-  if (!res.ok) throw new Error("로그 조회 실패");
-  return (await res.json()).rows as LogRow[];
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "로그 조회 실패"));
+  return j.rows as LogRow[];
 }
 
 /* ── v4: RLS 설정 ─────────────────────────────────────── */
@@ -467,8 +476,9 @@ export interface SystemStatus {
 
 export async function adminGetSystemStatus(): Promise<SystemStatus> {
   const res = await authFetch("/api/admin/system-status");
-  if (!res.ok) throw new Error("시스템 상태 조회 실패");
-  return res.json();
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "시스템 상태 조회 실패"));
+  return j;
 }
 
 /* ── v5: 서버 오류 추적 ───────────────────────────────── */
@@ -482,8 +492,9 @@ export interface MyActivityRow {
 
 export async function fetchMyActivity(): Promise<MyActivityRow[]> {
   const res = await authFetch("/api/user/activity");
-  if (!res.ok) throw new Error("활동 로그 조회 실패");
-  return (await res.json()).activity as MyActivityRow[];
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "활동 로그 조회 실패"));
+  return j.activity as MyActivityRow[];
 }
 
 /* ── v7: 보고서 콘텐츠 업데이트 (데이터셋 유지) ───────── */
