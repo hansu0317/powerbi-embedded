@@ -4,8 +4,10 @@ import {
   BarChart3,
   Download,
   History,
+  Home as HomeIcon,
   LayoutDashboard,
   Layers,
+  LogOut,
   Plus,
   RefreshCw,
   Settings as SettingsIcon,
@@ -57,6 +59,7 @@ import {
   logout,
 } from "../api";
 import { Pager, usePaged, useFitRows } from "../Pager";
+import { Rail, ContextBar } from "../AppShell";
 
 type SectionKey =
   | "overview" | "users" | "groups" | "reports" | "logs" | "config";
@@ -133,50 +136,57 @@ export default function AdminPage({ data }: { data: AdminData }) {
   };
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a href="/" className="topbar-brand" title="홈으로">
-          <span className="brand">
-            <span className="b-quali">quali</span>
-            <span className="b-soft">soft</span>
+    <div className="as-shell">
+      <Rail
+        logo={
+          <span className="brand on-dark" style={{ fontSize: "0.68rem" }}>
+            <span className="b-quali">q</span>
+            <span className="b-soft">s</span>
           </span>
-        </a>
-        <span className="topbar-section">관리자 포털</span>
-        <div className="topbar-spacer" />
-        <div className="topbar-right">
-          <span className="topbar-user">{user.display_name}</span>
-          <a href="/" className="topbar-btn">
-            보고서 뷰어
-          </a>
+        }
+        items={[
+          { key: "home", icon: <HomeIcon size={19} />, label: "보고서 뷰어", href: "/" },
+          { key: "admin", icon: <SettingsIcon size={19} />, label: "관리자 포털", active: true },
+        ]}
+        footer={
           <button
-            className="topbar-btn primary"
+            type="button"
+            className="as-rail-item"
+            title="로그아웃"
             onClick={async () => {
               sessionStorage.clear();
               await logout(csrf_token);
               window.location.href = "/login";
             }}
           >
-            로그아웃
+            <LogOut size={18} />
           </button>
+        }
+      />
+      <div className="as-content">
+        <ContextBar
+          crumb={
+            <>
+              관리자 포털 <span className="dim">›</span>{" "}
+              {SECTIONS.find((s) => s.key === section)?.label}
+            </>
+          }
+          right={<span className="as-ctxbar-user">{user.display_name}</span>}
+        />
+        {/* 세로 사이드바(관리 메뉴 6개) 대신 가로 세그먼트 — 표가 쓸 가로폭이 넓어진다 */}
+        <div className="ad-segtabs">
+          {SECTIONS.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              className={`ad-segtab${section === s.key ? " on" : ""}`}
+              onClick={() => setSection(s.key)}
+            >
+              <s.Icon size={15} className="icn" />
+              {s.label}
+            </button>
+          ))}
         </div>
-      </header>
-
-      <div className="app-body">
-        <nav className="app-sidebar">
-          <div className="app-sidebar-title">관리 메뉴</div>
-          <div className="app-sidebar-scroll">
-            {SECTIONS.map((s) => (
-              <div
-                key={s.key}
-                className={`app-nav-item${section === s.key ? " active" : ""}`}
-                onClick={() => setSection(s.key)}
-              >
-                <s.Icon size={17} className="icn" />
-                {s.label}
-              </div>
-            ))}
-          </div>
-        </nav>
 
         <main className="app-main">
           {sync?.drift && !syncDismissed && (

@@ -7,6 +7,7 @@ import ReportPage from "./pages/ReportPage";
 import AdminPage from "./pages/AdminPage";
 
 import "./theme.css";
+import "./appshell.css";
 import "./pages/login.css";
 import "./pages/report.css";
 import "./pages/admin.css";

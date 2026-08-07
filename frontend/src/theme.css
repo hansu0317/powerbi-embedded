@@ -1,29 +1,33 @@
-/* qualisoft BI 포털 — 소프트 세이지 테마
-   메인톤: #9CCC65 / 밝은톤: #C5E1A5 / 연한배경: #F4F8EE / 호버: #7CB342 */
+/* qualisoft BI 포털 — 라이트 코발트 테마 (v2 리디자인)
+   메인 accent: #3452E8 / 연한톤: #C7D2FB / 연한배경: #F4F5F8 / 레일(다크): #14161D
+   구 세이지 그린 테마에서 변수 이름은 그대로 두고 값만 바꿨다 — report.css/admin.css/
+   login.css가 var(--sage*) 를 광범위하게 참조하고 있어서, 값만 바꾸면 전체가 한 번에
+   새 팔레트로 넘어온다(클래스 하나하나 찾아다니며 리네임할 필요 없음). */
 
 :root {
-  /* 연한 연두 + 화이트 + 뉴트럴(검정/그레이) — 깔끔하게 */
-  --sage:        #AED581;
-  --sage-light:  #DCEDC8;
-  --sage-bg:     #F8FAF4;
-  --sage-hover:  #9CCC65;
-  --sage-deep:   #5E8C2E;
-  --sage-soft:   #EEF5E1;
+  /* 연한 코발트블루 + 화이트 + 뉴트럴(검정/그레이) — 깔끔하게 */
+  --sage:        #3452E8;  /* 메인 accent — 버튼·활성 상태 */
+  --sage-light:  #C7D2FB;  /* 연한 accent 틴트 */
+  --sage-bg:     #F4F5F8;  /* 앱 배경 */
+  --sage-hover:  #2745D6;  /* accent 호버(더 진하게) */
+  --sage-deep:   #24399E;  /* 텍스트로 쓰는 진한 accent(가독성용) */
+  --sage-soft:   #EBEEFE;  /* 아주 연한 accent 배경 */
 
-  --ink:        #242830;
-  --ink-soft:   #5a6472;
-  --muted:      #9aa2ad;
-  --line:       #e8ebe3;
+  --ink:        #14161C;
+  --ink-soft:   #5A5E6C;
+  --muted:      #8B8FA0;
+  --line:       #E6E7EE;
 
   --danger:     #d9534f;
   --warn:       #d9a441;
   --ok:         #4f9d52;
 
-  --sidebar-bg:   #2c3327;
-  --sidebar-line: rgba(197, 225, 165, 0.14);
+  /* 아이콘 레일(AppShell) — 유일하게 다크로 남긴 부분, 방향감만 주는 얇은 기준선 */
+  --sidebar-bg:   #14161D;
+  --sidebar-line: rgba(255, 255, 255, 0.08);
 
   --radius:  10px;
-  --shadow:  0 2px 10px rgba(85, 139, 47, 0.08);
+  --shadow:  0 2px 10px rgba(20, 22, 30, 0.07);
   --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
           "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 }
@@ -51,11 +55,11 @@ body {
   letter-spacing: -0.02em;
   user-select: none;
 }
-.brand .b-quali { color: var(--sage-deep); }
-.brand .b-soft  { color: var(--sage-hover); }
+.brand .b-quali { color: var(--ink); }
+.brand .b-soft  { color: var(--sage); }
 .brand .b-dot   { color: var(--sage); }
 
-/* 헤더 위(어두운/컬러 배경)에서 흰색 로고 변형 */
+/* 헤더 위(어두운/컬러 배경)에서 흰색 로고 변형 — 레일의 로고 자리에서 쓴다 */
 .brand.on-dark .b-quali,
 .brand.on-dark .b-soft { color: #fff; }
 .brand.on-dark .b-dot  { color: var(--sage-light); }
@@ -72,7 +76,7 @@ body {
   transition: background 0.15s, opacity 0.15s, box-shadow 0.15s;
 }
 .btn:disabled { opacity: 0.55; cursor: wait; }
-.btn-primary  { background: var(--sage); color: #20300f; }
+.btn-primary  { background: var(--sage); color: #fff; }
 .btn-primary:hover:not(:disabled) { background: var(--sage-hover); color: #fff; }
 .btn-danger   { background: var(--danger); color: #fff; }
 .btn-danger:hover:not(:disabled)  { opacity: 0.88; }
@@ -94,9 +98,10 @@ body {
 .pill.active, .pill.ok      { background: var(--sage-soft); color: var(--sage-deep); }
 .pill.inactive, .pill.fail  { background: #fdecec; color: #b3403c; }
 .pill.admin                 { background: #fff5dd; color: #927200; }
-.pill.pending               { background: #eef4ff; color: #3a5a9a; }
+.pill.pending                { background: #eef4ff; color: #3a5a9a; }
 
-/* ── 공통 앱 크롬 (라이트 톱바 + 라이트 사이드바) ────────── */
+/* ── 공통 앱 크롬 (라이트 톱바 + 라이트 사이드바) — 관리자 화면이 아직 이 구조를 쓴다.
+   AppShell(레일)로 옮겨간 화면(홈·보고서)은 appshell.css를 대신 쓴다. ────────── */
 .app-shell {
   display: flex;
   flex-direction: column;
@@ -113,7 +118,7 @@ body {
   gap: 28px;
   background: #fff;
   border-bottom: 1px solid var(--line);
-  box-shadow: 0 1px 3px rgba(85, 139, 47, 0.05);
+  box-shadow: 0 1px 3px rgba(20, 22, 30, 0.05);
 }
 .topbar-brand {
   display: inline-flex;
@@ -170,7 +175,7 @@ body {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: var(--sage-light) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23558B2F'%3E%3Cpath d='M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4 0-9 2-9 6v2h18v-2c0-4-5-6-9-6Z'/%3E%3C/svg%3E") center/16px no-repeat;
+  background: var(--sage-light) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%232A3F9E'%3E%3Cpath d='M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4 0-9 2-9 6v2h18v-2c0-4-5-6-9-6Z'/%3E%3C/svg%3E") center/16px no-repeat;
   flex-shrink: 0;
 }
 
@@ -192,7 +197,7 @@ body {
 .topbar-btn.primary {
   background: var(--sage);
   border-color: var(--sage);
-  color: #20300f;
+  color: #fff;
 }
 .topbar-btn.primary:hover { background: var(--sage-hover); color: #fff; border-color: var(--sage-hover); }
 
@@ -287,4 +292,4 @@ body {
 .card-table .btn-sm { padding: 4px 9px; font-size: 0.74rem; }
 .card-table tbody tr:last-child td { border-bottom: none; }
 .card-table tbody tr { transition: background 0.1s; }
-.card-table tbody tr:hover td { background: #fafdf5; }
+.card-table tbody tr:hover td { background: #fafbfe; }

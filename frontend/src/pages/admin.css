@@ -1,4 +1,37 @@
-/* 관리자 포털 — 라이트 클린 (공통 크롬은 theme.css) */
+/* 관리자 포털 — 라이트 클린 (공통 크롬은 theme.css + appshell.css) */
+
+/* ── 관리 메뉴: 세로 사이드바 6개 → 가로 세그먼트 ─────────
+   레일이 이미 최상위 내비게이션(홈/보고서/관리자)을 담당하므로, 그 안의
+   하위 탭까지 세로로 또 쌓을 필요가 없다 — 표가 쓸 가로폭을 넓게 준다. */
+.ad-segtabs {
+  display: flex;
+  gap: 4px;
+  background: var(--sage-bg);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 4px;
+  margin: 16px 28px 0;
+  width: fit-content;
+  flex-shrink: 0;
+}
+.ad-segtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  padding: 8px 15px;
+  border-radius: 8px;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+.ad-segtab:hover { background: rgba(255, 255, 255, 0.65); color: var(--ink); }
+.ad-segtab.on { background: #fff; color: var(--sage-deep); box-shadow: 0 1px 3px rgba(20, 22, 30, 0.08); }
 
 /* ── 동기화 필요 배너 ─────────────────────────────────── */
 .ad-sync-banner {
@@ -141,7 +174,7 @@
 .ad-field input:focus,
 .ad-field select:focus {
   border-color: var(--sage);
-  box-shadow: 0 0 0 3px rgba(156, 204, 101, 0.22);
+  box-shadow: 0 0 0 3px rgba(124, 147, 255, 0.25);
   background: #fff;
 }
 
@@ -254,8 +287,8 @@
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--sage-deep);
-  background: #eef4e8;
-  border: 1px solid #d8e4cc;
+  background: var(--sage-soft);
+  border: 1px solid var(--sage-light);
   border-radius: 999px;
   padding: 4px 12px;
   white-space: nowrap;
@@ -298,7 +331,7 @@
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .cfg-card:hover { box-shadow: 0 2px 8px rgba(60, 80, 50, 0.06); }
-.cfg-card.dirty { border-color: var(--sage-deep); box-shadow: 0 0 0 2px #dfe9d4; }
+.cfg-card.dirty { border-color: var(--sage-deep); box-shadow: 0 0 0 2px var(--sage-light); }
 .cfg-key {
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 0.76rem;
@@ -432,7 +465,7 @@
 }
 .ad-section-head > input:focus {
   border-color: var(--sage);
-  box-shadow: 0 0 0 3px #9ccc6538;
+  box-shadow: 0 0 0 3px #3452e838;
   background: #fff;
 }
 
@@ -450,7 +483,7 @@
 .rls-note code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 0.9em;
-  background: #eef2e6;
+  background: var(--sage-soft);
   padding: 1px 5px;
   border-radius: 4px;
 }

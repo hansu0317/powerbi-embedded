@@ -48,8 +48,43 @@
 .rp-tree-item .icn { color: var(--sage-deep); }
 .rp-tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ── 좌측 트리 패널 / 본문을 감싸는 셸 — 예전엔 사이드바가 화면 가장자리에
+   붙어 있었다. 레일이 이미 최상위 내비게이션이라, 트리는 여백을 두고 뜬
+   패널로 바꿨다. ─────────────────────────────────────── */
+.rp-body-shell {
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--sage-bg);
+}
+.rp-sidepanel {
+  border-right: none;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
 /* ── 내 보고서: 임베드(위) + 탭(아래) ─────────────────── */
-.rp-workarea { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* 캔버스 자체는 순정 흰 배경 그대로 두고, 주변(app-main)만 은은한 연회색으로
+   낮춰서 리포트가 저절로 눈에 띄게 한다 — 흰 스테이지 카드 하나로 감싸는 것. */
+.rp-workarea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(20, 22, 30, 0.07);
+  overflow: hidden;
+  position: relative;
+}
+.rp-workarea::before {
+  content: "";
+  display: block;
+  height: 3px;
+  flex-shrink: 0;
+  background: linear-gradient(90deg, var(--sage), #7C93FF);
+}
 
 .rp-report-toolbar {
   display: flex;
@@ -177,79 +212,55 @@
   opacity: 0.5;
   border-radius: 4px;
 }
-.rp-tab-close:hover { opacity: 1; background: rgba(94, 140, 46, 0.14); }
+.rp-tab-close:hover { opacity: 1; background: rgba(52, 82, 232, 0.14); }
 
-/* ── 홈 (메인 랜딩) — 한 화면에 맞춤 ──────────────────── */
+/* ── 홈 (메인 랜딩) — 커맨드바 + 벤토 그리드 ────────────── */
+/* 예전엔 히어로 문구+검색창+카드 4개였다. 문구 없이 커맨드바 하나로 시작하고,
+   타일 전부가 클릭하면 바로 들어가는 입구가 되도록 바꿨다 — 그중 즐겨찾기는
+   큰 타일, 관리자용 "전체 보고서"는 맨 아래 가로 배너. */
 .home {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   background: var(--sage-bg);
-  display: flex;
-  flex-direction: column;
+  padding: 28px 32px 32px;
 }
 
-.home-hero {
-  position: relative;
-  padding: 30px 36px 44px;
-  text-align: center;
-  flex-shrink: 0;
-  background:
-    radial-gradient(circle at 15% 20%, rgba(197, 225, 165, 0.5), transparent 40%),
-    radial-gradient(circle at 85% 30%, rgba(174, 213, 129, 0.35), transparent 45%),
-    linear-gradient(160deg, #fbfdf7 0%, #eef5e2 100%);
-  border-bottom: 1px solid var(--line);
-}
-.home-hero-deco {
-  position: absolute;
-  inset: 0;
-  background-image: radial-gradient(rgba(124, 179, 66, 0.16) 1px, transparent 1px);
-  background-size: 22px 22px;
-  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.5), transparent 70%);
-  mask-image: linear-gradient(180deg, rgba(0,0,0,0.5), transparent 70%);
-  pointer-events: none;
-}
-.home-headline {
-  position: relative;
-  font-size: 1.85rem;
-  font-weight: 800;
-  line-height: 1.18;
-  color: var(--ink);
-  letter-spacing: -0.02em;
-}
-.home-headline .thin { font-weight: 300; color: var(--ink-soft); }
-.home-headline .accent { color: var(--sage-hover); }
-.home-greet {
-  position: relative;
-  margin-top: 10px;
-  font-size: 0.9rem;
-  color: var(--ink-soft);
-}
-.home-search {
+.home-cmdbar {
   position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 7px 7px 7px 22px;
-  max-width: 620px;
-  margin: 18px auto 0;
-  box-shadow: 0 10px 30px rgba(85, 139, 47, 0.12);
+  border-radius: 12px;
+  padding: 12px 16px;
+  max-width: 640px;
+  margin: 0 auto 22px;
+  box-shadow: var(--shadow);
 }
-.home-search:focus-within { border-color: var(--sage); box-shadow: 0 10px 30px rgba(124,179,66,0.22); }
-.home-search-icon { color: var(--sage-deep); }
-.home-search input {
+.home-cmdbar:focus-within { border-color: var(--sage); box-shadow: 0 0 0 3px var(--sage-light); }
+.home-cmdbar-icon { color: var(--sage-deep); }
+.home-cmdbar input {
   flex: 1;
   border: none;
   outline: none;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-family: inherit;
   color: var(--ink);
   background: transparent;
 }
-.home-search .btn { border-radius: 999px; padding: 10px 24px; }
+.home-cmdbar-kbd {
+  font-family: ui-monospace, Consolas, Menlo, monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--sage-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 7px;
+}
+.home-cmdbar .btn { border-radius: 8px; padding: 9px 20px; }
 
 /* 검색 자동완성 드롭다운 */
 .home-suggest {
@@ -260,7 +271,7 @@
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 14px;
-  box-shadow: 0 12px 32px rgba(85, 139, 47, 0.18);
+  box-shadow: 0 12px 32px rgba(20, 22, 30, 0.14);
   list-style: none;
   margin: 0;
   padding: 6px;
@@ -299,33 +310,32 @@
   flex-shrink: 0;
 }
 
-.home-cards {
+.home-bento {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 20px;
-  width: 100%;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 16px;
   max-width: 1100px;
-  margin: -30px auto 0;
-  padding: 0 36px 24px;
-  position: relative;
+  margin: 0 auto;
+  align-items: start;
 }
-.home-card {
+.home-tile {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 16px;
-  box-shadow: 0 6px 22px rgba(85, 139, 47, 0.1);
-  padding: 16px 18px 8px;
+  box-shadow: var(--shadow);
+  padding: 18px 20px 10px;
   display: flex;
   flex-direction: column;
 }
-.home-card-head {
+.home-tile.big { min-height: 280px; }
+.home-tile-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
 }
-.home-card-title { font-size: 1rem; font-weight: 800; color: var(--ink); }
-.home-card-badge {
+.home-tile-title { font-size: 1rem; font-weight: 800; color: var(--ink); }
+.home-tile-badge {
   width: 34px;
   height: 34px;
   border-radius: 10px;
@@ -334,9 +344,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
-.home-card-list { flex: 1; }
-.home-card-empty { padding: 20px 4px; color: var(--muted); font-size: 0.85rem; text-align: center; }
+.home-tile-list { flex: 1; }
+.home-tile-empty { padding: 20px 4px; color: var(--muted); font-size: 0.85rem; text-align: center; }
 
 .home-row {
   display: flex;
@@ -348,19 +359,6 @@
   transition: background 0.12s;
 }
 .home-row:hover { background: var(--sage-bg); }
-.home-row-no {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  border-radius: 6px;
-  background: var(--sage-soft);
-  color: var(--sage-deep);
-  font-size: 0.72rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 .home-row-icon { color: var(--sage-deep); flex-shrink: 0; }
 .home-row-name {
   flex: 1;
@@ -372,24 +370,25 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.home-card-foot { border-top: 1px solid var(--line); margin-top: 8px; }
-.home-card-more {
-  width: 100%;
-  background: none;
-  border: none;
+
+/* 관리자 전용 "전체 보고서" — 가로로 넓은 배너 하나, 클릭하면 바로 전체 보고서로 */
+.home-tile.wide {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
   cursor: pointer;
   font-family: inherit;
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--sage-deep);
-  padding: 12px 4px 6px;
-  text-align: right;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
-.home-card-more:hover { color: var(--sage-hover); }
+.home-tile.wide:hover { border-color: var(--sage-light); box-shadow: 0 8px 22px rgba(52, 82, 232, 0.12); }
 
-@media (max-width: 720px) {
-  .home-headline { font-size: 1.7rem; }
-  .home-cards { margin-top: 12px; }
+@media (max-width: 780px) {
+  .home-bento { grid-template-columns: 1fr; }
+  .home-tile.big { min-height: 0; }
 }
 
 /* ── 즐겨찾기 별 ──────────────────────────────────────── */
@@ -456,7 +455,7 @@
 }
 .rp-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 22px rgba(94, 140, 46, 0.16);
+  box-shadow: 0 8px 22px rgba(52, 82, 232, 0.14);
   border-color: var(--sage-light);
 }
 .rp-card-icon {
@@ -605,7 +604,7 @@
 .rp-pager-btn.active {
   background: var(--sage);
   border-color: var(--sage);
-  color: #20300f;
+  color: #fff;
 }
 .rp-pager-btn:disabled { opacity: 0.4; cursor: default; }
 

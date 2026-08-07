@@ -9,8 +9,10 @@ import {
   Info,
   LayoutDashboard,
   LayoutList,
+  LogOut,
   Maximize,
   Search,
+  Settings,
   Star,
   TrendingUp,
   Upload,
@@ -24,6 +26,7 @@ import {
 import { useFavorites } from "../useFavorites";
 import { useRecents } from "../useRecents";
 import { Pager, useFitRows } from "../Pager";
+import { Rail, ContextBar } from "../AppShell";
 
 // PowerBI 서비스 싱글턴 (탭 전체가 공유)
 const powerbi = new pbi.service.Service(
@@ -138,137 +141,167 @@ export default function ReportPage({ data }: { data: ReportData }) {
     [goMode],
   );
 
+  // 컨텍스트바 breadcrumb — 화면마다 다른 걸 예전엔 상단바 하나로 뭉뚱그렸다.
+  const activeTabName = tabs.find((t) => t.id === active)?.name;
+  const crumb =
+    mode === "home" ? (
+      "홈"
+    ) : view === "my" ? (
+      activeTabName ? (
+        <>
+          보고서 <span className="dim">›</span> {activeTabName}
+        </>
+      ) : (
+        "보고서"
+      )
+    ) : view === "all" ? (
+      <>
+        보고서 <span className="dim">›</span> 전체 보고서
+      </>
+    ) : (
+      <>
+        보고서 <span className="dim">›</span> 보고서 등록
+      </>
+    );
+
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <button
-          className="topbar-brand"
-          title="홈으로"
-          onClick={() => goMode("home")}
-        >
-          <span className="brand">
-            <span className="b-quali">quali</span>
-            <span className="b-soft">soft</span>
+    <div className="as-shell">
+      <Rail
+        logo={
+          <span className="brand on-dark" style={{ fontSize: "0.68rem" }}>
+            <span className="b-quali">q</span>
+            <span className="b-soft">s</span>
           </span>
-        </button>
-        <nav className="topbar-nav">
+        }
+        items={[
+          {
+            key: "home",
+            icon: <HomeIcon size={19} />,
+            label: "홈",
+            active: mode === "home",
+            onClick: () => goMode("home"),
+          },
+          {
+            key: "reports",
+            icon: <BarChart3 size={19} />,
+            label: "보고서",
+            active: mode === "reports",
+            onClick: () => goMode("reports"),
+          },
+          ...(user.is_admin
+            ? [{ key: "admin", icon: <Settings size={19} />, label: "관리자 포털", href: "/admin" }]
+            : []),
+        ]}
+        footer={
           <button
-            className={`topbar-link${mode === "home" ? " active" : ""}`}
-            onClick={() => goMode("home")}
-          >
-            <HomeIcon size={16} className="icn" /> 홈
-          </button>
-          <button
-            className={`topbar-link${mode === "reports" ? " active" : ""}`}
-            onClick={() => goMode("reports")}
-          >
-            <BarChart3 size={16} className="icn" /> 리포트
-          </button>
-        </nav>
-        <div className="topbar-spacer" />
-        <div className="topbar-right">
-          <span className="topbar-user">{user.display_name}</span>
-          <button className="topbar-btn" onClick={() => setShowActivity(true)}>
-            내 활동
-          </button>
-          {data.marketing_portal_url && (
-            <a
-              href={data.marketing_portal_url}
-              target="_blank"
-              rel="noreferrer"
-              className="topbar-btn"
-            >
-              ↗ 마케팅 포털
-            </a>
-          )}
-          {user.is_admin && (
-            <a href="/admin" className="topbar-btn">
-              관리자 포털
-            </a>
-          )}
-          <button
-            className="topbar-btn primary"
+            type="button"
+            className="as-rail-item"
+            title="로그아웃"
             onClick={async () => {
               sessionStorage.clear();
               await logout(csrf_token);
               window.location.href = "/login";
             }}
           >
-            로그아웃
+            <LogOut size={18} />
           </button>
-        </div>
-      </header>
-      {showActivity && <MyActivityModal onClose={() => setShowActivity(false)} />}
-
-      {mode === "home" ? (
-        <Home
-          reports={reports}
-          displayName={user.display_name}
-          isAdmin={Boolean(user.is_admin)}
-          recentIds={recents}
-          popular={data.popular || []}
-          isFav={isFav}
-          onOpen={openReport}
-          onSearch={runSearch}
-          onGoAll={() => {
-            setAllQuery("");
-            setView("all");
-            goMode("reports");
-          }}
+        }
+      />
+      <div className="as-content">
+        <ContextBar
+          crumb={crumb}
+          right={
+            <>
+              {data.marketing_portal_url && (
+                <a
+                  href={data.marketing_portal_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="as-ctxbar-pill"
+                >
+                  ↗ 마케팅 포털
+                </a>
+              )}
+              <button className="as-ctxbar-pill" onClick={() => setShowActivity(true)}>
+                내 활동
+              </button>
+              <span className="as-ctxbar-user">{user.display_name}</span>
+            </>
+          }
         />
-      ) : (
-        <div className="app-body">
-          <Sidebar
+        {showActivity && <MyActivityModal onClose={() => setShowActivity(false)} />}
+
+        {mode === "home" ? (
+          <Home
             reports={reports}
-            myReports={myReports}
-            view={view}
-            activeId={active}
             isAdmin={Boolean(user.is_admin)}
-            canUpload={canUpload}
+            recentIds={recents}
+            popular={data.popular || []}
             isFav={isFav}
-            onSelectView={setView}
             onOpen={openReport}
+            onSearch={runSearch}
+            onGoAll={() => {
+              setAllQuery("");
+              setView("all");
+              goMode("reports");
+            }}
           />
-          <main className="app-main">
-            {view === "my" && (
-              <MyReportsView
-                reports={myReports}
-                tabs={tabs}
-                active={active}
-                isFav={isFav}
-                canUpload={canUpload}
-                onToggleFav={toggleFav}
-                onActivate={setActive}
-                onClose={closeTab}
-                onGoUpload={() => setView("upload")}
-                csrf={csrf_token}
-                user={user}
-              />
-            )}
-            {view === "all" && (
-              <AllReportsView
-                reports={reports}
-                query={allQuery}
-                onQuery={setAllQuery}
-                isFav={isFav}
-                canUpload={canUpload}
-                onToggleFav={toggleFav}
-                onOpen={openReport}
-                onGoUpload={() => setView("upload")}
-              />
-            )}
-            {view === "upload" && canUpload && <UploadView csrf={csrf_token} />}
-          </main>
-        </div>
-      )}
+        ) : (
+          <div className="app-body rp-body-shell">
+            <Sidebar
+              reports={reports}
+              myReports={myReports}
+              view={view}
+              activeId={active}
+              isAdmin={Boolean(user.is_admin)}
+              canUpload={canUpload}
+              isFav={isFav}
+              onSelectView={setView}
+              onOpen={openReport}
+            />
+            <main className="app-main">
+              {view === "my" && (
+                <MyReportsView
+                  reports={myReports}
+                  tabs={tabs}
+                  active={active}
+                  isFav={isFav}
+                  canUpload={canUpload}
+                  onToggleFav={toggleFav}
+                  onActivate={setActive}
+                  onClose={closeTab}
+                  onGoUpload={() => setView("upload")}
+                  csrf={csrf_token}
+                  user={user}
+                />
+              )}
+              {view === "all" && (
+                <AllReportsView
+                  reports={reports}
+                  query={allQuery}
+                  onQuery={setAllQuery}
+                  isFav={isFav}
+                  canUpload={canUpload}
+                  onToggleFav={toggleFav}
+                  onOpen={openReport}
+                  onGoUpload={() => setView("upload")}
+                />
+              )}
+              {view === "upload" && canUpload && <UploadView csrf={csrf_token} />}
+            </main>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-/* ── 홈 (메인 랜딩 — 05_main 스타일) ───────────────────── */
+/* ── 홈 (메인 랜딩) — 커맨드바 + 벤토 그리드 ───────────── */
+/* 히어로 문구 없이 검색 한 줄로 시작하고, 타일 전부가 클릭하면 바로 그 보고서로
+   들어가는 입구다. 인사말은 컨텍스트바에 사용자명으로 이미 나가 있어 여기선
+   따로 반복하지 않는다. */
 function Home({
   reports,
-  displayName,
   isAdmin,
   recentIds,
   popular,
@@ -278,7 +311,6 @@ function Home({
   onGoAll,
 }: {
   reports: ReportItem[];
-  displayName: string;
   isAdmin: boolean;
   recentIds: number[];
   popular: { report_id: number; views: number }[];
@@ -315,63 +347,53 @@ function Home({
 
   return (
     <main className="home">
-      <section className="home-hero">
-        <div className="home-hero-deco" aria-hidden />
-        <h1 className="home-headline">
-          Business Innovation <span className="thin">by</span>
-          <br />
-          Data Driven <span className="accent">Analytics</span>
-        </h1>
-        <p className="home-greet">
-          {displayName}님, qualisoft BI 포털에 오신 것을 환영합니다
-        </p>
-        <form
-          className="home-search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSearch(q.trim());
-            setOpenSuggest(false);
+      <form
+        className="home-cmdbar"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSearch(q.trim());
+          setOpenSuggest(false);
+        }}
+      >
+        <Search size={18} className="icn home-cmdbar-icon" />
+        <input
+          placeholder="보고서, 카테고리를 검색하세요"
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setOpenSuggest(true);
           }}
-        >
-          <Search size={19} className="icn home-search-icon" />
-          <input
-            placeholder="보고서를 검색하세요"
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setOpenSuggest(true);
-            }}
-            onFocus={() => setOpenSuggest(true)}
-            onBlur={() => setTimeout(() => setOpenSuggest(false), 120)}
-          />
-          <button type="submit" className="btn btn-primary">
-            검색
-          </button>
-          {openSuggest && suggestions.length > 0 && (
-            <ul className="home-suggest">
-              {suggestions.map((r) => (
-                <li
-                  key={r.id}
-                  className="home-suggest-item"
-                  onMouseDown={() => {
-                    onOpen(r);
-                    setOpenSuggest(false);
-                  }}
-                >
-                  <BarChart3 size={15} className="icn" />
-                  <span className="home-suggest-name">{r.name}</span>
-                  {r.category && (
-                    <span className="home-suggest-cat">{r.category}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </form>
-      </section>
+          onFocus={() => setOpenSuggest(true)}
+          onBlur={() => setTimeout(() => setOpenSuggest(false), 120)}
+        />
+        <button type="submit" className="btn btn-primary">
+          검색
+        </button>
+        {openSuggest && suggestions.length > 0 && (
+          <ul className="home-suggest">
+            {suggestions.map((r) => (
+              <li
+                key={r.id}
+                className="home-suggest-item"
+                onMouseDown={() => {
+                  onOpen(r);
+                  setOpenSuggest(false);
+                }}
+              >
+                <BarChart3 size={15} className="icn" />
+                <span className="home-suggest-name">{r.name}</span>
+                {r.category && (
+                  <span className="home-suggest-cat">{r.category}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </form>
 
-      <section className="home-cards">
+      <section className="home-bento">
         <HomeCard
+          big
           title="즐겨찾기"
           Icon={Star}
           accent="#f5b301"
@@ -394,20 +416,7 @@ function Home({
           items={popularReports}
           onOpen={onOpen}
         />
-        {isAdmin && (
-          <HomeCard
-            title="전체 보고서"
-            Icon={LayoutList}
-            empty="열람 가능한 보고서가 없습니다"
-            items={reports.slice(0, 4)}
-            onOpen={onOpen}
-            footer={
-              <button className="home-card-more" onClick={onGoAll}>
-                전체 보기 ({reports.length}) →
-              </button>
-            }
-          />
-        )}
+        {isAdmin && <HomeWideTile count={reports.length} onClick={onGoAll} />}
       </section>
     </main>
   );
@@ -420,7 +429,7 @@ function HomeCard({
   empty,
   items,
   onOpen,
-  footer,
+  big,
 }: {
   title: string;
   Icon: typeof Star;
@@ -428,19 +437,19 @@ function HomeCard({
   empty: string;
   items: ReportItem[];
   onOpen: (r: ReportItem) => void;
-  footer?: React.ReactNode;
+  big?: boolean;
 }) {
   return (
-    <div className="home-card">
-      <div className="home-card-head">
-        <span className="home-card-title">{title}</span>
-        <span className="home-card-badge" style={accent ? { color: accent } : undefined}>
+    <div className={`home-tile${big ? " big" : ""}`}>
+      <div className="home-tile-head">
+        <span className="home-tile-title">{title}</span>
+        <span className="home-tile-badge" style={accent ? { color: accent } : undefined}>
           <Icon size={18} className="icn" />
         </span>
       </div>
-      <div className="home-card-list">
+      <div className="home-tile-list">
         {items.length === 0 ? (
-          <div className="home-card-empty">{empty}</div>
+          <div className="home-tile-empty">{empty}</div>
         ) : (
           items.map((r) => (
             <div key={r.id} className="home-row" onClick={() => onOpen(r)} title={r.name}>
@@ -450,8 +459,19 @@ function HomeCard({
           ))
         )}
       </div>
-      {footer && <div className="home-card-foot">{footer}</div>}
     </div>
+  );
+}
+
+/* 관리자 전용 "전체 보고서" — 목록 없이 클릭 한 번으로 바로 전체 보고서로 가는 배너 */
+function HomeWideTile({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <button type="button" className="home-tile wide" onClick={onClick}>
+      <span className="home-tile-title">전체 보고서 {count}건 보기</span>
+      <span className="home-tile-badge">
+        <LayoutList size={18} className="icn" />
+      </span>
+    </button>
   );
 }
 
@@ -517,7 +537,7 @@ function Sidebar({
     });
 
   return (
-    <nav className="app-sidebar">
+    <nav className="app-sidebar rp-sidepanel">
       <div className="app-sidebar-title">보고서</div>
       <div className="app-sidebar-scroll">
         <div

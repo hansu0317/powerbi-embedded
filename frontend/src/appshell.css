@@ -1,0 +1,102 @@
+/* AppShell — 아이콘 레일 + 컨텍스트바.
+   예전 상단바(58px, 전체 폭) + 좌측 사이드바(224px, 화면마다 재구성) 이중 크롬을
+   레일 하나(64px, 다크, 전 화면 공통) + 화면별 컨텍스트바(56px, 라이트)로 통합한다. */
+
+.as-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── 레일 ─────────────────────────────────────────────── */
+.as-rail {
+  width: 64px;
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+  gap: 6px;
+}
+.as-rail-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--sage);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+.as-rail-item {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7D8296;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.as-rail-item:hover { background: rgba(255, 255, 255, 0.07); color: #C3C8D6; }
+.as-rail-item.active { background: rgba(124, 147, 255, 0.18); color: #A9B8FF; }
+.as-rail-spacer { flex: 1; }
+
+/* ── 컨텍스트바 ───────────────────────────────────────── */
+.as-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.as-ctxbar {
+  height: 56px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 26px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+.as-ctxbar-crumb {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.as-ctxbar-crumb .dim { color: var(--muted); font-weight: 500; margin: 0 4px; }
+.as-ctxbar-spacer { flex: 1; }
+.as-ctxbar-pill {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-soft);
+  padding: 7px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+.as-ctxbar-pill:hover { background: var(--sage-bg); border-color: var(--sage-light); }
+.as-ctxbar-user {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  margin-left: 2px;
+}
