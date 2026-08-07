@@ -20,6 +20,9 @@ class AppError(Enum):
     FORBIDDEN_UPLOAD     = (403, "UPLOAD_FORBIDDEN",      "보고서 업로드 권한이 없습니다. 관리자에게 문의하세요.")
     FORBIDDEN_REPORT_EDIT = (403, "REPORT_EDIT_FORBIDDEN", "이 보고서를 업데이트할 권한이 없습니다 (소유자 또는 관리자만 가능).")
     UPDATE_NOT_SUPPORTED = (400, "UPDATE_NOT_SUPPORTED",  "대시보드는 콘텐츠 업데이트를 지원하지 않습니다.")
+    UPDATE_FILENAME_MISMATCH = (400, "UPDATE_FILENAME_MISMATCH",
+                                "업데이트는 같은 보고서의 수정본만 받습니다. 파일명이 '{expected}.pbix'와 "
+                                "일치해야 하는데 '{got}'을(를) 올리셨습니다 — 다른 보고서라면 '보고서 등록'을 이용하세요.")
     CSRF_INVALID         = (403, "CSRF_INVALID",          "잘못된 요청입니다. 페이지를 새로고침해 주세요.")
     BODY_INVALID         = (400, "BODY_INVALID",          "요청 본문이 올바른 JSON이 아닙니다.")
 

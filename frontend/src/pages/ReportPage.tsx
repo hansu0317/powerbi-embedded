@@ -712,16 +712,6 @@ function MyReportsView({
     reportRefs.current[rid] = { report, isDashboard };
   }, []);
 
-  // 네이티브 페이지 탭(하단)을 껐기 때문에, 페이지가 여러 장이면 상단 드롭다운으로 대체한다.
-  const [pagesByReport, setPagesByReport] = useState<Record<number, { name: string; displayName: string }[]>>({});
-  const [activePageByReport, setActivePageByReport] = useState<Record<number, string>>({});
-  const onPagesReady = useCallback((rid: number, pages: { name: string; displayName: string }[]) => {
-    setPagesByReport((prev) => ({ ...prev, [rid]: pages }));
-  }, []);
-  const onPageChange = useCallback((rid: number, pageName: string) => {
-    setActivePageByReport((prev) => ({ ...prev, [rid]: pageName }));
-  }, []);
-
   // React 훅은 조건부로 호출하면 안 된다 — tabs가 빈 상태(→ 아래 조기 return)에서
   // 첫 보고서를 열면(tabs.length 0→1) 이 컴포넌트가 이전 렌더보다 훅을 하나 더 호출하게 돼
   // "Rendered more hooks than during the previous render"로 화면 전체가 하얗게 죽는다.
@@ -783,26 +773,6 @@ function MyReportsView({
               </button>
             </div>
           )}
-          {!activeEntry?.isDashboard && activeTab && (pagesByReport[activeTab.id]?.length ?? 0) > 1 && (
-            <select
-              className="rp-page-select"
-              title="페이지 이동"
-              value={activePageByReport[activeTab.id] || ""}
-              onChange={(e) => {
-                const pageName = e.target.value;
-                activeEntry?.report
-                  .setPage(pageName)
-                  .then(() => onPageChange(activeTab.id, pageName))
-                  .catch(() => {});
-              }}
-            >
-              {pagesByReport[activeTab.id].map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.displayName}
-                </option>
-              ))}
-            </select>
-          )}
           <button className="rp-report-toolbar-fav" title="전체화면" onClick={goFullscreen}>
             <Maximize size={16} className="icn" />
             <span className="rp-toolbar-label">전체화면</span>
@@ -833,8 +803,6 @@ function MyReportsView({
             id={t.id}
             active={t.id === active}
             onReady={onReady}
-            onPagesReady={onPagesReady}
-            onPageChange={onPageChange}
           />
         ))}
       </div>
@@ -904,14 +872,10 @@ function ReportPanel({
   id,
   active,
   onReady,
-  onPagesReady,
-  onPageChange,
 }: {
   id: number;
   active: boolean;
   onReady: (rid: number, report: pbi.Report, isDashboard: boolean) => void;
-  onPagesReady: (rid: number, pages: { name: string; displayName: string }[]) => void;
-  onPageChange: (rid: number, pageName: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
@@ -972,9 +936,8 @@ function ReportPanel({
               tokenType: pbi.models.TokenType.Embed,
               filters: gf ? [buildGetFilter(gf.table, gf.column, gf.value)] : undefined,
               // 보고서별 차등 설정이 필요 없어 상수로 고정한다 (예전 DB 컬럼은 v12에서 제거).
-              //  · 네이티브 페이지 탭·필터창은 둘 다 끈다 — 대신 페이지는 상단 툴바의
-              //    드롭다운(onPagesReady/onPageChange)으로 대체한다. 여러 장짜리
-              //    보고서도 이 드롭다운으로 전부 이동 가능하니 접근성 손실은 없다.
+              //  · 필터창은 끈다. 페이지 탭은 상단 툴바의 커스텀 드롭다운을 없앤 대신
+              //    네이티브 하단 탭(pageNavigation)을 다시 켜서 페이지 이동을 지원한다.
               settings: {
                 navContentPaneEnabled: false,
                 filterPaneEnabled: false,
@@ -983,7 +946,7 @@ function ReportPanel({
                   displayOption: pbi.models.DisplayOption.FitToPage,
                 },
                 panes: {
-                  pageNavigation: { visible: false },
+                  pageNavigation: { visible: true },
                   filters: { visible: false },
                 },
                 // 시각화 우측 상단에 뜨는 드릴 업/다운 아이콘 제거
@@ -995,24 +958,9 @@ function ReportPanel({
         const report = powerbi.embed(el, config);
         scheduleRenew(report, d.expires_at);
         onReady(id, report as pbi.Report, isDashboard);
-        report.on("loaded", async () => {
+        report.on("loaded", () => {
           if (cancelled) return;
           setLoading(false);
-          if (isDashboard) return;
-          try {
-            const pages = await (report as pbi.Report).getPages();
-            if (cancelled) return;
-            onPagesReady(id, pages.map((p) => ({ name: p.name, displayName: p.displayName })));
-            const activePage = pages.find((p) => p.isActive) || pages[0];
-            if (activePage) onPageChange(id, activePage.name);
-          } catch {
-            /* 페이지 목록 조회 실패 — 드롭다운 없이도 보고서 자체는 정상 표시됨 */
-          }
-        });
-        report.on("pageChanged", (ev: any) => {
-          if (cancelled) return;
-          const name = ev?.page?.name;
-          if (name) onPageChange(id, name);
         });
         report.on("error", (ev: any) => {
           if (cancelled) return;
@@ -1195,8 +1143,14 @@ function UpdateReportModal({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ msg: string; tone: "" | "ok" | "err" }>({ msg: "", tone: "" });
 
+  // 업데이트는 "같은 보고서의 수정본"만 받는다 — 엉뚱한 pbix를 잘못 고르면 관계없는
+  // 페이지·시각화가 기존 데이터셋(RLS·관계·DAX) 위에 그대로 얹히므로, 파일명이 보고서
+  // 이름과 일치할 때만 진행하게 막는다. 최종 확인은 서버가 한 번 더 한다(routes/report.py).
+  const fileStem = file ? file.name.replace(/\.pbix$/i, "") : "";
+  const nameMismatch = !!file && fileStem.toLowerCase() !== reportName.trim().toLowerCase();
+
   const submit = async () => {
-    if (!file) return;
+    if (!file || nameMismatch) return;
     if (
       !confirm(
         `"${reportName}"의 페이지·시각화를 "${file.name}" 내용으로 완전히 교체합니다.\n` +
@@ -1243,6 +1197,7 @@ function UpdateReportModal({
         <div className="rp-modal-name">보고서 업데이트 — {reportName}</div>
         <p className="rp-landing-sub" style={{ marginBottom: 16 }}>
           새 pbix로 페이지·시각화만 교체합니다. 데이터셋(RLS·관계·DAX)은 그대로 유지됩니다.
+          파일명이 <b>"{reportName}.pbix"</b>와 같아야 합니다 — 다른 보고서라면 "보고서 등록"을 이용하세요.
         </p>
         <div className="rp-filepick" style={{ marginBottom: 16 }}>
           <input
@@ -1252,9 +1207,14 @@ function UpdateReportModal({
             onChange={(e) => setFile(e.target.files?.[0] || null)}
           />
         </div>
+        {nameMismatch && (
+          <div className="rp-upload-feedback err">
+            파일명이 "{reportName}.pbix"와 다릅니다 ("{file?.name}"). 같은 보고서의 수정본만 업데이트할 수 있어요.
+          </div>
+        )}
         {status.msg && <div className={`rp-upload-feedback ${status.tone}`}>{status.msg}</div>}
         <div className="rp-form-actions" style={{ marginTop: 16 }}>
-          <button className="btn btn-primary" disabled={!file || busy} onClick={submit}>
+          <button className="btn btn-primary" disabled={!file || nameMismatch || busy} onClick={submit}>
             {busy ? "처리 중..." : "업데이트 시작"}
           </button>
         </div>

@@ -42,6 +42,7 @@ from config import SECRET_KEY, COOKIE_SECURE
 from database import db_cleanup_login_attempts, db_cleanup_activity_log
 from errors import AppError, extract_code_message
 from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
+from services.backup import backup_loop
 from routes import auth, report, admin
 
 # Windows 콘솔/파일 리다이렉트 기본 인코딩(cp949)에서도 한글이 안 깨지도록 강제.
@@ -113,6 +114,7 @@ async def lifespan(_app: FastAPI):
       2. recover_pending_imports — accepted 상태 import를 재조회해 이어서 처리
       3. pbi_sync_loop           — 백그라운드 PBI 삭제 동기화
       4. _login_cleanup_loop     — login_attempts 30일 초과 기록 일 1회 정리
+      5. backup_loop             — 평일 17시, 서버가 켜져 있을 때만 DB 백업 1회(services/backup.py)
     """
     try:
         await asyncio.to_thread(recover_db_jobs)
@@ -121,9 +123,11 @@ async def lifespan(_app: FastAPI):
         logger.exception("STARTUP RECOVERY FAIL")
     sync_task    = asyncio.create_task(pbi_sync_loop())
     cleanup_task = asyncio.create_task(_login_cleanup_loop())
+    backup_task  = asyncio.create_task(backup_loop())
     yield
     sync_task.cancel()
     cleanup_task.cancel()
+    backup_task.cancel()
 
 
 app = FastAPI(

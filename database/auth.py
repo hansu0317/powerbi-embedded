@@ -26,7 +26,7 @@ def db_check_and_get_user(username: str, ip: str):
             if cur.fetchone()["count"] >= config.LOGIN_BLOCK_MAX_FAIL:
                 return "blocked", None
             cur.execute(
-                "SELECT id, username, display_name, pbi_username, roles, password, is_admin, is_active "
+                "SELECT id, username, display_name, pbi_username, password, is_admin, is_active "
                 "FROM users WHERE username = %s",
                 (username,),
             )
@@ -84,12 +84,12 @@ def db_get_user(username: str):
     """세션 사용자 조회. 비활성 계정은 None — 로그인 이후 비활성화돼도 다음 요청부터 즉시 차단된다.
 
     filter_key/filter_value — GET 필터(PoC, routes/report.py의 _build_get_filter)용.
-    진짜 RLS(roles)와 별개로, 이 사람한테 걸 관계사 코드·공장 코드 등을 담는다
+    진짜 RLS(config.PBI_RLS_ROLE_NAME)와 별개로, 이 사람한테 걸 관계사 코드·공장 코드 등을 담는다
     (한 사람 한 값만 — 여러 값 배정은 지금 범위 밖)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, username, display_name, pbi_username, roles, is_admin, can_upload, "
+                "SELECT id, username, display_name, pbi_username, is_admin, can_upload, "
                 "       filter_key, filter_value "
                 "FROM users WHERE username = %s AND is_active = TRUE",
                 (username,),

@@ -462,8 +462,7 @@ function UsersSection({
             <col style={{ width: "5%" }} />
             <col style={{ width: "12%" }} />
             <col style={{ width: "10%" }} />
-            <col style={{ width: "15%" }} />
-            <col style={{ width: "7%" }} />
+            <col style={{ width: "22%" }} />
             <col style={{ width: "6%" }} />
             <col style={{ width: "8%" }} />
             <col style={{ width: "13%" }} />
@@ -476,7 +475,6 @@ function UsersSection({
               <th>아이디</th>
               <th>표시 이름</th>
               <th>PBI 사용자명</th>
-              <th>역할</th>
               <th>보고서</th>
               <th title="클릭하면 업로드 허용/차단이 바뀝니다">업로드</th>
               <th>마지막 로그인</th>
@@ -498,7 +496,6 @@ function UsersSection({
                 </td>
                 <td title={u.display_name}>{u.display_name}</td>
                 <td title={u.pbi_username}>{u.pbi_username}</td>
-                <td>{u.roles.join(", ")}</td>
                 <td>
                   {u.is_admin ? (
                     <span title="관리자는 권한과 무관하게 전체 열람">전체</span>
@@ -672,9 +669,6 @@ function AddUserModal({
               <Field label="PBI 사용자명 (RLS 식별자)">
                 <input name="pbi_username" placeholder="아이디와 동일하면 공란" />
               </Field>
-              <Field label="역할 (RLS)">
-                <input name="roles" defaultValue="도메인" />
-              </Field>
               <Field label="관리자 권한">
                 <select name="is_admin" defaultValue="false">
                   <option value="false">일반 사용자</option>
@@ -747,7 +741,6 @@ function EditUserModal({
   const [busy, setBusy] = useState(false);
   const [displayName, setDisplayName] = useState(user.display_name);
   const [pbiUsername, setPbiUsername] = useState(user.pbi_username);
-  const [roles, setRoles] = useState(user.roles.join(", "));
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -755,14 +748,13 @@ function EditUserModal({
     try {
       await adminEditUser(
         user.id,
-        { display_name: displayName, pbi_username: pbiUsername, roles },
+        { display_name: displayName, pbi_username: pbiUsername },
         csrf,
       );
       onSaved({
         ...user,
         display_name: displayName,
         pbi_username: pbiUsername,
-        roles: roles.split(",").map((r) => r.trim()).filter(Boolean),
       });
     } catch (err) {
       onError((err as Error).message);
@@ -785,9 +777,6 @@ function EditUserModal({
             </Field>
             <Field label="PBI 사용자명 (RLS 식별자) *">
               <input value={pbiUsername} onChange={(e) => setPbiUsername(e.target.value)} required />
-            </Field>
-            <Field label="역할 (RLS)">
-              <input value={roles} onChange={(e) => setRoles(e.target.value)} />
             </Field>
           </div>
         </div>
@@ -847,7 +836,7 @@ function BulkAddUsersModal({
               <div className="ad-bulk-body">
                 <div className="ad-bulk-title">템플릿을 받아 작성합니다</div>
                 <div className="ad-bulk-code">
-                  username,password,display_name,pbi_username,roles,groups,is_admin,can_upload
+                  username,password,display_name,pbi_username,groups,is_admin,can_upload
                 </div>
                 <table className="ad-bulk-cols">
                   <tbody>
@@ -855,7 +844,6 @@ function BulkAddUsersModal({
                     <tr><th>password</th><td className="req">필수</td><td>초기 비밀번호 (8자 이상)</td></tr>
                     <tr><th>display_name</th><td className="req">필수</td><td>화면에 표시할 이름</td></tr>
                     <tr><th>pbi_username</th><td>선택</td><td>RLS 식별자 — 비우면 아이디를 사용</td></tr>
-                    <tr><th>roles</th><td>선택</td><td>RLS 역할 — 비우면 <code>도메인</code>. 여러 개는 <code>;</code>로 구분</td></tr>
                     <tr><th>groups</th><td>선택</td><td>소속 그룹 — <b>미리 만들어져 있어야</b> 하며, 그 그룹의 보고서 열람 권한을 그대로 상속</td></tr>
                     <tr><th>is_admin</th><td>선택</td><td>관리자 여부 — 비우면 <code>false</code></td></tr>
                     <tr><th>can_upload</th><td>선택</td><td>업로드 허용 — 비우면 <code>true</code></td></tr>
@@ -866,8 +854,8 @@ function BulkAddUsersModal({
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
                     const csv =
-                      "username,password,display_name,pbi_username,roles,groups,is_admin,can_upload\n" +
-                      "user01,TempPass123!,홍길동,,도메인,영업팀,false,true\n";
+                      "username,password,display_name,pbi_username,groups,is_admin,can_upload\n" +
+                      "user01,TempPass123!,홍길동,,영업팀,false,true\n";
                     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
@@ -1040,13 +1028,13 @@ function ReportsSection({
       <div className="card-table" ref={tableRef}>
         <table>
           <colgroup>
-            <col style={{ width: "6%" }} />
-            <col style={{ width: "24%" }} />
-            <col style={{ width: "13%" }} />
-            <col style={{ width: "13%" }} />
-            <col style={{ width: "7%" }} />
+            <col style={{ width: "5%" }} />
+            <col style={{ width: "30%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "16%" }} />
             <col style={{ width: "8%" }} />
-            <col style={{ width: "29%" }} />
+            <col style={{ width: "19%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -1084,9 +1072,14 @@ function ReportsSection({
                 </td>
                 <td>{r.category || "-"}</td>
                 <td>
-                  {r.viewer_count}
-                  {r.group_count > 0 && (
-                    <span className="ad-access-id"> +{r.group_count}그룹</span>
+                  {r.viewer_count === 0 && r.group_count === 0 ? (
+                    <span className="muted">없음</span>
+                  ) : (
+                    <>
+                      {r.viewer_count > 0 && <span>개인 {r.viewer_count}명</span>}
+                      {r.viewer_count > 0 && r.group_count > 0 && <span className="ad-access-id"> · </span>}
+                      {r.group_count > 0 && <span className="ad-access-id">그룹 {r.group_count}개</span>}
+                    </>
                   )}
                 </td>
                 <td>
@@ -1162,7 +1155,9 @@ function ConfigSection({
 
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // 실제로 관리자가 정책 판단으로 바꿀 만한 것들만 기본 노출 — 나머지(구현 세부값)는 "고급 설정"으로 뺐다
+  // 기본 노출은 "실제 장애/민원 상황에서 즉시 만지는 값"만 남긴다 — 그 외 정책·구현
+  // 세부값은 전부 "고급 설정"으로 뺐다. 예: 파일이 안 올라간다(용량 초과), 오늘 한도
+  // 찼다, 로그인이 잠겼다 — 이 셋은 관리자가 바로 이 화면에서 풀어줘야 하는 실제 민원이다.
   const categories: { title: string; hint?: string; keys: string[] }[] = [
     {
       title: "업로드",
@@ -1170,19 +1165,13 @@ function ConfigSection({
     },
     {
       title: "로그인 · 보안",
-      keys: ["password_min_len", "login_block_max_fail", "login_block_minutes"],
-    },
-    {
-      title: "동기화 · 임베드",
-      hint: "동기화 주기는 진행 중인 회차가 끝난 뒤부터 적용됩니다.",
-      keys: ["pbi_sync_interval", "pbi_token_cache_margin_sec", "max_embed_rls_roles"],
-    },
-    {
-      title: "로그 · 신선도",
-      keys: ["activity_log_retention_days", "error_log_retention_days", "refresh_auto_retry_max"],
+      hint: "직원이 로그인이 안 된다고 하면 여기 두 값을 확인하세요.",
+      keys: ["login_block_max_fail", "login_block_minutes"],
     },
   ];
   const advancedKeys = [
+    "password_min_len", "pbi_sync_interval", "pbi_token_cache_margin_sec",
+    "activity_log_retention_days", "error_log_retention_days", "refresh_auto_retry_max",
     "report_name_max_len", "import_poll_interval_sec", "import_poll_max",
     "embed_token_lifetime_min",
   ];

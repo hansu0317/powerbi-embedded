@@ -18,10 +18,10 @@ logger = logging.getLogger("powerbi-gateway")
 # 보고서를 열 때마다 PBI API를 3번(GET report → GET dataset → POST GenerateToken)
 # 호출하는 것을 줄이기 위한 캐시.
 #
-# 캐시 키: (report_id, pbi_username, roles_key)
+# 캐시 키: (report_id, pbi_username)
 #   - report_id:   DB의 내부 ID. pbi_report_id와 1:1 대응.
 #   - pbi_username: GenerateToken identity에 들어가는 값 — 사용자마다 다른 토큰 필요.
-#   - roles_key:   RLS 역할 목록(users.roles TEXT[])을 콤마로 직렬화한 문자열 — 역할이 다르면 다른 토큰 필요.
+#   (RLS 역할은 조직 전체가 config.PBI_RLS_ROLE_NAME 하나만 공유하므로 캐시 키에 안 넣는다.)
 #
 # 캐시 값: embed_token, embed_url, expires_at(Unix timestamp)
 #   - report_name과 tab_type은 관리자 작업으로 바뀔 수 있으므로 항상 DB에서 읽음.
@@ -46,20 +46,20 @@ def _get_fetch_lock(key: tuple) -> asyncio.Lock:
         return _fetch_locks[key]
 
 
-def _get_cached_token(report_id: int, pbi_username: str, roles_key: str) -> dict | None:
+def _get_cached_token(report_id: int, pbi_username: str) -> dict | None:
     with _embed_lock:
-        entry = _embed_cache.get((report_id, pbi_username, roles_key))
+        entry = _embed_cache.get((report_id, pbi_username))
         if entry and time.time() < entry["expires_at"] - _EMBED_MARGIN_SEC:
             return entry
     return None
 
 
 def _set_cached_token(
-    report_id: int, pbi_username: str, roles_key: str,
+    report_id: int, pbi_username: str,
     embed_token: str, embed_url: str, expires_at: float,
 ):
     with _embed_lock:
-        _embed_cache[(report_id, pbi_username, roles_key)] = {
+        _embed_cache[(report_id, pbi_username)] = {
             "embed_token": embed_token,
             "embed_url":   embed_url,
             "expires_at":  expires_at,
@@ -98,17 +98,14 @@ def _parse_token_expiry(expiration_str: str) -> float:
         return time.time() + config.EMBED_TOKEN_LIFETIME * 60
 
 
-async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -> dict:
-    """Power BI Embed Token 발급. roles는 users.roles(TEXT[]) 역할 목록."""
+async def get_embed_token(report_id: int, pbi_username: str) -> dict:
+    """Power BI Embed Token 발급. RLS 역할은 config.PBI_RLS_ROLE_NAME 하나를 전 사용자 공용으로 쓴다."""
     report_row = await asyncio.to_thread(db_get_report, report_id)
     if not report_row or not report_row["pbi_report_id"]:
         raise AppError.REPORT_NOT_FOUND.http()
 
-    # 캐시 키는 해시 가능해야 하므로 역할 목록을 문자열로 직렬화
-    roles_key = ",".join(roles or [])
-
     # 1차 캐시 체크 (락 없이) — 대부분의 요청은 여기서 즉시 반환
-    cached = _get_cached_token(report_id, pbi_username, roles_key)
+    cached = _get_cached_token(report_id, pbi_username)
     if cached:
         return _build_embed_response(
             report_row, report_row["pbi_report_id"],
@@ -117,9 +114,9 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
 
     # 2차: 키별 Lock 안에서 캐시 재확인 + PBI API 호출 (stampede 방지)
     # 동일 키 만료 시 첫 번째 요청만 PBI API를 호출하고, 대기하던 요청들은 락 해제 후 캐시를 재사용한다.
-    key = (report_id, pbi_username, roles_key)
+    key = (report_id, pbi_username)
     async with _get_fetch_lock(key):
-        cached = _get_cached_token(report_id, pbi_username, roles_key)
+        cached = _get_cached_token(report_id, pbi_username)
         if cached:
             return _build_embed_response(
                 report_row, report_row["pbi_report_id"],
@@ -127,7 +124,7 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
             )
 
         if report_row["tab_type"] == "dashboard":
-            return await _fetch_dashboard_token(report_row, pbi_username, roles, report_id, roles_key)
+            return await _fetch_dashboard_token(report_row, pbi_username, report_id)
 
         pbi_report_id = report_row["pbi_report_id"]
         workspace_id  = config.resolve_workspace_id(report_row["pbi_workspace_id"])
@@ -156,11 +153,11 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
 
             body = {"accessLevel": "view"}
             # 데이터셋에 RLS 역할이 정의돼 있으면 Power BI가 identity를 강제한다
-            # (없이 보내면 400). 우리 쪽 설정은 없고, 사용자의 users.roles를 그대로 쓴다.
+            # (없이 보내면 400). 역할 이름은 조직 전체가 공유하는 config.PBI_RLS_ROLE_NAME 고정값.
             if dataset_info is None or dataset_info.get("isEffectiveIdentityRequired"):
                 identity = {"username": pbi_username, "datasets": [dataset_id]}
                 if dataset_info is None or dataset_info.get("isEffectiveIdentityRolesRequired"):
-                    identity["roles"] = list(roles or [])
+                    identity["roles"] = [config.PBI_RLS_ROLE_NAME]
                 body["identities"] = [identity]
 
             resp = await client.post(f"{report_api}/reports/{pbi_report_id}/GenerateToken", headers=headers, json=body)
@@ -184,7 +181,7 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
             )
 
         expires_at = _parse_token_expiry(token_data.get("expiration", ""))
-        _set_cached_token(report_id, pbi_username, roles_key, token_data["token"], report_info["embedUrl"], expires_at)
+        _set_cached_token(report_id, pbi_username, token_data["token"], report_info["embedUrl"], expires_at)
 
         return _build_embed_response(
             report_row, pbi_report_id, token_data["token"], report_info["embedUrl"], expires_at,
@@ -192,7 +189,7 @@ async def get_embed_token(report_id: int, pbi_username: str, roles: list[str]) -
 
 
 async def _fetch_dashboard_token(
-    report_row: dict, pbi_username: str, roles: list[str], report_id: int, roles_key: str,
+    report_row: dict, pbi_username: str, report_id: int,
 ) -> dict:
     """대시보드(Dashboard) 임베드 토큰 발급.
 
@@ -201,9 +198,7 @@ async def _fetch_dashboard_token(
     settings.tab_type === "dashboard"로 분기해 페이지/필터 UI를 안 그린다).
 
     한계: 대시보드는 여러 데이터셋의 타일을 모은 것이라 RLS에 필요한 정확한
-    datasets 목록을 얻으려면 타일을 순회해야 한다. 여기서는 report_rls가 켜져
-    있으면 역할(roles)만 담아 전달한다 — 타일별 데이터셋에 그 역할이 실제
-    정의돼 있어야 필터가 걸린다(보고서 RLS와 동일한 PBIX 준비 전제).
+    datasets 목록을 얻으려면 타일을 순회해야 한다 — 지금은 RLS 없이 열람만 지원.
     """
     dashboard_id = report_row["pbi_report_id"]
     workspace_id = config.resolve_workspace_id(report_row["pbi_workspace_id"])
@@ -229,7 +224,7 @@ async def _fetch_dashboard_token(
         token_data = resp.json()
 
     expires_at = _parse_token_expiry(token_data.get("expiration", ""))
-    _set_cached_token(report_id, pbi_username, roles_key, token_data["token"], dash_info["embedUrl"], expires_at)
+    _set_cached_token(report_id, pbi_username, token_data["token"], dash_info["embedUrl"], expires_at)
     return _build_embed_response(report_row, dashboard_id, token_data["token"], dash_info["embedUrl"], expires_at)
 
 

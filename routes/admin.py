@@ -234,7 +234,6 @@ async def api_admin_add_user(
     password: str = Form(),
     display_name: str = Form(),
     pbi_username: str = Form(""),
-    roles: str = Form("도메인"),
     is_admin: bool = Form(False),
     can_upload: bool = Form(True),
     group_ids: str = Form(""),
@@ -249,13 +248,11 @@ async def api_admin_add_user(
     if data_scope not in DATA_SCOPES:
         raise AppError.DATA_SCOPE_INVALID.http()
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    # 폼은 콤마 구분 문자열로 받고 DB에는 TEXT[] 배열로 저장한다
-    role_list = [r.strip() for r in roles.split(",") if r.strip()] or ["도메인"]
     group_id_list = [int(g) for g in group_ids.split(",") if g.strip()]
     try:
         new_id = await asyncio.to_thread(
             db_admin_add_user, username, pw_hash, display_name,
-            pbi_username or username, role_list, is_admin, can_upload, group_id_list,
+            pbi_username or username, is_admin, can_upload, group_id_list,
             department.strip() or None, data_scope,
         )
     except psycopg2.errors.UniqueViolation:
@@ -271,29 +268,27 @@ async def api_admin_add_user(
 async def api_admin_edit_user(
     request: Request, user_id: int, user: dict = Depends(require_admin_csrf),
 ):
-    """표시 이름·RLS 매핑(pbi_username·roles) 수정.
+    """표시 이름·RLS 식별자(pbi_username) 수정.
 
     비밀번호·아이디·관리자 권한·업로드 권한은 각각 별도 경로(add 시 지정, toggle-*)에서
     다룬다. department/data_scope는 여기서 안 다룬다(db_admin_update_user 참고 — 값을
-    바꾸고 싶으면 SQL로 직접).
-    body: {display_name, pbi_username, roles}"""
+    바꾸고 싶으면 SQL로 직접). RLS 역할 이름은 사용자별 값이 아니라 config.PBI_RLS_ROLE_NAME
+    고정값이라 여기서 다룰 게 없다.
+    body: {display_name, pbi_username}"""
     body = await json_body(request)
     display_name = str(body.get("display_name", "")).strip()
     pbi_username = str(body.get("pbi_username", "")).strip()
     if not display_name or not pbi_username:
         raise AppError.BODY_INVALID.http()
-    roles_raw = str(body.get("roles", ""))
-    role_list = [r.strip() for r in roles_raw.split(",") if r.strip()] or ["도메인"]
 
     updated = await asyncio.to_thread(
-        db_admin_update_user, user_id, display_name, pbi_username, role_list,
+        db_admin_update_user, user_id, display_name, pbi_username,
     )
     if not updated:
         raise AppError.USER_NOT_FOUND.http()
     logger.info("ADMIN EDIT USER | admin=%s | user_id=%s", user["username"], user_id)
     return {
         "user_id": user_id, "display_name": display_name, "pbi_username": pbi_username,
-        "roles": role_list,
     }
 
 
@@ -320,7 +315,6 @@ def _bulk_add_one(row: dict, group_map: dict[str, int]) -> tuple[str, str | None
         return "error", f"존재하지 않는 그룹: {', '.join(missing)}"
     group_id_list = [group_map[g] for g in group_names]
 
-    role_list = [r.strip() for r in (row.get("roles") or "").split(";") if r.strip()] or ["도메인"]
     is_admin = _parse_csv_bool(row.get("is_admin") or "", False)
     can_upload = _parse_csv_bool(row.get("can_upload") or "", True)
     pbi_username = (row.get("pbi_username") or "").strip() or username
@@ -333,7 +327,7 @@ def _bulk_add_one(row: dict, group_map: dict[str, int]) -> tuple[str, str | None
     try:
         db_admin_add_user(
             username, pw_hash, display_name, pbi_username,
-            role_list, is_admin, can_upload, group_id_list,
+            is_admin, can_upload, group_id_list,
             department, data_scope,
         )
     except psycopg2.errors.UniqueViolation:
@@ -353,8 +347,8 @@ async def api_admin_bulk_add_users(
 ):
     """CSV로 사용자 여러 명을 한 번에 등록한다.
 
-    헤더: username,password,display_name,pbi_username,roles,groups,is_admin,can_upload
-    roles/groups는 세미콜론(;)으로 여러 값 구분. groups는 미리 존재하는 그룹 이름만 허용—
+    헤더: username,password,display_name,pbi_username,groups,is_admin,can_upload
+    groups는 세미콜론(;)으로 여러 값 구분하며 미리 존재하는 그룹 이름만 허용—
     그룹×보고서 권한은 그룹 쪽에서 한 번만 설정해두면, 이 경로로 늘어나는 인원은
     그룹 멤버십만으로 자동으로 동일한 열람 권한을 받는다.
     """

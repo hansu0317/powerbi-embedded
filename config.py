@@ -16,6 +16,14 @@ CLIENT_ID     = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 WORKSPACE_ID  = os.getenv("WORKSPACE_ID")
 SECRET_KEY    = os.getenv("SECRET_KEY")
+
+# 동적 RLS 역할 이름 — 조직 전체가 이 역할 하나만 공유한다(docs/01_RLS_적용가이드.md).
+# Power BI Desktop에서 만드는 보안 역할 이름과 반드시 일치해야 한다. 사람마다 다르게
+# 줄 필요가 없어서(실제로 전원 동일값이었음, 2026-08 확인) 사용자별 컬럼 대신 값 하나로 둔다.
+# WORKSPACE_ID와 같은 이유로 .env에 둔다 — 바뀔 수 있는 외부(Power BI) 값이라, 바뀔 때
+# 코드 수정·재배포 없이 .env만 고치고 재시작하면 되게. 단, 실제로 바꾸려면 이 값과 일치하게
+# 관련 PBIX 전부의 "Manage roles" 이름도 같이 바꿔야 한다 — .env만 바꾸면 반대로 다 깨진다.
+PBI_RLS_ROLE_NAME = os.getenv("PBI_RLS_ROLE_NAME", "도메인")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
 # 네비게이션 허브 — 설정 시에만 상단바에 "마케팅 포털" 링크 노출(선택, 없으면 링크 없음)
@@ -83,7 +91,6 @@ def reload_app_config():
     g["IMPORT_POLL_MAX"]      = _int(cfg, "import_poll_max",            100)
     g["IMPORT_POLL_INTERVAL"] = _int(cfg, "import_poll_interval_sec",     3)
     g["EMBED_TOKEN_LIFETIME"] = _int(cfg, "embed_token_lifetime_min",    60)
-    g["MAX_EMBED_RLS_ROLES"]  = _int(cfg, "max_embed_rls_roles",         10)
     g["PBI_TOKEN_CACHE_MARGIN_SEC"] = _int(cfg, "pbi_token_cache_margin_sec", 300)
     g["ACTIVITY_LOG_RETENTION_DAYS"] = _int(cfg, "activity_log_retention_days", 90)
     g["REFRESH_AUTO_RETRY_MAX"] = _int(cfg, "refresh_auto_retry_max", 2)

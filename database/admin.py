@@ -37,7 +37,7 @@ def db_admin_get_users() -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"""SELECT u.id, u.username, u.display_name, u.pbi_username, u.roles,
+                f"""SELECT u.id, u.username, u.display_name, u.pbi_username,
                           u.is_admin, u.is_active, u.can_upload, u.last_login_at, u.created_at,
                           u.department, u.data_scope,
                           (SELECT COUNT(*) FROM reports r
@@ -76,16 +76,16 @@ def db_get_user_report_list(user_id: int) -> list:
 
 
 def db_admin_add_user(username: str, pw_hash: str, display_name: str,
-                      pbi_username: str, roles: list[str], is_admin: bool,
+                      pbi_username: str, is_admin: bool,
                       can_upload: bool = True, group_ids: list[int] | None = None,
                       department: str | None = None, data_scope: str = "self") -> int:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO users (username, password, display_name, pbi_username, roles, is_admin, "
+                "INSERT INTO users (username, password, display_name, pbi_username, is_admin, "
                 "can_upload, department, data_scope) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                (username, pw_hash, display_name, pbi_username, roles, is_admin,
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (username, pw_hash, display_name, pbi_username, is_admin,
                  can_upload, department, data_scope),
             )
             row = cur.fetchone()
@@ -99,22 +99,22 @@ def db_admin_add_user(username: str, pw_hash: str, display_name: str,
     return user_id
 
 
-def db_admin_update_user(user_id: int, display_name: str, pbi_username: str,
-                         roles: list[str]) -> bool:
-    """사용자 표시정보·RLS 매핑(pbi_username·roles) 수정.
+def db_admin_update_user(user_id: int, display_name: str, pbi_username: str) -> bool:
+    """사용자 표시정보·RLS 식별자(pbi_username) 수정.
 
-    department/data_scope는 여기서 안 건드린다 — 지금 관리 화면에서 뺀 필드라
-    (동적 RLS 작업 보류 중, 값은 나중에 SQL로 직접 채울 수 있음) 이 함수가 계속
-    건드리면 다른 필드 수정할 때마다 매번 기본값으로 조용히 덮어써진다.
+    RLS 역할 이름은 더 이상 사용자별 컬럼이 아니라 config.PBI_RLS_ROLE_NAME 고정값이라
+    여기서 다룰 게 없다. department/data_scope도 여기서 안 건드린다 — 지금 관리
+    화면에서 뺀 필드라(동적 RLS 작업 보류 중, 값은 나중에 SQL로 직접 채울 수 있음)
+    이 함수가 계속 건드리면 다른 필드 수정할 때마다 매번 기본값으로 조용히 덮어써진다.
 
     admin 계정은 제외한다 — 실수로 관리자 계정을 건드리는 걸 막는다
     (toggle_active·toggle_upload와 동일한 보호 원칙)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """UPDATE users SET display_name = %s, pbi_username = %s, roles = %s, updated_at = NOW()
+                """UPDATE users SET display_name = %s, pbi_username = %s, updated_at = NOW()
                    WHERE id = %s AND username != 'admin' RETURNING id""",
-                (display_name, pbi_username, roles, user_id),
+                (display_name, pbi_username, user_id),
             )
             row = cur.fetchone()
         conn.commit()

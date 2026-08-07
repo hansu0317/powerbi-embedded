@@ -172,7 +172,7 @@ async def api_embed(request: Request, report_id: int):
         logger.warning("EMBED DENY | user=%-12s | ip=%s | report_id=%s (권한없음)", user["username"], ip, report_id)
         raise
     logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
-    result = await get_embed_token(report_id, user["pbi_username"], user["roles"])
+    result = await get_embed_token(report_id, user["pbi_username"])
     # 30분 dedupe: 토큰 자동 재발급·새로고침 탭 복원이 조회수를 부풀리지 않게 한다
     await asyncio.to_thread(
         db_log_activity, user["id"], user["username"], "report_view",
@@ -190,7 +190,7 @@ async def api_embed(request: Request, report_id: int):
 
 
 async def _build_get_filter(user: dict, report_id: int) -> dict | None:
-    """GET 필터 설정 조립 (PoC — 진짜 RLS 아님, users.roles 기반 RLS와 별개).
+    """GET 필터 설정 조립 (PoC — 진짜 RLS 아님, config.PBI_RLS_ROLE_NAME 기반 RLS와 별개).
     reports.filter_table/column/key가 전부 설정된 보고서에서, 그리고 이 사용자의
     users.filter_key가 그 보고서가 요구하는 key와 일치할 때만 값을 반환한다
     (예: 보고서는 company_code를 요구하는데 이 사용자는 factory_code만 있으면 미적용).
@@ -601,6 +601,12 @@ async def api_update_report_content(request: Request, report_id: int, file: Uplo
         raise AppError.UPDATE_NOT_SUPPORTED.http()
     if not (user.get("is_admin") or report_row["owner_id"] == user["id"]):
         raise AppError.FORBIDDEN_REPORT_EDIT.http()
+
+    # 업데이트는 "같은 보고서의 수정본"만 받는다 — 파일명이 다르면 엉뚱한 pbix를 잘못
+    # 골랐을 가능성이 높다(관계없는 페이지·시각화가 기존 데이터셋 위에 그대로 얹힘).
+    uploaded_stem = (file.filename or "").rsplit(".", 1)[0].strip()
+    if uploaded_stem.lower() != report_row["name"].strip().lower():
+        raise AppError.UPDATE_FILENAME_MISMATCH.http(expected=report_row["name"], got=file.filename or "")
 
     pbix_bytes, file_size = await _validate_pbix_file(file)
     job_id = await asyncio.to_thread(db_reserve_update, user["id"], report_id, report_row["name"])

@@ -28,7 +28,6 @@
             "username": {{ u.username | tojson }},
             "display_name": {{ u.display_name | tojson }},
             "pbi_username": {{ u.pbi_username | tojson }},
-            "roles": {{ u.roles | tojson }},
             "is_admin": {{ (u.is_admin or False) | tojson }},
             "is_active": {{ (u.is_active or False) | tojson }},
             "can_upload": {{ (u.can_upload or False) | tojson }},

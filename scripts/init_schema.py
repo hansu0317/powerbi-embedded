@@ -43,7 +43,6 @@ TABLES = [
         password VARCHAR(255) NOT NULL,
         display_name VARCHAR(100) NOT NULL,
         pbi_username VARCHAR(255) NOT NULL,
-        roles TEXT[] NOT NULL DEFAULT ARRAY['도메인'],
         is_admin BOOLEAN NOT NULL DEFAULT FALSE,
         is_active BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -182,10 +181,16 @@ INDEXES = [
 ]
 
 VIEWS = [
+    # company_code/company_scope/company_parent는 scripts/add_company_hierarchy.py(2026-08)에서
+    # 추가된 회사 계층 RLS용 컬럼 — department/data_scope와 같은 패턴. CREATE OR REPLACE VIEW는
+    # 기존 컬럼을 빼거나 순서를 바꿀 수 없으므로(PostgreSQL 제약), 여기 정의는 항상 실제 뷰의
+    # 최신 형태와 일치시켜야 한다 — 안 맞으면 서버 시작 시 init_schema()가 에러로 죽는다.
     """CREATE OR REPLACE VIEW v_rls_user_scope AS
-       SELECT pbi_username AS user_key, department, data_scope
-       FROM users
-       WHERE is_active = TRUE""",
+       SELECT u.pbi_username AS user_key, u.department, u.data_scope,
+              u.company_code, u.company_scope, cc.parent_code AS company_parent
+       FROM users u
+       LEFT JOIN company_codes cc ON cc.code = u.company_code
+       WHERE u.is_active = TRUE""",
 ]
 
 # app_config 기본값 — 없는 키만 채운다 (이미 있으면 관리자가 바꾼 값을 보존)

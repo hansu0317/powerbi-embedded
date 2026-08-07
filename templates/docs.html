@@ -421,7 +421,7 @@
             Azure AD 토큰으로 Power BI API 2번 호출:<br>
             ① <code>GET .../reports/{reportId}</code> → embedUrl, datasetId 획득<br>
             ② <code>POST .../GenerateToken</code> → 일회성 Embed Token 발급
-            (identity: pbi_username + roles 포함 → RLS 적용 기준)<br>
+            (identity: pbi_username + 고정 역할명(config.PBI_RLS_ROLE_NAME) 포함 → RLS 적용 기준)<br>
             결과를 JSON으로 브라우저에 반환: <code>{ embed_token, embed_url, report_id }</code>
           </div>
         </div>
@@ -478,7 +478,8 @@
         <div class="db-row"><span class="db-col-name">password</span><span class="db-col-type">VARCHAR(255) bcrypt</span></div>
         <div class="db-row"><span class="db-col-name">display_name</span><span class="db-col-type">VARCHAR(100)</span></div>
         <div class="db-row"><span class="db-col-name">pbi_username</span><span class="db-col-type">VARCHAR(255)</span></div>
-        <div class="db-row"><span class="db-col-name">roles</span><span class="db-col-type">TEXT (콤마 구분)</span></div>
+        <div class="db-row"><span class="db-col-name">department / data_scope</span><span class="db-col-type">RLS 매핑</span></div>
+        <div class="db-row"><span class="db-col-name">company_code / company_scope</span><span class="db-col-type">회사 계층 RLS 매핑</span></div>
       </div>
 
       <!-- user_reports 테이블 -->
@@ -502,7 +503,7 @@
         <tr>
           <td><code>users</code></td>
           <td>사용자 계정 관리</td>
-          <td><code>pbi_username</code>: GenerateToken에 전달되는 Power BI identity<br><code>roles</code>: Fabric RLS 역할 (예: "도메인")</td>
+          <td><code>pbi_username</code>: GenerateToken에 전달되는 Power BI identity<br>RLS 역할명은 사용자별이 아니라 <code>config.PBI_RLS_ROLE_NAME</code> 고정값(예: "도메인")</td>
         </tr>
         <tr>
           <td><code>user_reports</code></td>
@@ -560,7 +561,7 @@ body = {
   <span class="st">"accessLevel"</span>: <span class="st">"view"</span>,
   <span class="st">"identities"</span>: [{
     <span class="st">"username"</span>: pbi_username,  <span class="cm"># DB의 pbi_username (RLS 기준)</span>
-    <span class="st">"roles"</span>: [<span class="st">"도메인"</span>],        <span class="cm"># DB의 roles (Fabric RLS 역할)</span>
+    <span class="st">"roles"</span>: [<span class="st">"도메인"</span>],        <span class="cm"># config.PBI_RLS_ROLE_NAME 고정값(전 직원 동일)</span>
     <span class="st">"datasets"</span>: [dataset_id]
   }]
 }
@@ -805,194 +806,42 @@ openTabs[name].panelEl.remove();
         <h3>레이어 1 — 게이트웨이 접근 제어 ✅ 적용</h3>
         <div class="success-box">
           <strong>누가 어떤 보고서 탭을 볼 수 있는지</strong> 제어<br><br>
-          • PostgreSQL <code>user_reports</code> 테이블 기반<br>
-          • 권한 없는 보고서는 사이드바에 아예 안 보임<br>
-          • AJAX 요청 시에도 서버에서 403 반환<br>
+          • PostgreSQL <code>user_reports</code>/<code>group_reports</code> 기반<br>
+          • 권한 없는 보고서는 사이드바에 아예 안 보임, AJAX도 403<br>
           • 현재 완전히 작동 중
         </div>
       </div>
       <div>
-        <h3>레이어 2 — Fabric 데이터 RLS ⚠️ Fabric 설정 필요</h3>
+        <h3>레이어 2 — Power BI 데이터 RLS (동적)</h3>
         <div class="warn-box">
           <strong>보고서 안에서 어떤 데이터 행이 보이는지</strong> 제어<br><br>
-          • GenerateToken에 pbi_username + roles 전달 → 메커니즘은 구현됨<br>
-          • 현재 "도메인" 역할 = DAX 필터 없음 = 전체 데이터 표시<br>
-          • Fabric에서 HR_RLS 역할에 DAX 필터 설정 시 즉시 작동
+          • 전 직원이 <code>config.PBI_RLS_ROLE_NAME</code>(기본 "도메인") 역할 하나만 공유<br>
+          • DAX가 <code>USERNAME()</code>으로 <code>v_rls_user_scope</code> 뷰를 조회해 부서/조회범위·회사코드로 필터<br>
+          • 보고서마다 PBIX에 역할·DAX를 넣어야 실제로 켜짐(자동 아님)
         </div>
       </div>
     </div>
 
-    <h3>아키텍처 — PostgreSQL이 RLS에서 맡는 역할</h3>
     <div class="info-box">
-      두 레이어 모두 <strong>출발점은 PostgreSQL</strong>이다. 레이어 1은 <code>user_reports</code>가,
-      레이어 2는 <code>users.pbi_username</code> + <code>users.roles</code> 두 컬럼이 결정한다.
-      즉 <strong>RLS 적용/변경은 Fabric의 DAX 필터 설정 + PostgreSQL UPDATE 한 쌍의 작업</strong>이다.
-    </div>
-    <div class="code-block">
-[PostgreSQL powerbi_gateway]          [FastAPI 게이트웨이]                  [Microsoft Fabric]
-
-users.username / password  ────▶  ① 로그인 인증 (bcrypt 비교)
-user_reports               ────▶  ② 보고서 접근 권한 체크          <span class="cm">← 레이어 1 (탭 단위 차단)</span>
-report_meta.pbi_report_id  ────▶  ③ DB에서 Fabric Report ID 조회
-users.pbi_username ┐
-users.roles        ┴───────▶  ④ GenerateToken identity 전달  ──▶  ⑤ roles와 같은 이름의 RLS 역할 탐색
-                                  { username: pbi_username,            DAX 필터의 USERNAME() 자리에
-                                    roles: [roles] }                   pbi_username 값이 대입됨
-                                                                       <span class="cm">← 레이어 2 (행 단위 필터)</span>
+      2026-08부터 사람마다 다른 역할명을 주는 방식(<code>users.roles</code>)은 제거했다 — 전 직원이 항상 동일 값이었던 게
+      확인돼 상수(<code>config.PBI_RLS_ROLE_NAME</code>) 하나로 대체. 지금은 <strong>"누가 무슨 역할이냐"가 아니라
+      "역할 하나가 각자의 부서/회사코드를 조회해서 다르게 필터링"</strong>하는 구조다.
+      자세한 절차·DAX 템플릿·트러블슈팅은 <code>docs/01_RLS_적용가이드.md</code>에 있다 (이 페이지엔 요약만).
     </div>
 
-    <h3>RLS 적용 시 PostgreSQL 쪽 작업 목록</h3>
-    <table class="info-table" style="margin-bottom:4px;">
-      <thead><tr><th>순서</th><th>SQL 작업</th><th>설명</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>1</td>
-          <td><code>UPDATE users SET roles = 'RLS_사번' WHERE username = '...';</code></td>
-          <td>Fabric에 만든 역할명과 <strong>철자까지 일치</strong>해야 함 (콤마로 여러 역할 가능)</td>
-        </tr>
-        <tr>
-          <td>2</td>
-          <td><code>UPDATE users SET pbi_username = '1001' WHERE username = '...';</code></td>
-          <td>DAX 필터의 <code>USERNAME()</code>이 받게 될 값 — 사번이든 이메일이든 <strong>DAX가 비교하는 컬럼 기준</strong>으로</td>
-        </tr>
-        <tr>
-          <td>3</td>
-          <td><code>user_reports</code>는 그대로 유지</td>
-          <td>보고서 접근 권한(레이어 1)은 RLS와 <strong>독립</strong> — RLS를 켜도 탭 권한 관리는 기존 방식 그대로</td>
-        </tr>
-      </tbody>
-    </table>
-    <div class="warn-box" style="margin-top:10px;">
-      <strong>순서 주의:</strong> DB의 <code>roles</code>를 먼저 바꾸면 안 된다.
-      Fabric 데이터셋에 해당 역할이 아직 없는 상태에서 로그인하면 <strong>MSOLAP 연결 오류</strong>로 보고서가 아예 안 열린다.
-      반드시 <strong>Fabric DAX 역할 생성 → 게시 → DB UPDATE</strong> 순서로.
-    </div>
-
-    <h3>레이어 2가 필요한가? — 판단 기준</h3>
-    <table class="info-table" style="margin-bottom:4px;">
-      <thead><tr><th>상황</th><th>결론</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>같은 보고서를 볼 수 있는 사람들이 <strong>모두 동일한 데이터</strong>를 봐도 된다</td>
-          <td><span class="badge badge-ok">레이어 1만으로 충분 — 현재 완성</span></td>
-        </tr>
-        <tr>
-          <td>같은 보고서인데 사람마다 <strong>보이는 데이터 행이 달라야 한다</strong><br><small>(예: 팀장은 전체 공장, 직원은 본인 공장만)</small></td>
-          <td><span class="badge badge-warn">레이어 2 필요 — Fabric DAX 설정 + DB roles 변경</span></td>
-        </tr>
-      </tbody>
-    </table>
-    <div class="info-box" style="margin-top:10px;">
-      코드는 이미 준비되어 있습니다. <code>GenerateToken</code> 호출 시 <code>pbi_username</code>과 <code>roles</code>를 전달하는 구조가 구현되어 있어,
-      Fabric에서 해당 역할에 DAX 필터만 설정하면 즉시 작동합니다.
-    </div>
-
-    <h3>레이어 2 활성화 방법 (Fabric 담당자 필요)</h3>
-    <div class="code-block">
-<span class="cm">// Fabric에서 HR_RLS 역할 DAX 필터 예시</span>
-[사번] = USERNAME()
-<span class="cm">// 또는 부서 기반</span>
-[부서코드] = LOOKUPVALUE(직원[부서], 직원[이메일], USERNAME())
-
-<span class="cm">-- DAX 설정 후 DB에서 역할 변경</span>
-UPDATE users SET roles = <span class="st">'HR_RLS'</span>, pbi_username = <span class="st">'실제AD이메일@qualisoft.co.kr'</span>
-WHERE username = <span class="st">'user01'</span>;
-    </div>
-
-    <h3>쉽게 이해하기 — RLS는 "행 거름망"이다</h3>
-    <div class="info-box">
-      RLS는 <strong>보고서를 숨기는 기능이 아니다.</strong>
-      같은 보고서를 열어도 <strong>안에 있는 데이터 표의 행(row)이 사람마다 다르게 걸러져 보이는 것</strong>이다.<br><br>
-      예를 들어 생산현황 보고서 안에 이런 데이터가 있다고 하면:
-    </div>
-    <table class="info-table">
-      <thead><tr><th>사번</th><th>이름</th><th>생산량</th></tr></thead>
-      <tbody>
-        <tr><td>1001</td><td>김철수</td><td>500</td></tr>
-        <tr><td>1002</td><td>이영희</td><td>300</td></tr>
-        <tr><td>1003</td><td>박민수</td><td>700</td></tr>
-      </tbody>
-    </table>
     <table class="info-table" style="margin-top:10px;">
-      <thead><tr><th>계정</th><th>roles (DB)</th><th>pbi_username (DB)</th><th>같은 보고서를 열면</th></tr></thead>
+      <thead><tr><th>컬럼</th><th>의미</th></tr></thead>
       <tbody>
-        <tr>
-          <td><code>user01</code></td>
-          <td>도메인 (필터 없음)</td>
-          <td>user01@qualisoft.co.kr</td>
-          <td><strong>3행 전부</strong> 보임 (현재와 동일)</td>
-        </tr>
-        <tr>
-          <td><code>rls01</code> <small>(RLS 데모 계정)</small></td>
-          <td>RLS_사번</td>
-          <td><strong>1001</strong> ← 사번을 넣음</td>
-          <td><strong>1001 김철수 행만</strong> 보임, 차트도 500만 집계</td>
-        </tr>
+        <tr><td><code>users.pbi_username</code></td><td>GenerateToken identity의 username — <code>USERNAME()</code>이 돌려받는 값. 실제 이메일 권장</td></tr>
+        <tr><td><code>users.department</code> / <code>data_scope</code></td><td>self(본인만)/department(부서전체)/all(전사)</td></tr>
+        <tr><td><code>users.company_code</code> / <code>company_scope</code></td><td>회사 계층 RLS용(다중 고객사 확장) — own(자기 회사만)/group(산하 전체)</td></tr>
       </tbody>
     </table>
-
-    <h3>동작 원리 — 양쪽이 한 쌍으로 맞아야 한다</h3>
-    <div class="code-block">
-[사내 서버]  rls01 로그인
-    │  GenerateToken 호출: { username: "1001", roles: ["RLS_사번"] }
-    ▼
-[Fabric]     데이터셋에서 "RLS_사번" 역할을 찾음
-    │  역할의 DAX 필터:  [사번] = USERNAME()
-    │  → USERNAME() 자리에 서버가 보낸 "1001"이 들어감
-    ▼
-[결과]       사번이 1001인 행만 브라우저로 전달
-    </div>
-    <div class="info-box">
-      핵심: <code>pbi_username</code>은 <strong>실제 이메일일 필요가 없다.</strong>
-      DAX의 <code>USERNAME()</code>이 돌려받는 <strong>그냥 문자열</strong>이므로,
-      Fabric 필터가 <code>[사번] = USERNAME()</code>이면 사번을, <code>[이메일] = USERNAME()</code>이면 이메일을 넣으면 된다.
-      <strong>"Fabric의 DAX 필터가 무엇과 비교하는가"에 맞춰 DB 값을 넣는 것이 전부다.</strong>
-    </div>
 
     <h3>자주 보는 오류 — "Failed to open the MSOLAP connection"</h3>
     <div class="warn-box">
-      DB에는 <code>roles = 'RLS_사번'</code>으로 넣었는데 <strong>Fabric 데이터셋에 그 이름의 역할이 아직 없으면</strong>
-      Fabric이 모델 연결 자체를 거부하면서 이 오류가 난다.<br><br>
-      • 서버는 "RLS_사번 역할로 봐주세요"라고 <strong>요청만</strong> 하는 입장<br>
-      • 역할의 실체(DAX 필터)는 Power BI Desktop에서 만들어 <strong>게시해야</strong> Fabric에 생긴다<br>
-      • 같은 보고서를 <code>도메인</code> 역할 계정(user01 등)으로 열면 정상 → 역할 부재가 원인이라는 증거
-    </div>
-
-    <h3>RLS 데모 적용 순서 (생산현황 1개로 시연)</h3>
-    <table class="info-table">
-      <thead><tr><th>순서</th><th>어디서</th><th>할 일</th><th>상태</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>1</td>
-          <td>PostgreSQL</td>
-          <td>데모 계정 추가: <code>rls01</code> / roles=<code>RLS_사번</code> / pbi_username=<code>1001</code> + 생산현황 권한</td>
-          <td><span class="badge badge-ok">완료</span></td>
-        </tr>
-        <tr>
-          <td>2</td>
-          <td>Power BI Desktop</td>
-          <td>생산현황 .pbix 열기 → 모델링 → 역할 관리 → <code>RLS_사번</code> 역할 생성 → 필터 <code>[사번] = USERNAME()</code></td>
-          <td><span class="badge badge-warn">필요</span></td>
-        </tr>
-        <tr>
-          <td>3</td>
-          <td>Power BI Desktop</td>
-          <td>저장한 .pbix를 <code>scripts/pbxifile/</code>에 넣고 <code>python3 scripts/publish_pbix.py</code>로 게시 (보고서 게시 섹션 참고).
-              같은 이름이 있으면 업로드를 중단하여 기존 항목을 보호</td>
-          <td><span class="badge badge-warn">필요</span></td>
-        </tr>
-        <tr>
-          <td>4</td>
-          <td>게이트웨이</td>
-          <td><code>rls01</code> / <code>rls01pw</code> 로그인 → 생산현황 열기 → 사번 1001 행만 보이면 성공</td>
-          <td><span class="badge badge-warn">확인</span></td>
-        </tr>
-      </tbody>
-    </table>
-    <div class="info-box" style="margin-top:10px;">
-      데모 성공 후 실제 적용은 직원마다 SQL 한 줄:
-      <code>UPDATE users SET roles='RLS_사번', pbi_username='사번' WHERE username='...';</code><br>
-      단, <code>도메인</code> 역할(필터 없음)도 Fabric에 함께 남겨둬야 아직 전환 안 한 계정들이 계속 전체 데이터를 볼 수 있다.
+      PBIX에 <code>config.PBI_RLS_ROLE_NAME</code>과 이름이 다른 역할만 있거나 역할 자체가 없으면 이 오류가 난다.
+      토큰 발급 자체는 성공하므로(서버 로그에 에러 안 남음) <strong>실제 화면 렌더링까지 확인해야</strong> RLS가 맞게 걸렸는지 알 수 있다.
     </div>
   </div>
 
@@ -1308,9 +1157,9 @@ SECRET_KEY    = os.getenv(<span class="st">"SECRET_KEY"</span>)
 <span class="cm">-- 1. 비밀번호 해시 생성 (터미널에서)</span>
 <span class="cmd">python3 -c "import bcrypt; print(bcrypt.hashpw(b'새비밀번호', bcrypt.gensalt()).decode())"</span>
 
-<span class="cm">-- 2. 사용자 추가 (psql)</span>
-INSERT INTO users (username, password, display_name, pbi_username, roles)
-VALUES (<span class="st">'hong'</span>, <span class="st">'$2b$12$해시값...'</span>, <span class="st">'홍길동'</span>, <span class="st">'hong@qualisoft.co.kr'</span>, <span class="st">'도메인'</span>);
+<span class="cm">-- 2. 사용자 추가 (psql) — roles 컬럼 없음(2026-08 제거), RLS 역할명은 전 직원 공통(config.PBI_RLS_ROLE_NAME)</span>
+INSERT INTO users (username, password, display_name, pbi_username)
+VALUES (<span class="st">'hong'</span>, <span class="st">'$2b$12$해시값...'</span>, <span class="st">'홍길동'</span>, <span class="st">'hong@qualisoft.co.kr'</span>);
 
 <span class="cm">-- 3. 보고서 권한 부여</span>
 INSERT INTO user_reports (user_id, report_id)
@@ -1372,7 +1221,7 @@ ORDER BY u.username, r.id;
         <tr><td>보고서 로드 실패</td><td>Azure 토큰 오류</td><td><code>tail -f logs/server.log</code>에서 에러 확인</td></tr>
         <tr><td>500 에러</td><td>Power BI API 오류</td><td>WORKSPACE_ID / REPORT_ID 값 확인 (.env)</td></tr>
         <tr><td>토큰 발급 실패</td><td>CLIENT_SECRET 만료</td><td>Azure Portal에서 새 Secret 발급 → .env 업데이트 → 재시작</td></tr>
-        <tr><td>보고서 빈 화면</td><td>RLS 역할 오류</td><td>users.roles 값이 Fabric 역할명과 일치하는지 확인</td></tr>
+        <tr><td>보고서 빈 화면</td><td>RLS 역할 오류</td><td>PBIX 역할 이름이 config.PBI_RLS_ROLE_NAME과 일치하는지 확인</td></tr>
         <tr><td>워크스페이스 401</td><td>서비스 주체 권한 해제</td><td>BI_Report 워크스페이스에 PowerBI-Gateway 서비스 사용자 재추가</td></tr>
       </tbody>
     </table>
@@ -1430,11 +1279,10 @@ ORDER BY u.username, r.id;
           <td><span class="badge badge-warn">예정</span></td>
         </tr>
         <tr>
-          <td><strong>진짜 RLS 전환</strong></td>
-          <td>Fabric 데이터셋에 RLS 역할(DAX 필터 <code>[사번] = USERNAME()</code> 등) 설정 후,
-              DB의 <code>pbi_username</code>을 실제 값(사번/이메일)으로, <code>roles</code>를 해당 역할명으로 변경.
-              데모 계정 <code>rls01</code>로 절차 검증 가능 (RLS 섹션 참고).</td>
-          <td><span class="badge badge-warn">Fabric 작업 필요</span></td>
+          <td><strong>보고서별 RLS 적용</strong></td>
+          <td>Power BI Desktop에서 해당 PBIX에 <code>config.PBI_RLS_ROLE_NAME</code> 역할 + DAX 필터 설정 후 게시.
+              절차·템플릿은 <code>docs/01_RLS_적용가이드.md</code> 참고.</td>
+          <td><span class="badge badge-warn">Desktop 작업 필요</span></td>
         </tr>
         <tr>
           <td><strong>게시 자동화 재검토</strong></td>
