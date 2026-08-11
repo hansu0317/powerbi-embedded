@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
+  Bell,
   BarChart3,
   Download,
   History,
@@ -31,6 +32,7 @@ import {
   SyncStatus,
   UserReportRow,
   adminGetUserReports,
+  adminGetCompanies, adminSaveCompany, adminDeleteCompany, CompanyCode,
   adminAddUser,
   adminEditUser,
   adminBulkAddUsers,
@@ -60,9 +62,10 @@ import {
 } from "../api";
 import { Pager, usePaged, useFitRows } from "../Pager";
 import { Rail, ContextBar } from "../AppShell";
+import { categoryColor, withAlpha } from "../categoryColor";
 
 type SectionKey =
-  | "overview" | "users" | "groups" | "reports" | "logs" | "config";
+  | "overview" | "users" | "groups" | "companies" | "reports" | "logs";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
 
 const SECTIONS: {
@@ -73,9 +76,9 @@ const SECTIONS: {
   { key: "overview", Icon: LayoutDashboard, label: "현황" },
   { key: "users", Icon: UsersIcon, label: "사용자" },
   { key: "groups", Icon: Layers, label: "그룹" },
+  { key: "companies", Icon: Layers, label: "회사 계층" },
   { key: "reports", Icon: BarChart3, label: "보고서" },
   { key: "logs", Icon: History, label: "로그" },
-  { key: "config", Icon: SettingsIcon, label: "설정" },
 ];
 
 function JobStatus({ status }: { status: string }) {
@@ -83,6 +86,14 @@ function JobStatus({ status }: { status: string }) {
   if (["publishing", "accepted", "pbi_succeeded"].includes(status))
     return <span className="pill pending">진행 중</span>;
   return <span className="pill fail">{status}</span>;
+}
+
+function CompaniesSection({csrf,showToast}:{csrf:string;showToast:(m:string,t?:"ok"|"err"|"")=>void}) {
+  const [rows,setRows]=useState<CompanyCode[]>([]); const [code,setCode]=useState(""); const [name,setName]=useState(""); const [parent,setParent]=useState("");
+  const load=useCallback(()=>adminGetCompanies().then(setRows).catch(e=>showToast((e as Error).message,"err")),[showToast]);
+  useEffect(()=>{load()},[load]);
+  const save=async()=>{try{await adminSaveCompany({code,name,parent_code:parent||null},csrf);setCode("");setName("");setParent("");load();showToast("회사 계층을 저장했습니다.","ok")}catch(e){showToast((e as Error).message,"err")}};
+  return <section><div className="ad-section-head"><h2 style={{marginBottom:0}}>회사 계층 관리</h2></div><div className="ad-form-grid" style={{marginBottom:16}}><Field label="회사 코드"><input value={code} onChange={e=>setCode(e.target.value)} placeholder="SECO"/></Field><Field label="회사명"><input value={name} onChange={e=>setName(e.target.value)} placeholder="회사 이름"/></Field><Field label="상위 회사"><select value={parent} onChange={e=>setParent(e.target.value)}><option value="">최상위</option>{rows.filter(r=>r.code!==code).map(r=><option key={r.code} value={r.code}>{r.code} — {r.name}</option>)}</select></Field><div className="ad-field"><label>&nbsp;</label><button className="btn btn-primary" onClick={save} disabled={!code||!name}>저장</button></div></div><div className="card-table"><table><thead><tr><th>코드</th><th>회사명</th><th>상위 회사</th><th>액션</th></tr></thead><tbody>{rows.map(r=><tr key={r.code}><td>{r.code}</td><td>{r.name}</td><td>{r.parent_code||"최상위"}</td><td><button className="btn btn-warn btn-sm" onClick={async()=>{if(confirm("삭제할까요?")){await adminDeleteCompany(r.code,csrf);load()}}}>삭제</button></td></tr>)}</tbody></table></div></section>;
 }
 
 export default function AdminPage({ data }: { data: AdminData }) {
@@ -96,6 +107,8 @@ export default function AdminPage({ data }: { data: AdminData }) {
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [syncDismissed, setSyncDismissed] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const showToast = useCallback((msg: string, tone: "ok" | "err" | "" = "") => {
     setToast({ msg, tone });
@@ -145,7 +158,14 @@ export default function AdminPage({ data }: { data: AdminData }) {
           </span>
         }
         items={[
-          { key: "home", icon: <HomeIcon size={19} />, label: "보고서 뷰어", href: "/" },
+          { key: "home", icon: <HomeIcon size={19} />, label: "홈", onClick: () => {
+            sessionStorage.setItem("rp-mode", "home");
+            window.location.href = "/";
+          } },
+          { key: "reports", icon: <BarChart3 size={19} />, label: "보고서", onClick: () => {
+            sessionStorage.setItem("rp-mode", "reports");
+            window.location.href = "/";
+          } },
           { key: "admin", icon: <SettingsIcon size={19} />, label: "관리자 포털", active: true },
         ]}
         footer={
@@ -171,7 +191,16 @@ export default function AdminPage({ data }: { data: AdminData }) {
               {SECTIONS.find((s) => s.key === section)?.label}
             </>
           }
-          right={<span className="as-ctxbar-user">{user.display_name}</span>}
+          right={<>
+            <button type="button" className="ad-icon-trigger" aria-label="알림" onClick={() => setNotificationsOpen(true)}>
+              <Bell size={17} />
+              {sync?.drift && <span className="ad-notice-dot" />}
+            </button>
+            <button type="button" className="ad-settings-trigger" onClick={() => setSettingsOpen(true)}>
+              <SettingsIcon size={16} /> 설정
+            </button>
+            <span className="as-ctxbar-user">{user.display_name}</span>
+          </>}
         />
         {/* 세로 사이드바(관리 메뉴 6개) 대신 가로 세그먼트 — 표가 쓸 가로폭이 넓어진다 */}
         <div className="ad-segtabs">
@@ -223,7 +252,7 @@ export default function AdminPage({ data }: { data: AdminData }) {
           )}
           <div className="ad-content">
             {section === "overview" && (
-              <OverviewSection stats={stats} jobs={data.jobs} />
+              <OverviewSection stats={stats} jobs={data.jobs} onGoSection={setSection} />
             )}
             {section === "users" && (
               <UsersSection
@@ -285,12 +314,26 @@ export default function AdminPage({ data }: { data: AdminData }) {
             {section === "groups" && (
               <GroupsSection csrf={csrf_token} showToast={showToast} />
             )}
-            {section === "config" && (
-              <ConfigSection csrf={csrf_token} showToast={showToast} />
-            )}
+            {section === "companies" && <CompaniesSection csrf={csrf_token} showToast={showToast} />}
           </div>
         </main>
       </div>
+
+      {settingsOpen && <div className="ad-settings-overlay" onClick={() => setSettingsOpen(false)}>
+        <aside className="ad-settings-panel" onClick={e => e.stopPropagation()}>
+          <div className="ad-settings-head"><h2>설정</h2><button onClick={() => setSettingsOpen(false)}><X size={18}/></button></div>
+          <ConfigSection csrf={csrf_token} showToast={showToast} />
+        </aside>
+      </div>}
+      {notificationsOpen && <div className="ad-settings-overlay" onClick={() => setNotificationsOpen(false)}>
+        <aside className="ad-settings-panel ad-notifications-panel" onClick={e => e.stopPropagation()}>
+          <div className="ad-settings-head"><h2>알림</h2><button onClick={() => setNotificationsOpen(false)}><X size={18}/></button></div>
+          {sync?.drift ? <div className="ad-notification-item">
+            <AlertTriangle size={18} className="ad-notification-warn" />
+            <div><strong>Power BI 동기화가 필요합니다</strong><p>새 보고서나 폴더 변경 사항이 있습니다. 보고서 메뉴에서 가져오기를 실행하세요.</p><button className="btn btn-sm btn-primary" onClick={() => { setNotificationsOpen(false); setSection("reports"); }}>보고서 확인</button></div>
+          </div> : <div className="ad-notifications-empty"><Bell size={24}/><p>새 알림이 없습니다.</p></div>}
+        </aside>
+      </div>}
 
       {showAddUser && (
         <AddUserModal
@@ -324,9 +367,11 @@ export default function AdminPage({ data }: { data: AdminData }) {
 function OverviewSection({
   stats,
   jobs,
+  onGoSection,
 }: {
   stats: AdminData["stats"];
   jobs: AdminJob[];
+  onGoSection: (s: "users" | "reports") => void;
 }) {
   const [fit, tableRef] = useFitRows(40, 38);
   // 자가진단 — 페이지 로드 후 비동기 (실패해도 기존 현황은 그대로)
@@ -338,8 +383,18 @@ function OverviewSection({
     <section>
       <h2>현황</h2>
       <div className="ad-stat-grid">
-        <StatCard label="활성 사용자" value={stats.active_users} sub="계정 비활성 제외" />
-        <StatCard label="활성 보고서" value={stats.active_reports} sub="삭제·아카이브 제외" />
+        <StatCard
+          label="활성 사용자"
+          value={stats.active_users}
+          sub="계정 비활성 제외 · 클릭하면 사용자 탭으로"
+          onClick={() => onGoSection("users")}
+        />
+        <StatCard
+          label="활성 보고서"
+          value={stats.active_reports}
+          sub="삭제·아카이브 제외 · 클릭하면 전체 보고서로"
+          onClick={() => onGoSection("reports")}
+        />
         <StatCard
           label="오늘 업로드"
           value={stats.today_uploads}
@@ -407,13 +462,20 @@ function StatCard({
   label,
   value,
   sub,
+  onClick,
 }: {
   label: string;
   value: number;
   sub: string;
+  onClick?: () => void;
 }) {
   return (
-    <div className="ad-stat-card">
+    <div
+      className={`ad-stat-card${onClick ? " clickable" : ""}`}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+    >
       <div className="ad-stat-label">{label}</div>
       <div className="ad-stat-value">{value}</div>
       <div className="ad-stat-sub">{sub}</div>
@@ -438,7 +500,7 @@ function UsersSection({
   onToggleUpload: (id: number) => void;
   onEdited: (user: AdminUser) => void;
 }) {
-  const [pageSize, tableRef] = useFitRows(40, 38);
+  const [pageSize, tableRef] = useFitRows(42, 38);
   const { pageItems, page, totalPages, total, setPage } = usePaged(users, pageSize);
   const [reportsUser, setReportsUser] = useState<AdminUser | null>(null);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
@@ -472,7 +534,6 @@ function UsersSection({
             <col style={{ width: "5%" }} />
             <col style={{ width: "12%" }} />
             <col style={{ width: "10%" }} />
-            <col style={{ width: "22%" }} />
             <col style={{ width: "6%" }} />
             <col style={{ width: "8%" }} />
             <col style={{ width: "13%" }} />
@@ -484,7 +545,6 @@ function UsersSection({
               <th>ID</th>
               <th>아이디</th>
               <th>표시 이름</th>
-              <th>PBI 사용자명</th>
               <th>보고서</th>
               <th title="클릭하면 업로드 허용/차단이 바뀝니다">업로드</th>
               <th>마지막 로그인</th>
@@ -505,7 +565,6 @@ function UsersSection({
                   )}
                 </td>
                 <td title={u.display_name}>{u.display_name}</td>
-                <td title={u.pbi_username}>{u.pbi_username}</td>
                 <td>
                   {u.is_admin ? (
                     <span title="관리자는 권한과 무관하게 전체 열람">전체</span>
@@ -636,6 +695,10 @@ function AddUserModal({
   const [busy, setBusy] = useState(false);
   const [groups, setGroups] = useState<AdminGroup[] | null>(null);
   const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
+  const [department, setDepartment] = useState("");
+  const [dataScope, setDataScope] = useState("self");
+  const [companyCode, setCompanyCode] = useState("");
+  const [companyScope, setCompanyScope] = useState("own");
 
   useEffect(() => {
     adminGetGroups().then(setGroups).catch(() => setGroups([]));
@@ -653,6 +716,8 @@ function AddUserModal({
     try {
       const fd = new FormData(e.currentTarget);
       fd.set("group_ids", selectedGroups.join(","));
+      fd.set("department", department); fd.set("data_scope", dataScope);
+      fd.set("company_code", companyCode); fd.set("company_scope", companyScope);
       await adminAddUser(fd);
       onAdded();
     } catch (err) {
@@ -675,9 +740,6 @@ function AddUserModal({
               </Field>
               <Field label="표시 이름 *">
                 <input name="display_name" required placeholder="홍길동" />
-              </Field>
-              <Field label="PBI 사용자명 (RLS 식별자)">
-                <input name="pbi_username" placeholder="아이디와 동일하면 공란" />
               </Field>
               <Field label="관리자 권한">
                 <select name="is_admin" defaultValue="false">
@@ -721,6 +783,10 @@ function AddUserModal({
                 </div>
               )}
             </Field>
+            <Field label="부서 (RLS)"><input value={department} onChange={e=>setDepartment(e.target.value)} /></Field>
+            <Field label="데이터 범위 (RLS)"><select value={dataScope} onChange={e=>setDataScope(e.target.value)}><option value="self">본인</option><option value="department">부서</option><option value="all">전체</option></select></Field>
+            <Field label="회사 코드 (RLS)"><input value={companyCode} onChange={e=>setCompanyCode(e.target.value)} /></Field>
+            <Field label="회사 범위 (RLS)"><select value={companyScope} onChange={e=>setCompanyScope(e.target.value)}><option value="own">회사만</option><option value="group">산하 전체</option></select></Field>
           </div>
           <div className="ad-modal-footer">
             <button type="button" className="btn btn-ghost" onClick={onClose}>
@@ -750,7 +816,10 @@ function EditUserModal({
 }) {
   const [busy, setBusy] = useState(false);
   const [displayName, setDisplayName] = useState(user.display_name);
-  const [pbiUsername, setPbiUsername] = useState(user.pbi_username);
+  const [department, setDepartment] = useState(user.department || "");
+  const [dataScope, setDataScope] = useState(user.data_scope || "self");
+  const [companyCode, setCompanyCode] = useState(user.company_code || "");
+  const [companyScope, setCompanyScope] = useState(user.company_scope || "own");
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -758,13 +827,13 @@ function EditUserModal({
     try {
       await adminEditUser(
         user.id,
-        { display_name: displayName, pbi_username: pbiUsername },
+        { display_name: displayName, pbi_username: user.pbi_username, department, data_scope: dataScope, company_code: companyCode, company_scope: companyScope },
         csrf,
       );
       onSaved({
         ...user,
         display_name: displayName,
-        pbi_username: pbiUsername,
+        department, data_scope: dataScope, company_code: companyCode, company_scope: companyScope,
       });
     } catch (err) {
       onError((err as Error).message);
@@ -785,9 +854,10 @@ function EditUserModal({
                 autoFocus
               />
             </Field>
-            <Field label="PBI 사용자명 (RLS 식별자) *">
-              <input value={pbiUsername} onChange={(e) => setPbiUsername(e.target.value)} required />
-            </Field>
+            <Field label="부서 (RLS)"><input value={department} onChange={e=>setDepartment(e.target.value)} /></Field>
+            <Field label="데이터 범위 (RLS)"><select value={dataScope} onChange={e=>setDataScope(e.target.value as any)}><option value="self">본인</option><option value="department">부서</option><option value="all">전체</option></select></Field>
+            <Field label="회사 코드 (RLS)"><input value={companyCode} onChange={e=>setCompanyCode(e.target.value)} /></Field>
+            <Field label="회사 범위 (RLS)"><select value={companyScope} onChange={e=>setCompanyScope(e.target.value as any)}><option value="own">회사만</option><option value="group">산하 전체</option></select></Field>
           </div>
         </div>
         <div className="ad-modal-footer">
@@ -846,14 +916,13 @@ function BulkAddUsersModal({
               <div className="ad-bulk-body">
                 <div className="ad-bulk-title">템플릿을 받아 작성합니다</div>
                 <div className="ad-bulk-code">
-                  username,password,display_name,pbi_username,groups,is_admin,can_upload
+                  username,password,display_name,groups,is_admin,can_upload
                 </div>
                 <table className="ad-bulk-cols">
                   <tbody>
                     <tr><th>username</th><td className="req">필수</td><td>로그인 아이디</td></tr>
                     <tr><th>password</th><td className="req">필수</td><td>초기 비밀번호 (8자 이상)</td></tr>
                     <tr><th>display_name</th><td className="req">필수</td><td>화면에 표시할 이름</td></tr>
-                    <tr><th>pbi_username</th><td>선택</td><td>RLS 식별자 — 비우면 아이디를 사용</td></tr>
                     <tr><th>groups</th><td>선택</td><td>소속 그룹 — <b>미리 만들어져 있어야</b> 하며, 그 그룹의 보고서 열람 권한을 그대로 상속</td></tr>
                     <tr><th>is_admin</th><td>선택</td><td>관리자 여부 — 비우면 <code>false</code></td></tr>
                     <tr><th>can_upload</th><td>선택</td><td>업로드 허용 — 비우면 <code>true</code></td></tr>
@@ -864,8 +933,8 @@ function BulkAddUsersModal({
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
                     const csv =
-                      "username,password,display_name,pbi_username,groups,is_admin,can_upload\n" +
-                      "user01,TempPass123!,홍길동,,영업팀,false,true\n";
+                      "username,password,display_name,groups,is_admin,can_upload\n" +
+                      "user01,TempPass123!,홍길동,영업팀,false,true\n";
                     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
@@ -978,8 +1047,10 @@ function ReportsSection({
 }) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState("");
-  const [pageSize, tableRef] = useFitRows(40, 38);
+  const [pageSize, tableRef] = useFitRows(44, 40);
   const { pageItems, page, totalPages, total, setPage } = usePaged(reports, pageSize);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const detail = reports.find((r) => r.id === selectedId) || pageItems[0] || null;
 
   const doImport = async () => {
     setImporting(true);
@@ -1035,89 +1106,134 @@ function ReportsSection({
           </button>
         </div>
       </div>
-      <div className="card-table" ref={tableRef}>
-        <table>
-          <colgroup>
-            <col style={{ width: "5%" }} />
-            <col style={{ width: "30%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "16%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "19%" }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>보고서명</th>
-              <th>구분</th>
-              <th>카테고리</th>
-              <th title="열람권한이 명시적으로 부여된 사용자 수 (관리자 우회 접근은 제외)">
-                열람권한
-              </th>
-              <th>상태</th>
-              <th>액션</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pageItems.map((r) => (
-              <tr key={r.id}>
-                <td>{r.id}</td>
-                <td title={r.description || r.name}>
-                  {r.name}
-                  {r.description && (
-                    <span className="ad-access-id" style={{ display: "block" }}>
-                      {r.description.length > 40
-                        ? r.description.slice(0, 40) + "…"
-                        : r.description}
-                    </span>
-                  )}
-                </td>
-                <td>
-                  {r.report_type === "managed" ? (
-                    <span className="pill active">공용</span>
-                  ) : (
-                    <span className="pill pending">개인 · {r.owner_username || "-"}</span>
-                  )}
-                </td>
-                <td>{r.category || "-"}</td>
-                <td>
-                  {r.viewer_count === 0 && r.group_count === 0 ? (
-                    <span className="muted">없음</span>
-                  ) : (
-                    <>
-                      {r.viewer_count > 0 && <span>개인 {r.viewer_count}명</span>}
-                      {r.viewer_count > 0 && r.group_count > 0 && <span className="ad-access-id"> · </span>}
-                      {r.group_count > 0 && <span className="ad-access-id">그룹 {r.group_count}개</span>}
-                    </>
-                  )}
-                </td>
-                <td>
-                  {r.status === "active" ? (
-                    <span className="pill active">활성</span>
-                  ) : r.status === "deleted" ? (
-                    <span className="pill inactive">삭제됨</span>
-                  ) : (
-                    <span className="pill pending">{r.status}</span>
-                  )}
-                </td>
-                <td className="ad-actions-cell">
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => onManageAccess(r)}
-                  >
-                    권한
-                  </button>
-                  {r.status !== "deleted" && (
-                    <button className="btn btn-danger btn-sm" onClick={() => doDelete(r)}>
-                      삭제
-                    </button>
-                  )}
-                </td>
+      <div className="home-main">
+        <div className="home-tablewrap card-table" ref={tableRef}>
+          <table>
+            <colgroup>
+              <col style={{ width: "5%" }} />
+              <col style={{ width: "30%" }} />
+              <col style={{ width: "13%" }} />
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "20%" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>보고서명</th>
+                <th>구분</th>
+                <th>카테고리</th>
+                <th>접근</th>
+                <th>액션</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {pageItems.map((r) => (
+                <tr
+                  key={r.id}
+                  className={`home-table-row${detail?.id === r.id ? " sel" : ""}`}
+                  onClick={() => setSelectedId(r.id)}
+                >
+                  <td>{r.id}</td>
+                  <td title={r.name}>
+                    <div className="home-table-name">
+                      <span className="home-mini-ic" style={{ background: categoryColor(r.category) }}>
+                        <BarChart3 size={12} />
+                      </span>
+                      {r.name}
+                      {r.status === "deleted" && (
+                        <span className="pill inactive" style={{ marginLeft: 6 }}>삭제됨</span>
+                      )}
+                      {r.status !== "active" && r.status !== "deleted" && (
+                        <span className="pill pending" style={{ marginLeft: 6 }}>{r.status}</span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    {r.report_type === "managed" ? (
+                      <span className="pill active">공용</span>
+                    ) : (
+                      <span className="pill pending">개인 · {r.owner_username || "-"}</span>
+                    )}
+                  </td>
+                  <td>
+                    <span
+                      className="home-cat-pill"
+                      style={{ background: withAlpha(categoryColor(r.category), "22"), color: categoryColor(r.category) }}
+                    >
+                      {r.category || "미분류"}
+                    </span>
+                  </td>
+                  <td>
+                    {r.viewer_count === 0 && r.group_count === 0 ? (
+                      <span className="pill inactive">비공개</span>
+                    ) : (
+                      <span className="pill active">
+                        공개
+                        {r.viewer_count > 0 && ` · ${r.viewer_count}명`}
+                        {r.group_count > 0 && ` · ${r.group_count}그룹`}
+                      </span>
+                    )}
+                  </td>
+                  <td className="ad-actions-cell">
+                    <span
+                      className="ad-aicon"
+                      style={{ background: "#3452E8" }}
+                      title="권한 관리"
+                      onClick={(e) => { e.stopPropagation(); onManageAccess(r); }}
+                    >
+                      <UsersIcon size={12} />
+                    </span>
+                    {r.status !== "deleted" && (
+                      <span
+                        className="ad-aicon"
+                        style={{ background: "#E25C4E" }}
+                        title="삭제"
+                        onClick={(e) => { e.stopPropagation(); doDelete(r); }}
+                      >
+                        <X size={13} />
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {detail && (
+          <div className="home-detail">
+            <span className="home-detail-icon" style={{ background: categoryColor(detail.category) }}>
+              <BarChart3 size={20} />
+            </span>
+            <div className="home-detail-name">{detail.name}</div>
+            <div className="home-detail-cat">
+              {detail.category || "미분류"} ·{" "}
+              {detail.report_type === "managed" ? "공용" : `개인 · ${detail.owner_username || "-"}`}
+            </div>
+            {detail.description && <div className="home-detail-desc">{detail.description}</div>}
+            <div className="crm-detail-label">사용 현황</div>
+            <div className="crm-detail-row">
+              열람 인원<b>{detail.viewer_count}명</b>
+            </div>
+            <div className="crm-detail-row">
+              권한 그룹<b>{detail.group_count}개</b>
+            </div>
+            <div className="crm-detail-row">
+              등록일<b>{detail.created_at ? detail.created_at.slice(0, 10) : "-"}</b>
+            </div>
+            <div className="home-detail-actions">
+              <button className="btn btn-ghost" onClick={() => onManageAccess(detail)}>
+                권한 편집
+              </button>
+              {detail.status !== "deleted" && (
+                <button className="btn btn-danger" onClick={() => doDelete(detail)}>
+                  삭제
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
       <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
     </section>
@@ -1133,35 +1249,13 @@ function ConfigSection({
 }) {
   const [rows, setRows] = useState<AppConfigRow[] | null>(null);
   const [edited, setEdited] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     adminGetConfig()
       .then(setRows)
       .catch(() => showToast("설정 조회 실패", "err"));
   }, [showToast]);
-
-  const save = async (key: string) => {
-    const value = (edited[key] ?? "").trim();
-    if (!value) return;
-    setSaving(key);
-    try {
-      await adminSetConfig(key, value, csrf);
-      setRows((prev) =>
-        prev ? prev.map((r) => (r.key === key ? { ...r, value } : r)) : prev,
-      );
-      setEdited((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      showToast(`'${key}' 저장됨 — 재시작 없이 즉시 적용됩니다.`, "ok");
-    } catch (e) {
-      showToast("오류: " + (e as Error).message, "err");
-    } finally {
-      setSaving(null);
-    }
-  };
 
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -1186,14 +1280,38 @@ function ConfigSection({
     "embed_token_lifetime_min",
   ];
   const byKey = new Map((rows ?? []).map((r) => [r.key, r]));
+  const dirtyKeys = Object.keys(edited).filter((key) => {
+    const row = byKey.get(key);
+    return row && edited[key].trim() && edited[key] !== row.value;
+  });
+  const saveAll = async () => {
+    if (!dirtyKeys.length) return;
+    setSaving(true);
+    const saved: Record<string, string> = {};
+    try {
+      for (const key of dirtyKeys) {
+        const value = edited[key].trim();
+        await adminSetConfig(key, value, csrf);
+        saved[key] = value;
+      }
+      setRows((prev) => prev?.map((r) => saved[r.key] !== undefined ? { ...r, value: saved[r.key] } : r) ?? prev);
+      setEdited((prev) => {
+        const next = { ...prev };
+        Object.keys(saved).forEach((key) => delete next[key]);
+        return next;
+      });
+      showToast(`${dirtyKeys.length}개 설정을 저장했습니다.`, "ok");
+    } catch (e) {
+      showToast("오류: " + (e as Error).message, "err");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <section>
       <div className="ad-section-head">
         <h2 style={{ marginBottom: 0 }}>런타임 설정</h2>
-        <span className="cfg-live-badge" title="저장 시 서버가 config를 다시 읽어 메모리 값을 즉시 갱신합니다">
-          ● 저장 즉시 적용 — 재시작 불필요
-        </span>
       </div>
       {!rows && <div className="ad-modal-loading">불러오는 중...</div>}
       {rows &&
@@ -1219,15 +1337,8 @@ function ConfigSection({
                         onChange={(e) =>
                           setEdited((prev) => ({ ...prev, [key]: e.target.value }))
                         }
-                        onKeyDown={(e) => e.key === "Enter" && dirty && save(key)}
+                        onKeyDown={(e) => e.key === "Enter" && dirty && saveAll()}
                       />
-                      <button
-                        className="btn btn-sm btn-primary"
-                        disabled={saving === key || !dirty}
-                        onClick={() => save(key)}
-                      >
-                        {saving === key ? "저장 중..." : "저장"}
-                      </button>
                     </div>
                   </div>
                 );
@@ -1242,7 +1353,7 @@ function ConfigSection({
             className="cfg-advanced-toggle"
             onClick={() => setShowAdvanced((v) => !v)}
           >
-            {showAdvanced ? "▾" : "▸"} 고급 설정 ({advancedKeys.length}) — 구현 세부값, 평소엔 안 건드려도 됩니다
+            {showAdvanced ? "▾" : "▸"} 고급 설정 ({advancedKeys.length})
           </button>
           {showAdvanced && (
             <div className="cfg-grid">
@@ -1261,15 +1372,8 @@ function ConfigSection({
                         onChange={(e) =>
                           setEdited((prev) => ({ ...prev, [key]: e.target.value }))
                         }
-                        onKeyDown={(e) => e.key === "Enter" && dirty && save(key)}
+                        onKeyDown={(e) => e.key === "Enter" && dirty && saveAll()}
                       />
-                      <button
-                        className="btn btn-sm btn-primary"
-                        disabled={saving === key || !dirty}
-                        onClick={() => save(key)}
-                      >
-                        {saving === key ? "저장 중..." : "저장"}
-                      </button>
                     </div>
                   </div>
                 );
@@ -1278,6 +1382,12 @@ function ConfigSection({
           )}
         </div>
       )}
+      <div className="cfg-savebar">
+        <span>{dirtyKeys.length ? `${dirtyKeys.length}개 변경됨` : "변경 사항 없음"}</span>
+        <button className="btn btn-primary" disabled={saving || !dirtyKeys.length} onClick={saveAll}>
+          {saving ? "저장 중..." : "변경사항 저장"}
+        </button>
+      </div>
     </section>
   );
 }

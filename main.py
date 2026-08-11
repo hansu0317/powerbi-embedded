@@ -29,55 +29,58 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from fastapi import FastAPI, HTTPException
-from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
-from fastapi.requests import Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from starlette.middleware.sessions import SessionMiddleware
-from contextlib import asynccontextmanager
-
-import config
-from config import SECRET_KEY, COOKIE_SECURE
-from database import db_cleanup_login_attempts, db_cleanup_activity_log
-from errors import AppError, extract_code_message
-from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
-from services.backup import backup_loop
-from routes import auth, report, admin
-
 # Windows 콘솔/파일 리다이렉트 기본 인코딩(cp949)에서도 한글이 안 깨지도록 강제.
 # Linux는 이미 UTF-8이라 no-op.
 #
-# utf-8-sig(BOM 포함)를 쓰는 이유 — server.ps1은 로그를 파일로 리다이렉트하는데,
-# 그 파일을 나중에 PowerShell Get-Content 등으로 열어보면 파일 맨 앞에 "이거 UTF-8"
-# 표시(BOM)가 없는 한 시스템 기본 코드페이지(cp949)로 잘못 짐작해 한글이 깨진다
-# (위 SetConsoleOutputCP는 "지금 떠 있는 콘솔 화면"에만 효과가 있고, 나중에 파일을
-# 열어보는 경우엔 적용 안 됨 — 별개 문제). BOM은 스트림 맨 앞에 한 번만 붙는다.
+# utf-8-sig(BOM 포함)를 쓰는 이유 — server.ps1/server.sh는 이 프로세스의 표준출력을
+# 그대로 로그 파일로 리다이렉트하는데, 그 파일을 나중에 PowerShell Get-Content 등으로
+# 열어보면 파일 맨 앞에 "이거 UTF-8" 표시(BOM)가 없는 한 시스템 기본 코드페이지(cp949)로
+# 잘못 짐작해 한글이 깨진다(위 SetConsoleOutputCP는 "지금 떠 있는 콘솔 화면"에만 효과가
+# 있고, 나중에 파일을 열어보는 경우엔 적용 안 됨 — 별개 문제). BOM은 스트림 맨 앞에
+# 한 번만 붙는다.
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8-sig")
     except (AttributeError, ValueError):
         pass
 
-
-class _UpToInfoFilter(logging.Filter):
-    """WARNING 이상은 걸러내 stdout 핸들러에서 제외 — stderr 핸들러가 대신 받는다."""
-    def filter(self, record: logging.LogRecord) -> bool:
-        return record.levelno <= logging.INFO
-
-
+# 로깅은 다른 모든 임포트보다 먼저 구성한다 — 아래에서 임포트하는 모듈(특히 config.py의
+# SECRET_KEY 검증처럼 로드 중 실패할 수 있는 것들)이 죽어도 원인이 로그에 남도록.
+#
+# 표준출력 하나로만 내보낸다 — server.ps1/server.sh가 이 프로세스의 표준출력을
+# logs/server.log 하나로 리다이렉트한다. 레벨별로 server.log(표준출력)/server.err.log
+# (표준에러) 두 파일에 나눠 담던 예전 방식은 폐기했다 — 실제로 두 파일 다 이 로거
+# 하나를 거쳐 나가던 같은 내용이라 나눠 담을 실익이 없었고(파일만 두 개, grep으로
+# 각 파일을 따로 열어봐야 하는 불편함만 있었음), Windows Start-Process는 애초에 두
+# 스트림을 같은 파일로 합치는 것 자체를 금지한다.
 _log_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
-
 _stdout_handler = logging.StreamHandler(sys.stdout)
 _stdout_handler.setFormatter(_log_formatter)
-_stdout_handler.addFilter(_UpToInfoFilter())
-
-_stderr_handler = logging.StreamHandler(sys.stderr)
-_stderr_handler.setLevel(logging.WARNING)
-_stderr_handler.setFormatter(_log_formatter)
-
-logging.basicConfig(level=logging.INFO, handlers=[_stdout_handler, _stderr_handler])
+logging.basicConfig(level=logging.INFO, handlers=[_stdout_handler])
 logger = logging.getLogger("powerbi-gateway")
+
+# 앱 임포트 전체를 감싼다 — 여기서 나는 예외(설정값 누락 등 모듈 로드 중 실패)를
+# 로그에 남기고 재발생시킨다. 위에서 로깅을 먼저 구성해둔 이유가 이것 — 감싸지
+# 않으면 포맷 없는 원본 트레이스백이 콘솔에만 찍히고 로그 파일엔 안 남는다.
+try:
+    from fastapi import FastAPI, HTTPException
+    from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
+    from fastapi.requests import Request
+    from fastapi.responses import HTMLResponse, JSONResponse
+    from fastapi.staticfiles import StaticFiles
+    from starlette.middleware.sessions import SessionMiddleware
+    from contextlib import asynccontextmanager
+
+    import config
+    from config import SECRET_KEY, COOKIE_SECURE
+    from database import db_cleanup_login_attempts, db_cleanup_activity_log
+    from errors import AppError, extract_code_message
+    from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
+    from services.backup import backup_loop
+    from routes import auth, report, admin
+except Exception:
+    logger.exception("STARTUP IMPORT FAILURE")
+    raise
 
 
 def _daily_cleanup():

@@ -33,13 +33,16 @@ def db_admin_get_stats() -> dict:
 
 
 def db_admin_get_users() -> list:
-    """사용자 목록 + 열람 가능 보고서 수 (직접 부여 + 그룹 경유, active만)."""
+    """사용자 목록 + 열람 가능 보고서 수 (직접 부여 + 그룹 경유, active만).
+
+    department/data_scope/company_code/company_scope는 권한(위 report_count)과
+    완전히 별개인 RLS(2층·행 단위) 속성이다 — docs/01_RLS_적용가이드.md 참고."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"""SELECT u.id, u.username, u.display_name, u.pbi_username,
                           u.is_admin, u.is_active, u.can_upload, u.last_login_at, u.created_at,
-                          u.department, u.data_scope,
+                          u.department, u.data_scope, u.company_code, u.company_scope,
                           (SELECT COUNT(*) FROM reports r
                            WHERE r.status = 'active' AND {_CAN_VIEW_REPORT_SQL}
                           ) AS report_count
@@ -78,15 +81,16 @@ def db_get_user_report_list(user_id: int) -> list:
 def db_admin_add_user(username: str, pw_hash: str, display_name: str,
                       pbi_username: str, is_admin: bool,
                       can_upload: bool = True, group_ids: list[int] | None = None,
-                      department: str | None = None, data_scope: str = "self") -> int:
+                      department: str | None = None, data_scope: str = "self",
+                      company_code: str | None = None, company_scope: str = "own") -> int:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (username, password, display_name, pbi_username, is_admin, "
-                "can_upload, department, data_scope) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                "can_upload, department, data_scope, company_code, company_scope) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (username, pw_hash, display_name, pbi_username, is_admin,
-                 can_upload, department, data_scope),
+                 can_upload, department, data_scope, company_code, company_scope),
             )
             row = cur.fetchone()
             user_id = row["id"]
@@ -99,7 +103,9 @@ def db_admin_add_user(username: str, pw_hash: str, display_name: str,
     return user_id
 
 
-def db_admin_update_user(user_id: int, display_name: str, pbi_username: str) -> bool:
+def db_admin_update_user(user_id: int, display_name: str, pbi_username: str,
+                         department: str | None, data_scope: str,
+                         company_code: str | None, company_scope: str) -> bool:
     """사용자 표시정보·RLS 식별자(pbi_username) 수정.
 
     RLS 역할 이름은 더 이상 사용자별 컬럼이 아니라 config.PBI_RLS_ROLE_NAME 고정값이라
@@ -112,13 +118,38 @@ def db_admin_update_user(user_id: int, display_name: str, pbi_username: str) -> 
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """UPDATE users SET display_name = %s, pbi_username = %s, updated_at = NOW()
+                """UPDATE users SET display_name = %s, pbi_username = %s, department = %s,
+                          data_scope = %s, company_code = %s, company_scope = %s, updated_at = NOW()
                    WHERE id = %s AND username != 'admin' RETURNING id""",
-                (display_name, pbi_username, user_id),
+                (display_name, pbi_username, department, data_scope, company_code, company_scope, user_id),
             )
             row = cur.fetchone()
         conn.commit()
     return row is not None
+
+def db_admin_get_company_codes() -> list:
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT code, name, parent_code, created_at FROM company_codes ORDER BY code")
+            return cur.fetchall()
+
+def db_admin_upsert_company(code: str, name: str, parent_code: str | None) -> dict:
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO company_codes(code,name,parent_code) VALUES(%s,%s,%s)
+                         ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name,parent_code=EXCLUDED.parent_code
+                         RETURNING code,name,parent_code,created_at""", (code,name,parent_code))
+            row = cur.fetchone()
+        conn.commit()
+    return row
+
+def db_admin_delete_company(code: str) -> bool:
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM company_codes WHERE code=%s RETURNING code", (code,))
+            ok = cur.fetchone() is not None
+        conn.commit()
+    return ok
 
 
 def db_admin_toggle_user_active(user_id: int):

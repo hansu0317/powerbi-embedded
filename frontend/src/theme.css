@@ -6,12 +6,13 @@
 
 :root {
   /* 연한 코발트블루 + 화이트 + 뉴트럴(검정/그레이) — 깔끔하게 */
-  --sage:        #3452E8;  /* 메인 accent — 버튼·활성 상태 */
-  --sage-light:  #C7D2FB;  /* 연한 accent 틴트 */
-  --sage-bg:     #F4F5F8;  /* 앱 배경 */
-  --sage-hover:  #2745D6;  /* accent 호버(더 진하게) */
-  --sage-deep:   #24399E;  /* 텍스트로 쓰는 진한 accent(가독성용) */
-  --sage-soft:   #EBEEFE;  /* 아주 연한 accent 배경 */
+  /* 테마 팔레트: 아래 6개 값만 바꾸면 홈·보고서·관리자 전체 색상이 바뀐다. */
+  --sage:        #2F746D;
+  --sage-light:  #C9DDD9;
+  --sage-bg:     #F5F7F7;
+  --sage-hover:  #285F5A;
+  --sage-deep:   #245B56;
+  --sage-soft:   #EAF2F1;
 
   --ink:        #14161C;
   --ink-soft:   #5A5E6C;
@@ -23,7 +24,7 @@
   --ok:         #4f9d52;
 
   /* 아이콘 레일(AppShell) — 유일하게 다크로 남긴 부분, 방향감만 주는 얇은 기준선 */
-  --sidebar-bg:   #14161D;
+  --sidebar-bg:   #202725;
   --sidebar-line: rgba(255, 255, 255, 0.08);
 
   --radius:  10px;
@@ -247,7 +248,7 @@ body {
 .app-main {
   flex: 1;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
   background: var(--sage-bg);
   display: flex;
   flex-direction: column;
@@ -259,7 +260,7 @@ body {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  overflow-x: auto; /* 내용이 넓을 때만 가로 스크롤 — 글자는 생략하지 않음 */
+  overflow: hidden;
 }
 .card-table table {
   width: 100%;

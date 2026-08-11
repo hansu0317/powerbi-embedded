@@ -33,6 +33,33 @@
 .ad-segtab:hover { background: rgba(255, 255, 255, 0.65); color: var(--ink); }
 .ad-segtab.on { background: #fff; color: var(--sage-deep); box-shadow: 0 1px 3px rgba(20, 22, 30, 0.08); }
 
+.ad-settings-trigger { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line); background:#fff; color:var(--ink-soft); border-radius:8px; padding:7px 12px; font:inherit; font-size:.82rem; cursor:pointer; }
+.ad-icon-trigger { position:relative; display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border:1px solid transparent; background:transparent; color:var(--ink-soft); border-radius:8px; cursor:pointer; }
+.ad-icon-trigger:hover { background:var(--sage-bg); color:var(--ink); }
+.ad-notice-dot { position:absolute; top:5px; right:5px; width:7px; height:7px; border-radius:50%; background:#e05a55; border:2px solid #fff; }
+.ad-settings-trigger:hover { background:var(--sage-bg); color:var(--ink); }
+.ad-settings-overlay { position:fixed; inset:0; z-index:50; background:rgba(20,22,30,.16); display:flex; justify-content:flex-end; }
+.ad-settings-panel { width:min(520px, 92vw); height:100%; overflow-y:auto; overflow-x:hidden; background:#fff; box-shadow:-8px 0 28px rgba(20,22,30,.14); padding:18px 20px; scrollbar-width:thin; scrollbar-color:#c9ced8 transparent; }
+.ad-settings-panel::-webkit-scrollbar { width:7px; }
+.ad-settings-panel::-webkit-scrollbar-thumb { background:#c9ced8; border-radius:8px; }
+.ad-settings-panel::-webkit-scrollbar-track { background:transparent; }
+.ad-settings-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:22px; }
+.ad-settings-head h2 { margin:0; font-size:1.18rem; }
+.ad-settings-head button { border:0; background:none; color:var(--ink-soft); cursor:pointer; padding:6px; }
+.ad-settings-panel > section { display:block; }
+.ad-settings-panel .ad-section-head { margin-bottom:20px; }
+.ad-settings-panel .ad-section-head h2 { display:none; }
+.ad-settings-panel .cfg-group { margin-bottom:24px; }
+.ad-settings-panel .cfg-grid { display:block; }
+.ad-settings-panel .cfg-card { border:0; border-bottom:1px solid var(--line); border-radius:0; box-shadow:none; padding:14px 0; }
+.ad-settings-panel .cfg-desc { margin:4px 0 10px; }
+.ad-notification-item { display:flex; gap:12px; padding:14px 0 18px; border-bottom:1px solid var(--line); color:var(--ink); }
+.ad-notification-item strong { font-size:.9rem; }
+.ad-notification-item p { margin:6px 0 12px; color:var(--ink-soft); font-size:.8rem; line-height:1.5; }
+.ad-notification-warn { color:#c58a21; flex-shrink:0; }
+.ad-notifications-empty { min-height:180px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--muted); gap:10px; }
+.ad-notifications-empty p { margin:0; font-size:.85rem; }
+
 /* ── 동기화 필요 배너 ─────────────────────────────────── */
 .ad-sync-banner {
   display: flex;
@@ -76,9 +103,16 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #c9ced8 transparent;
   overflow-x: hidden;
 }
+.ad-content::-webkit-scrollbar, .ad-content > section > .card-table::-webkit-scrollbar { width: 8px; height: 8px; }
+.ad-content::-webkit-scrollbar-thumb, .ad-content > section > .card-table::-webkit-scrollbar-thumb { background: #c9ced8; border-radius: 8px; }
+.ad-content::-webkit-scrollbar-track, .ad-content > section > .card-table::-webkit-scrollbar-track { background: transparent; }
+/* 보고서 관리 표는 이름 중심으로 단순하게 표시한다. */
+.ad-content .home-mini-ic, .ad-content .home-detail-icon { display: none !important; }
 .ad-content > section {
   flex: 1;
   min-height: 0;
@@ -92,7 +126,7 @@
    "액션" 열 등) 스크롤도 없이 화면 밖으로 조용히 잘려버린다. 세로는 의도대로 막되
    (스크롤 대신 useFitRows가 행 수를 맞추고 .rp-pager로 넘김), 가로는 .card-table
    자체의 overflow-x: auto(theme.css)가 실제로 동작하도록 따로 풀어준다. */
-.ad-content > section > .card-table { flex: 1; min-height: 0; overflow-y: hidden; overflow-x: auto; }
+.ad-content > section > .card-table { flex: 1; min-height: 0; overflow: hidden; }
 .ad-content > section > .rp-pager { flex-shrink: 0; margin-top: 12px; }
 .ad-content h2 { font-size: 1.1rem; font-weight: 800; color: var(--ink); margin-bottom: 14px; }
 
@@ -124,6 +158,57 @@
 .ad-stat-label { font-size: 0.76rem; color: var(--muted); margin-bottom: 8px; }
 .ad-stat-value { font-size: 2.1rem; font-weight: 800; color: var(--sage-deep); }
 .ad-stat-sub { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+.ad-stat-card.clickable { cursor: pointer; transition: box-shadow 0.12s, transform 0.1s; }
+.ad-stat-card.clickable:hover { box-shadow: 0 6px 18px rgba(20, 22, 30, 0.1); transform: translateY(-1px); }
+
+/* ── 사용자 아바타 (부서/아이디 기반 자동 색) ────────────── */
+.ad-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 800;
+  margin-right: 7px;
+  vertical-align: -6px;
+}
+
+/* ── 보고서 관리 표 액션 (컬러 원형 아이콘) + 상세 패널 보조 행 ── */
+.ad-aicon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.12s;
+}
+.ad-aicon:hover { opacity: 0.82; }
+.crm-detail-label {
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.crm-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  border-bottom: 1px solid #F1F1F5;
+}
+.crm-detail-row:last-of-type { border-bottom: none; margin-bottom: 12px; }
+.crm-detail-row b { color: var(--ink); font-family: ui-monospace, Consolas, Menlo, monospace; font-variant-numeric: tabular-nums; }
 
 /* ── 표 셀 보조 ───────────────────────────────────────── */
 .ad-actions-cell {
@@ -355,6 +440,22 @@
   text-align: right;
 }
 .cfg-row input:focus { outline: none; border-color: var(--sage-deep); }
+.cfg-savebar {
+  position: sticky;
+  bottom: -18px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 18px -20px -18px;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.97);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -6px 18px rgba(20, 22, 30, 0.06);
+}
+.cfg-savebar span { color: var(--muted); font-size: .78rem; }
+.cfg-savebar .btn { min-width: 130px; justify-content: center; }
 
 /* ── 권한 매트릭스 ─────────────────────────────────────── */
 .mx-wrap {

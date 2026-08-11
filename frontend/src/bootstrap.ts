@@ -58,6 +58,8 @@ export interface AdminUser {
   last_login_at: string | null;
   department: string | null;
   data_scope: "self" | "department" | "all";
+  company_code: string | null;
+  company_scope: "own" | "group";
 }
 
 export interface AdminReport {

@@ -53,7 +53,7 @@
    패널로 바꿨다. ─────────────────────────────────────── */
 .rp-body-shell {
   gap: 16px;
-  padding: 16px 20px;
+  padding: 6px 10px;
   background: var(--sage-bg);
 }
 .rp-sidepanel {
@@ -73,15 +73,15 @@
   min-height: 0;
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: 0 10px 28px rgba(20, 22, 30, 0.07);
+  border-radius: 8px;
+  box-shadow: none;
   overflow: hidden;
   position: relative;
 }
 .rp-workarea::before {
   content: "";
   display: block;
-  height: 3px;
+  height: 0;
   flex-shrink: 0;
   background: linear-gradient(90deg, var(--sage), #7C93FF);
 }
@@ -172,11 +172,15 @@
   align-items: stretch;
   background: #fff;
   border-top: 1px solid var(--line);
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
   flex-shrink: 0;
   height: 42px;
 }
+
+/* 포털 목록은 보고서 자체의 색/아이콘보다 이름과 정보가 우선이다. */
+.home-mini-ic, .home-filecard-icon, .home-detail-icon { display: none !important; }
+.home-cat-pill { background: none !important; color: var(--ink-soft) !important; padding: 0; border-radius: 0; font-weight: 500; }
 .rp-tabsbar::-webkit-scrollbar { height: 0; }
 .rp-tab {
   display: flex;
@@ -199,7 +203,6 @@
   box-shadow: inset 0 2px 0 var(--sage);
   font-weight: 600;
 }
-.rp-tab .icn { color: var(--sage-deep); }
 .rp-tab-label { overflow: hidden; text-overflow: ellipsis; }
 .rp-tab-close {
   display: inline-flex;
@@ -218,13 +221,36 @@
 /* 예전엔 히어로 문구+검색창+카드 4개였다. 문구 없이 커맨드바 하나로 시작하고,
    타일 전부가 클릭하면 바로 들어가는 입구가 되도록 바꿨다 — 그중 즐겨찾기는
    큰 타일, 관리자용 "전체 보고서"는 맨 아래 가로 배너. */
+/* 스크롤 없이 한 화면에 맞춘다 — 위(통계·검색·타일·최근열람·필터)는 고정 높이,
+   표 영역만 남는 높이를 채우고 useFitRows로 행 수를 맞춘 뒤 페이저를 하단에 둔다
+   (다른 화면의 rp-page-fit과 같은 패턴). */
 .home {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--sage-bg);
-  padding: 28px 32px 32px;
+  padding: 10px 18px 8px;
+  display: flex;
+  flex-direction: column;
 }
+.home-fixed-top { flex-shrink: 0; }
+.home-main { flex: 1; min-height: 0; }
+.home > .rp-pager { flex-shrink: 0; }
+/* 표(+상세 패널)는 1100px로 가운데 정렬돼 있는데 페이저는 그 제약이 없어서
+   전체 폭 기준으로 따로 가운데 정렬되면 표 중심이랑 안 맞아 보인다 — 표랑
+   같은 폭·정렬로 맞춘다. Home과 관리자 보고서 탭 둘 다 이 구조를 쓴다. */
+.home-main + .rp-pager { max-width: 1320px; margin: 10px auto 0; width:100%; }
+.home-heading {
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:20px;
+  max-width:1320px;
+  margin:0 auto 14px;
+}
+.home-heading h1 { margin:2px 0 3px; font-size:1.22rem; font-weight:750; color:var(--ink); }
+.home-heading p { margin:0; font-size:.78rem; color:var(--muted); }
+.home-eyebrow { color:var(--sage-deep); font-size:.62rem; font-weight:750; letter-spacing:.1em; }
 
 .home-cmdbar {
   position: relative;
@@ -310,85 +336,252 @@
   flex-shrink: 0;
 }
 
-.home-bento {
-  display: grid;
-  grid-template-columns: 1.3fr 1fr 1fr;
-  gap: 16px;
-  max-width: 1100px;
-  margin: 0 auto;
-  align-items: start;
-}
-.home-tile {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  box-shadow: var(--shadow);
-  padding: 18px 20px 10px;
-  display: flex;
-  flex-direction: column;
-}
-.home-tile.big { min-height: 280px; }
-.home-tile-head {
+/* ── 상단 통계 + 검색 ─────────────────────────────────── */
+.home-toprow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  gap: 20px;
+  max-width: 1320px;
+  margin: 0 auto 12px;
+  padding:10px 14px;
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:10px;
 }
-.home-tile-title { font-size: 1rem; font-weight: 800; color: var(--ink); }
-.home-tile-badge {
-  width: 34px;
-  height: 34px;
+.home-stats { display: flex; gap: 32px; flex-shrink: 0; }
+.home-stat { font-size: 0.72rem; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.home-stat b {
+  font-family: ui-monospace, Consolas, Menlo, monospace;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.home-toprow .home-cmdbar { margin: 0; max-width: 340px; flex: 1; }
+
+/* ── 액션 타일 4개 (CyberClinic 참고) — 색 꽉 채운 블록 ──── */
+.home-actions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  max-width: 1320px;
+  margin: 0 auto 14px;
+}
+/* 색을 꽉 채운 블록이었는데(타일마다 다른 색) 너무 다채롭다는 피드백으로 흰 카드 +
+   파란 아이콘 배지 하나로 통일 — 화면 전체에서 accent는 이 파란색 하나만 쓴다. */
+.home-atile {
+  border: 1px solid var(--line);
+  background: #fff;
   border-radius: 10px;
+  padding: 11px 14px;
+  color: var(--ink);
+  position: relative;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  min-height: 72px;
+  box-shadow: none;
+  transition: transform 0.1s, box-shadow 0.15s, border-color 0.15s;
+}
+.home-atile:hover { transform: none; box-shadow: 0 3px 10px rgba(20, 22, 30, 0.06); border-color: var(--sage-light); }
+.home-atile-badge {
+  width: 25px;
+  aspect-ratio: 1;
+  border-radius: 8px;
   background: var(--sage-soft);
   color: var(--sage-deep);
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
 }
-.home-tile-list { flex: 1; }
-.home-tile-empty { padding: 20px 4px; color: var(--muted); font-size: 0.85rem; text-align: center; }
-
-.home-row {
+.home-atile-go {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 20px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--sage-bg);
+  color: var(--muted);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 6px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.12s;
+  justify-content: center;
+  font-size: 0.66rem;
 }
-.home-row:hover { background: var(--sage-bg); }
-.home-row-icon { color: var(--sage-deep); flex-shrink: 0; }
-.home-row-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--ink);
+.home-atile-title { font-size: 0.8rem; font-weight: 750; margin-top: 9px; color: var(--ink); }
+.home-atile-sub {
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-top: 3px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 관리자 전용 "전체 보고서" — 가로로 넓은 배너 하나, 클릭하면 바로 전체 보고서로 */
-.home-tile.wide {
-  grid-column: 1 / -1;
-  flex-direction: row;
+/* ── 최근 열람 — 아이콘 카드 그리드 (slothui 참고) ────────── */
+.home-section-label {
+  max-width: 1320px;
+  margin: 0 auto 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+.home-recent-grid {
+  display: flex;
+  gap: 10px;
+  max-width: 1320px;
+  margin: 0 auto 14px;
+  overflow:hidden;
+  padding-bottom: 2px;
+}
+.home-filecard {
+  flex-shrink: 0;
+  width: 150px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.12s, border-color 0.12s;
+}
+.home-filecard:hover { border-color: var(--sage-light); }
+.home-filecard.sel { border-color:var(--sage); box-shadow: inset 3px 0 0 var(--sage); }
+.home-filecard-icon {
+  width: 40px;
+  aspect-ratio: 1;
+  margin: 0 auto 8px;
+  border-radius: 10px;
+  display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 18px 22px;
+  justify-content: center;
+  color: #fff;
+}
+.home-filecard-name {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-filecard-cat {
+  font-size: 0.66rem;
+  color: var(--muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 필터 칩 ──────────────────────────────────────────── */
+.home-filterrow { display: flex; gap: 6px; max-width: 1320px; margin: 0 auto 9px; }
+.home-chip {
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
   cursor: pointer;
   font-family: inherit;
-  text-align: left;
-  width: 100%;
-  transition: border-color 0.12s, box-shadow 0.12s;
 }
-.home-tile.wide:hover { border-color: var(--sage-light); box-shadow: 0 8px 22px rgba(52, 82, 232, 0.12); }
+.home-chip.on { background: var(--sage-soft); color: var(--sage-deep); border-color: var(--sage-light); }
 
-@media (max-width: 780px) {
-  .home-bento { grid-template-columns: 1fr; }
-  .home-tile.big { min-height: 0; }
+/* ── 표 + 오른쪽 상세 패널 ─────────────────────────────── */
+/* align-items: stretch(기본값) 여야 home-tablewrap이 home-main의 남는 높이만큼
+   실제로 늘어난다 — flex-start로 두면 컨텐츠 높이로 쪼그라들어서 useFitRows가
+   측정하는 높이 자체가 작아지고, 결과로 한 페이지에 들어가는 행 수가 확 줄어든다
+   (실제로 이 버그로 관리자 보고서 표가 페이지당 3행만 나온 적 있음). */
+.home-main { display: flex; gap: 12px; max-width:1320px; margin:0 auto; width:100%; }
+/* 페이지당 10개 고정이라(화면 높이로 자동 계산 안 함) 화면이 아주 작으면 10개가
+   다 안 들어갈 수 있다 — 그때는 표 영역만 안에서 스크롤되게(overflow-y: auto) 한다.
+   숨겨서 안 보이게 자르는 것보다 스크롤이 훨씬 낫고, 화면 자체·페이저는 안 흔들린다.
+   보통 화면 높이에서는 10개가 다 들어가서 스크롤바 자체가 안 보인다. */
+.home-tablewrap { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.home-detail { align-self: flex-start; }
+.home-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+  font-size: 0.81rem;
+  box-shadow: none;
+}
+.home-table th {
+  text-align: left;
+  background: var(--sage-bg);
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.home-table td { padding: 7px 14px; border-bottom: 1px solid #F1F1F5; color: var(--ink); vertical-align: middle; }
+.home-table-row { cursor: pointer; transition: box-shadow 0.1s; }
+.home-table-row:last-child td { border-bottom: none; }
+.home-table-row.sel { background:var(--sage-soft); box-shadow:inset 3px 0 0 var(--sage); }
+.home-table-name { display: flex; align-items: center; gap: 9px; font-weight: 600; white-space: nowrap; }
+.home-mini-ic {
+  width: 24px;
+  aspect-ratio: 1;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+.home-cat-pill { font-size: 0.68rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.home-table-type { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+.home-table-empty { text-align: center; color: var(--muted); padding: 30px; }
+
+.home-detail {
+  width: 216px;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 16px;
+  box-shadow: none;
+}
+.home-detail-icon {
+  width: 44px;
+  aspect-ratio: 1;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  margin-bottom: 10px;
+}
+.home-detail-name { font-size: 0.9rem; font-weight: 800; color: var(--ink); margin-bottom: 3px; overflow-wrap: break-word; }
+.home-detail-cat { font-size: 0.72rem; color: var(--muted); margin-bottom: 12px; }
+.home-detail-section-title { font-size:.68rem; font-weight:750; color:var(--ink-soft); margin:12px 0 6px; }
+.home-detail-desc {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+  background: var(--sage-bg);
+  border-radius: 9px;
+  padding: 9px 11px;
+  margin-bottom: 14px;
+}
+.home-detail-actions { display: flex; flex-direction: column; gap: 8px; }
+.home-detail-actions .btn { justify-content: center; }
+
+@media (max-width: 900px) {
+  .home-toprow { flex-direction: column; align-items: stretch; }
+  .home-toprow .home-cmdbar { max-width: none; }
+  .home-actions { grid-template-columns: repeat(2, 1fr); }
+  .home-main { flex-direction: column; }
+  .home-detail { width: auto; }
 }
 
 /* ── 즐겨찾기 별 ──────────────────────────────────────── */
@@ -411,7 +604,7 @@
 .rp-group-fav .icn { color: #f5b301; }
 
 /* ── 랜딩 (보고서 카드) ───────────────────────────────── */
-.rp-landing { flex: 1; overflow-y: auto; padding: 30px 36px; }
+.rp-landing { flex: 1; overflow: hidden; padding: 14px 18px; }
 .rp-landing-head {
   display: flex;
   align-items: flex-start;
@@ -502,7 +695,7 @@
 .rp-landing-empty .icn { color: var(--sage-light); }
 
 /* ── 페이지(전체 보고서 / 업로드) 공통 ─────────────────── */
-.rp-page { flex: 1; overflow-y: auto; padding: 30px 36px; min-width: 0; }
+.rp-page { flex: 1; overflow: hidden; padding: 14px 18px; min-width: 0; }
 
 /* 한 화면에 맞춤(스크롤 없음): 헤더·검색 고정, 표 영역이 남는 높이를 채우고 페이저는 하단 */
 .rp-page-fit {
@@ -515,6 +708,8 @@
 }
 .rp-page-fit .rp-page-head,
 .rp-page-fit .rp-search { flex-shrink: 0; }
+/* 페이지당 10개 고정 — 화면이 작아 다 안 들어가면 표만 안에서 스크롤(overflow-y:auto),
+   보통은 다 들어가서 스크롤바가 안 보인다. */
 .rp-page-fit .rp-fit-table { flex: 1; min-height: 0; overflow: hidden; }
 .rp-page-fit .rp-pager { margin-top: 14px; flex-shrink: 0; }
 .rp-page-title { font-size: 1.35rem; font-weight: 800; color: var(--ink); margin-bottom: 22px; }
@@ -798,6 +993,11 @@
   white-space: nowrap;
 }
 .rp-toolbar-fitbtn:hover { background: #fff; color: var(--sage-deep); }
+.rp-toolbar-fitbtn.active {
+  background: #fff;
+  color: var(--sage-deep);
+  box-shadow: 0 1px 3px rgba(20, 22, 30, 0.12);
+}
 
 .rp-page-select {
   margin-left: 6px;

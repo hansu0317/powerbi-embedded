@@ -27,6 +27,7 @@ import { useFavorites } from "../useFavorites";
 import { useRecents } from "../useRecents";
 import { Pager, useFitRows } from "../Pager";
 import { Rail, ContextBar } from "../AppShell";
+import { categoryColor, withAlpha } from "../categoryColor";
 
 // PowerBI 서비스 싱글턴 (탭 전체가 공유)
 const powerbi = new pbi.service.Service(
@@ -235,11 +236,13 @@ export default function ReportPage({ data }: { data: ReportData }) {
           <Home
             reports={reports}
             isAdmin={Boolean(user.is_admin)}
+            viewerName={user.display_name}
             recentIds={recents}
             popular={data.popular || []}
             isFav={isFav}
             onOpen={openReport}
             onSearch={runSearch}
+            onToggleFav={toggleFav}
             onGoAll={() => {
               setAllQuery("");
               setView("all");
@@ -296,41 +299,53 @@ export default function ReportPage({ data }: { data: ReportData }) {
   );
 }
 
-/* ── 홈 (메인 랜딩) — 커맨드바 + 벤토 그리드 ───────────── */
-/* 히어로 문구 없이 검색 한 줄로 시작하고, 타일 전부가 클릭하면 바로 그 보고서로
-   들어가는 입구다. 인사말은 컨텍스트바에 사용자명으로 이미 나가 있어 여기선
-   따로 반복하지 않는다. */
+/* ── 홈 (메인 랜딩) — CyberClinic(헬스케어 CRM) + slothui(파일매니저) 참고 ──
+   벤토 카드 대신: 큰 숫자 통계 → 색 채운 액션 타일 4개 → 최근 열람 아이콘 카드 →
+   필터 가능한 표(파스텔 행) + 오른쪽 상세 패널. 표·타일 전부 실제 데이터 기준. */
+type HomeFilter = "all" | "fav" | "managed" | "personal";
+
 function Home({
   reports,
   isAdmin,
+  viewerName,
   recentIds,
   popular,
   isFav,
   onOpen,
   onSearch,
   onGoAll,
+  onToggleFav,
 }: {
   reports: ReportItem[];
   isAdmin: boolean;
+  viewerName: string;
   recentIds: number[];
   popular: { report_id: number; views: number }[];
   isFav: (id: number) => boolean;
   onOpen: (r: ReportItem) => void;
   onSearch: (q: string) => void;
   onGoAll: () => void;
+  onToggleFav: (id: number) => void;
 }) {
   const [q, setQ] = useState("");
   const [openSuggest, setOpenSuggest] = useState(false);
+  const [filter, setFilter] = useState<HomeFilter>("all");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
   const byId = useMemo(() => new Map(reports.map((r) => [r.id, r])), [reports]);
-  const favReports = reports.filter((r) => isFav(r.id)).slice(0, 4);
-  const recentReports = recentIds
-    .map((id) => byId.get(id))
-    .filter((r): r is ReportItem => Boolean(r))
-    .slice(0, 4);
-  const popularReports = popular
-    .map((p) => byId.get(p.report_id))
-    .filter((r): r is ReportItem => Boolean(r))
-    .slice(0, 4);
+  const favReports = useMemo(() => reports.filter((r) => isFav(r.id)), [reports, isFav]);
+  const recentReports = useMemo(
+    () =>
+      recentIds
+        .map((id) => byId.get(id))
+        .filter((r): r is ReportItem => Boolean(r))
+        .slice(0, 6),
+    [recentIds, byId],
+  );
+  const topPopular = useMemo(() => {
+    const r = popular[0] && byId.get(popular[0].report_id);
+    return r || null;
+  }, [popular, byId]);
 
   const suggestions = useMemo(() => {
     const k = q.trim().toLowerCase();
@@ -345,133 +360,313 @@ function Home({
       .slice(0, 8);
   }, [q, reports]);
 
-  return (
-    <main className="home">
-      <form
-        className="home-cmdbar"
-        onSubmit={(e) => {
-          e.preventDefault();
-          onSearch(q.trim());
-          setOpenSuggest(false);
-        }}
-      >
-        <Search size={18} className="icn home-cmdbar-icon" />
-        <input
-          placeholder="보고서, 카테고리를 검색하세요"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setOpenSuggest(true);
-          }}
-          onFocus={() => setOpenSuggest(true)}
-          onBlur={() => setTimeout(() => setOpenSuggest(false), 120)}
-        />
-        <button type="submit" className="btn btn-primary">
-          검색
-        </button>
-        {openSuggest && suggestions.length > 0 && (
-          <ul className="home-suggest">
-            {suggestions.map((r) => (
-              <li
-                key={r.id}
-                className="home-suggest-item"
-                onMouseDown={() => {
-                  onOpen(r);
-                  setOpenSuggest(false);
-                }}
-              >
-                <BarChart3 size={15} className="icn" />
-                <span className="home-suggest-name">{r.name}</span>
-                {r.category && (
-                  <span className="home-suggest-cat">{r.category}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </form>
+  const filtered = useMemo(() => {
+    switch (filter) {
+      case "fav":
+        return favReports;
+      case "managed":
+        return reports.filter((r) => r.report_type !== "personal");
+      case "personal":
+        return reports.filter((r) => r.report_type === "personal");
+      default:
+        return reports;
+    }
+  }, [filter, reports, favReports]);
 
-      <section className="home-bento">
-        <HomeCard
-          big
-          title="즐겨찾기"
+  const detail = (selectedId && byId.get(selectedId)) || filtered[0] || null;
+
+  // 고정 개수 대신 화면 높이에 맞춰 실제로 들어가는 행 수를 계산한다 — 스크롤이
+  // 아예 안 생기는 걸 페이지네이션 하나로 보장하는 유일한 방법(고정 개수면 화면이
+  // 작을 때 넘치고, 화면이 크면 남는 공간이 그냥 빈다).
+  const [pageSize, tableRef] = useFitRows(40, 36, 5);
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [filter, pageSize]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const curPage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((curPage - 1) * pageSize, curPage * pageSize);
+
+  return (
+    <main className="home home-fit">
+      <div className="home-fixed-top">
+      <div className="home-heading">
+        <div>
+          <span className="home-eyebrow">{isAdmin ? "ADMIN WORKSPACE" : "MY WORKSPACE"}</span>
+          <h1>{isAdmin ? "운영 현황" : `${viewerName}님의 보고서`}</h1>
+          <p>{isAdmin ? "보고서 사용 현황을 살펴보고 필요한 관리 화면으로 이동하세요." : "최근 사용한 보고서와 즐겨찾기를 한곳에서 확인하세요."}</p>
+        </div>
+        {isAdmin && <button className="btn btn-ghost" onClick={onGoAll}>전체 보고서 관리</button>}
+      </div>
+      <div className="home-toprow">
+        <div className="home-stats">
+          <div className="home-stat">
+            <b>{reports.length}</b>전체 보고서
+          </div>
+          <div className="home-stat">
+            <b>{favReports.length}</b>즐겨찾기
+          </div>
+          <div className="home-stat">
+            <b>{recentReports.length}</b>최근 열람
+          </div>
+        </div>
+        <form
+          className="home-cmdbar"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSearch(q.trim());
+            setOpenSuggest(false);
+          }}
+        >
+          <Search size={16} className="icn home-cmdbar-icon" />
+          <input
+            placeholder="보고서, 카테고리를 검색하세요"
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setOpenSuggest(true);
+            }}
+            onFocus={() => setOpenSuggest(true)}
+            onBlur={() => setTimeout(() => setOpenSuggest(false), 120)}
+          />
+          <button type="submit" className="btn btn-primary">
+            검색
+          </button>
+          {openSuggest && suggestions.length > 0 && (
+            <ul className="home-suggest">
+              {suggestions.map((r) => (
+                <li
+                  key={r.id}
+                  className="home-suggest-item"
+                  onMouseDown={() => {
+                    onOpen(r);
+                    setOpenSuggest(false);
+                  }}
+                >
+                  <BarChart3 size={15} className="icn" />
+                  <span className="home-suggest-name">{r.name}</span>
+                  {r.category && <span className="home-suggest-cat">{r.category}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </form>
+      </div>
+
+      <div className="home-actions">
+        <ActionTile
           Icon={Star}
-          accent="#f5b301"
-          empty="별표한 보고서가 여기 모입니다"
-          items={favReports}
-          onOpen={onOpen}
+          title="즐겨찾기"
+          sub={favReports[0] ? favReports[0].name : "별표한 보고서가 없습니다"}
+          onClick={() => setFilter("fav")}
         />
-        <HomeCard
-          title="최근 본 보고서"
+        <ActionTile
           Icon={Clock}
-          empty="최근 연 보고서가 없습니다"
-          items={recentReports}
-          onOpen={onOpen}
+          title="최근 열람"
+          sub={recentReports[0] ? recentReports[0].name : "아직 연 보고서가 없습니다"}
+          onClick={() => setSelectedId(recentReports[0]?.id ?? null)}
         />
-        <HomeCard
-          title="인기 보고서"
+        <ActionTile
           Icon={TrendingUp}
-          accent="#e0763c"
-          empty="최근 30일 조회 데이터가 쌓이면 표시됩니다"
-          items={popularReports}
-          onOpen={onOpen}
+          title="이번 주 인기"
+          sub={topPopular ? topPopular.name : "집계된 데이터가 없습니다"}
+          onClick={() => topPopular && setSelectedId(topPopular.id)}
         />
-        {isAdmin && <HomeWideTile count={reports.length} onClick={onGoAll} />}
-      </section>
+        {isAdmin ? (
+          <ActionTile Icon={LayoutList} title="보고서 관리" sub={`${reports.length}건의 공개·권한 상태 확인`} onClick={onGoAll} />
+        ) : (
+          <ActionTile Icon={LayoutList} title="사용 가능한 보고서" sub={`${reports.length}건 보기`} onClick={() => setFilter("all")} />
+        )}
+      </div>
+
+      {recentReports.length > 0 && (
+        <>
+          <div className="home-section-label">{isAdmin ? "최근 확인한 보고서" : "이어서 보기"}</div>
+          <div className="home-recent-grid">
+            {recentReports.map((r) => (
+              <FileCard key={r.id} report={r} selected={detail?.id === r.id} onClick={() => setSelectedId(r.id)} onOpen={onOpen} />
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="home-filterrow">
+        <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>전체</FilterChip>
+        <FilterChip active={filter === "fav"} onClick={() => setFilter("fav")}>★ 즐겨찾기</FilterChip>
+        <FilterChip active={filter === "managed"} onClick={() => setFilter("managed")}>공용</FilterChip>
+        <FilterChip active={filter === "personal"} onClick={() => setFilter("personal")}>개인</FilterChip>
+      </div>
+      </div>
+
+      <div className="home-main">
+        <div className="home-tablewrap" ref={tableRef}>
+          <table className="home-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>이름</th>
+                <th>카테고리</th>
+                <th>유형</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageItems.map((r) => (
+                <tr
+                  key={r.id}
+                  className={`home-table-row${detail?.id === r.id ? " sel" : ""}`}
+                  onClick={() => setSelectedId(r.id)}
+                >
+                  <td>
+                    <button
+                      type="button"
+                      className={`fav-star${isFav(r.id) ? " on" : ""}`}
+                      title={isFav(r.id) ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFav(r.id);
+                      }}
+                    >
+                      <Star size={14} className="icn" fill={isFav(r.id) ? "currentColor" : "none"} />
+                    </button>
+                  </td>
+                  <td>
+                    <div className="home-table-name">
+                      <span className="home-mini-ic" style={{ background: categoryColor(r.category) }}>
+                        {r.report_type === "dashboard" ? (
+                          <LayoutDashboard size={12} />
+                        ) : (
+                          <BarChart3 size={12} />
+                        )}
+                      </span>
+                      {r.name}
+                    </div>
+                  </td>
+                  <td>
+                    <span
+                      className="home-cat-pill"
+                      style={{
+                        background: withAlpha(categoryColor(r.category), "22"),
+                        color: categoryColor(r.category),
+                      }}
+                    >
+                      {r.category || "미분류"}
+                    </span>
+                  </td>
+                  <td className="home-table-type">
+                    {r.report_type === "personal" ? `개인 · ${r.owner_username || "-"}` : "공용"}
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="home-table-empty">
+                    표시할 보고서가 없습니다
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {detail && (
+          <div className="home-detail">
+            <span
+              className="home-detail-icon"
+              style={{ background: categoryColor(detail.category) }}
+            >
+              {detail.report_type === "dashboard" ? (
+                <LayoutDashboard size={20} />
+              ) : (
+                <BarChart3 size={20} />
+              )}
+            </span>
+            <div className="home-detail-name">{detail.name}</div>
+            <div className="home-detail-cat">
+              {detail.category || "미분류"} ·{" "}
+              {detail.report_type === "personal" ? `개인 · ${detail.owner_username || "-"}` : "공용"}
+            </div>
+            <div className="home-detail-section-title">보고서 정보</div>
+            <div className="home-detail-desc">{detail.description || "등록된 소개가 없습니다. 관리자는 보고서 설명을 추가해 사용자에게 변경 내용이나 활용 방법을 안내할 수 있습니다."}</div>
+            <div className="home-detail-actions">
+              <button className="btn btn-ghost" onClick={() => onToggleFav(detail.id)}>
+                <Star size={14} className="icn" fill={isFav(detail.id) ? "currentColor" : "none"} />{" "}
+                {isFav(detail.id) ? "즐겨찾기 해제" : "즐겨찾기"}
+              </button>
+              <button className="btn btn-primary" onClick={() => onOpen(detail)}>
+                보고서 열기
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      <Pager page={curPage} totalPages={totalPages} total={filtered.length} onPage={setPage} />
     </main>
   );
 }
 
-function HomeCard({
-  title,
+function ActionTile({
   Icon,
-  accent,
-  empty,
-  items,
-  onOpen,
-  big,
+  title,
+  sub,
+  onClick,
 }: {
-  title: string;
   Icon: typeof Star;
-  accent?: string;
-  empty: string;
-  items: ReportItem[];
-  onOpen: (r: ReportItem) => void;
-  big?: boolean;
+  title: string;
+  sub: string;
+  onClick: () => void;
 }) {
   return (
-    <div className={`home-tile${big ? " big" : ""}`}>
-      <div className="home-tile-head">
-        <span className="home-tile-title">{title}</span>
-        <span className="home-tile-badge" style={accent ? { color: accent } : undefined}>
-          <Icon size={18} className="icn" />
-        </span>
+    <button type="button" className="home-atile" onClick={onClick}>
+      <span className="home-atile-badge">
+        <Icon size={16} className="icn" />
+      </span>
+      <span className="home-atile-go">→</span>
+      <div className="home-atile-title">{title}</div>
+      <div className="home-atile-sub" title={sub}>
+        {sub}
       </div>
-      <div className="home-tile-list">
-        {items.length === 0 ? (
-          <div className="home-tile-empty">{empty}</div>
-        ) : (
-          items.map((r) => (
-            <div key={r.id} className="home-row" onClick={() => onOpen(r)} title={r.name}>
-              <BarChart3 size={16} className="icn home-row-icon" />
-              <span className="home-row-name">{r.name}</span>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
+    </button>
   );
 }
 
-/* 관리자 전용 "전체 보고서" — 목록 없이 클릭 한 번으로 바로 전체 보고서로 가는 배너 */
-function HomeWideTile({ count, onClick }: { count: number; onClick: () => void }) {
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <button type="button" className="home-tile wide" onClick={onClick}>
-      <span className="home-tile-title">전체 보고서 {count}건 보기</span>
-      <span className="home-tile-badge">
-        <LayoutList size={18} className="icn" />
-      </span>
+    <button type="button" className={`home-chip${active ? " on" : ""}`} onClick={onClick}>
+      {children}
     </button>
+  );
+}
+
+function FileCard({
+  report,
+  selected,
+  onClick,
+  onOpen,
+}: {
+  report: ReportItem;
+  selected: boolean;
+  onClick: () => void;
+  onOpen: (r: ReportItem) => void;
+}) {
+  return (
+    <div
+      className={`home-filecard${selected ? " sel" : ""}`}
+      onClick={onClick}
+      onDoubleClick={() => onOpen(report)}
+      title={`${report.name} — 더블클릭하면 바로 열립니다`}
+    >
+      <span className="home-filecard-icon" style={{ background: categoryColor(report.category) }}>
+        {report.report_type === "dashboard" ? <LayoutDashboard size={18} /> : <BarChart3 size={18} />}
+      </span>
+      <div className="home-filecard-name">{report.name}</div>
+      <div className="home-filecard-cat">{report.category || "미분류"}</div>
+    </div>
   );
 }
 
@@ -691,9 +886,6 @@ function TreeItem({
       onClick={() => onOpen(report)}
       title={report.name}
     >
-      {report.report_type === "dashboard"
-        ? <LayoutDashboard size={15} className="icn" />
-        : <BarChart3 size={15} className="icn" />}
       <span className="rp-tree-label">{report.name}</span>
     </div>
   );
@@ -737,6 +929,8 @@ function MyReportsView({
   // "Rendered more hooks than during the previous render"로 화면 전체가 하얗게 죽는다.
   // 조기 return보다 반드시 앞에 선언해야 한다.
   const [showUpdate, setShowUpdate] = useState(false);
+  type DisplayMode = "FitToPage" | "FitToWidth" | "ActualSize";
+  const [displayModes, setDisplayModes] = useState<Record<number, DisplayMode>>({});
 
   if (tabs.length === 0) {
     return <ReportLanding reports={reports} canUpload={canUpload} onGoUpload={onGoUpload} />;
@@ -750,11 +944,18 @@ function MyReportsView({
     (user.is_admin || activeReportItem.owner_username === user.username) &&
     activeReportItem.report_type !== "dashboard";
 
-  const setDisplay = (opt: keyof typeof pbi.models.DisplayOption) => {
-    activeEntry?.report.updateSettings({
+  const activeDisplay: DisplayMode = activeTab ? (displayModes[activeTab.id] ?? "FitToPage") : "FitToPage";
+  const setDisplay = async (opt: DisplayMode) => {
+    if (!activeTab || !activeEntry) return;
+    try {
+      await activeEntry.report.updateSettings({
       layoutType: pbi.models.LayoutType.Custom,
       customLayout: { displayOption: pbi.models.DisplayOption[opt] },
-    }).catch(() => {});
+      });
+      setDisplayModes((prev) => ({ ...prev, [activeTab.id]: opt }));
+    } catch {
+      /* SDK가 설정 변경을 거부하면 선택 표시도 바꾸지 않는다. */
+    }
   };
   const goFullscreen = () => {
     try {
@@ -782,14 +983,14 @@ function MyReportsView({
           </button>
           {!activeEntry?.isDashboard && (
             <div className="rp-toolbar-fitgroup">
-              <button className="rp-toolbar-fitbtn" title="페이지에 맞춤" onClick={() => setDisplay("FitToPage")}>
-                맞춤
+              <button className={`rp-toolbar-fitbtn${activeDisplay === "FitToPage" ? " active" : ""}`} aria-pressed={activeDisplay === "FitToPage"} title="페이지에 맞춤" onClick={() => setDisplay("FitToPage")}>
+                {activeDisplay === "FitToPage" && <span aria-hidden="true">✓ </span>}맞춤
               </button>
-              <button className="rp-toolbar-fitbtn" title="폭에 맞춤" onClick={() => setDisplay("FitToWidth")}>
-                폭맞춤
+              <button className={`rp-toolbar-fitbtn${activeDisplay === "FitToWidth" ? " active" : ""}`} aria-pressed={activeDisplay === "FitToWidth"} title="폭에 맞춤" onClick={() => setDisplay("FitToWidth")}>
+                {activeDisplay === "FitToWidth" && <span aria-hidden="true">✓ </span>}폭맞춤
               </button>
-              <button className="rp-toolbar-fitbtn" title="실제 크기" onClick={() => setDisplay("ActualSize")}>
-                실제크기
+              <button className={`rp-toolbar-fitbtn${activeDisplay === "ActualSize" ? " active" : ""}`} aria-pressed={activeDisplay === "ActualSize"} title="실제 크기" onClick={() => setDisplay("ActualSize")}>
+                {activeDisplay === "ActualSize" && <span aria-hidden="true">✓ </span>}실제크기
               </button>
             </div>
           )}
@@ -834,7 +1035,6 @@ function MyReportsView({
             className={`rp-tab${t.id === active ? " active" : ""}`}
             onClick={() => onActivate(t.id)}
           >
-            <BarChart3 size={14} className="icn" />
             <span className="rp-tab-label">{t.name}</span>
             <button
               className="rp-tab-close"
@@ -966,7 +1166,8 @@ function ReportPanel({
                   displayOption: pbi.models.DisplayOption.FitToPage,
                 },
                 panes: {
-                  pageNavigation: { visible: true },
+                  // PBIX 내부의 '메인' 같은 페이지 탭은 숨기고 포털 탭만 노출한다.
+                  pageNavigation: { visible: false },
                   filters: { visible: false },
                 },
                 // 시각화 우측 상단에 뜨는 드릴 업/다운 아이콘 제거
@@ -1048,7 +1249,7 @@ function AllReportsView({
 
   const [preview, setPreview] = useState<ReportItem | null>(null);
 
-  const [pageSize, tableRef] = useFitRows(42, 44); // 화면 높이에 맞춰 행 수 자동
+  const [pageSize, tableRef] = useFitRows(42, 44); // 화면 높이에 맞춰 행 수 자동 — 스크롤 없이
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   useEffect(() => setPage(1), [query, pageSize]);

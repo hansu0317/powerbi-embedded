@@ -236,7 +236,16 @@ export async function adminBulkAddUsers(file: File, csrf: string): Promise<BulkA
 export interface EditUserPayload {
   display_name: string;
   pbi_username: string;
+  department?: string;
+  data_scope?: "self" | "department" | "all";
+  company_code?: string;
+  company_scope?: "own" | "group";
 }
+
+export interface CompanyCode { code: string; name: string; parent_code: string | null; created_at?: string }
+export async function adminGetCompanies(): Promise<CompanyCode[]> { const r=await authFetch("/api/admin/company-codes"); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"회사 목록 조회 실패")); return j.companies; }
+export async function adminSaveCompany(p: Omit<CompanyCode,"created_at">, csrf:string) { const r=await authFetch("/api/admin/company-codes",{method:"POST",headers:{"X-CSRF-Token":csrf,"Content-Type":"application/json"},body:JSON.stringify(p)}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"회사 저장 실패")); return j; }
+export async function adminDeleteCompany(code:string,csrf:string) { const r=await authFetch(`/api/admin/company-codes/${encodeURIComponent(code)}/delete`,{method:"POST",headers:{"X-CSRF-Token":csrf}}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"회사 삭제 실패")); return j; }
 
 export async function adminEditUser(userId: number, payload: EditUserPayload, csrf: string) {
   const res = await authFetch(`/api/admin/users/${userId}/edit`, {

@@ -35,6 +35,7 @@ from database.admin import (
     db_admin_get_reports, db_import_pbi_item, db_admin_soft_delete_report,
     db_admin_get_upload_jobs, db_get_report_access, db_set_report_access,
     db_get_app_config, db_update_app_config,
+    db_admin_get_company_codes, db_admin_upsert_company, db_admin_delete_company,
 )
 from database.groups import (
     db_admin_get_groups, db_admin_create_group, db_admin_delete_group,
@@ -63,6 +64,7 @@ __all__ = [
     "db_admin_get_reports", "db_import_pbi_item", "db_admin_soft_delete_report",
     "db_admin_get_upload_jobs", "db_get_report_access", "db_set_report_access",
     "db_get_app_config", "db_update_app_config",
+    "db_admin_get_company_codes", "db_admin_upsert_company", "db_admin_delete_company",
     "db_admin_get_groups", "db_admin_create_group", "db_admin_delete_group",
     "db_get_group_members", "db_set_group_member", "db_get_report_group_access",
     "db_set_report_group_access",

@@ -24,7 +24,6 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $PidFile     = Join-Path $ProjectRoot ".server.pid"
 $LogDir      = Join-Path $ProjectRoot "logs"
 $LogFile     = Join-Path $LogDir "server.log"
-$ErrFile     = Join-Path $LogDir "server.err.log"
 $Port        = 8247
 
 # 프로젝트 venv가 있으면 우선 사용, 없으면 PATH의 python (환경별 경로 하드코딩 금지)
@@ -40,16 +39,26 @@ function Get-ServerProcess {
     return $null
 }
 
+# 서버가 살아있는 동안은 python.exe가 -RedirectStandardOutput으로 server.log를 계속
+# 붙들고 있어(공유 모드 제한) 다른 프로세스가 같은 파일에 쓰려고 하면 IOException이
+# 난다 — 그래서 이 함수는 프로세스가 이미 내려간 뒤(Stop-Server)에만 쓴다. BOM 없는
+# UTF-8로 append — 이미 파일 맨 앞에 Python이 남긴 BOM이 있으므로 여기서 또 붙이면
+# 파일 중간에 BOM 문자가 섞여 보인다.
+function Write-LogLine {
+    param([string]$Level, [string]$Message)
+    $line = "{0} [{1}] {2}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Level, $Message
+    try {
+        [System.IO.File]::AppendAllText($LogFile, $line + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
+    } catch {}
+}
+
 # 기존 로그를 시각이 포함된 파일명으로 보관하고 30일이 지난 로그를 정리한다.
 function Invoke-LogRotate {
-    foreach ($f in @($LogFile, $ErrFile)) {
-        if (Test-Path $f) {
-            $stamp      = Get-Date -Format "HHmmss"
-            $archiveDir = Join-Path $LogDir (Get-Date -Format "yyyyMMdd")
-            New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
-            $name = [IO.Path]::GetFileNameWithoutExtension($f)
-            Move-Item $f (Join-Path $archiveDir "$name-$stamp.log")
-        }
+    if (Test-Path $LogFile) {
+        $stamp      = Get-Date -Format "HHmmss"
+        $archiveDir = Join-Path $LogDir (Get-Date -Format "yyyyMMdd")
+        New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+        Move-Item $LogFile (Join-Path $archiveDir "server-$stamp.log")
     }
     Get-ChildItem $LogDir -Recurse -File -Filter "server*-*.log" -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) } |
@@ -83,10 +92,14 @@ function Start-Server {
     }
 
     Invoke-LogRotate
+    # 로그는 server.log 한 파일로만 모은다 — main.py가 모든 레벨을 표준출력 하나로만
+    # 내보내므로 그게 곧 이 리다이렉트 대상이다. 표준에러는 NUL로 버린다: 우리 앱
+    # 로거는 표준에러를 전혀 쓰지 않고(main.py 참고), 여기 남는 건 uvicorn 자체의
+    # 시작/종료 배너 같은 부가 문구뿐이다.
     $proc = Start-Process -FilePath $Python `
         -ArgumentList @("-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "$Port", "--no-access-log") `
         -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru `
-        -RedirectStandardOutput $LogFile -RedirectStandardError $ErrFile
+        -RedirectStandardOutput $LogFile -RedirectStandardError "NUL"
     $proc.Id | Out-File $PidFile -Encoding ascii
 
     # 시작 시 복구 작업 때문에 포트 바인딩이 늦을 수 있어 최대 15초까지 재시도한다.
@@ -99,13 +112,14 @@ function Start-Server {
         Start-Sleep -Seconds 1
     }
     if (-not $healthy) {
-        Write-Output "서버 상태 확인 실패. 로그를 확인하세요: $ErrFile"
+        Write-Output "서버 상태 확인 실패. 로그를 확인하세요: $LogFile"
         Stop-Process -Id $proc.Id -Force -Confirm:$false -ErrorAction SilentlyContinue
         Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+        Write-LogLine "ERROR" "SERVER START HEALTH CHECK FAILED (PID: $($proc.Id))"
         exit 1
     }
     Write-Output "서버 시작됨 (PID: $($proc.Id)) → http://127.0.0.1:$Port"
-    Write-Output "로그: $ErrFile"
+    Write-Output "로그: $LogFile"
 }
 
 function Stop-Server {
@@ -117,6 +131,7 @@ function Stop-Server {
     }
     Stop-Process -Id $proc.Id -Force -Confirm:$false
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+    Write-LogLine "INFO" "SERVER STOP (PID: $($proc.Id))"
     Write-Output "서버 종료됨 (PID: $($proc.Id))"
 }
 

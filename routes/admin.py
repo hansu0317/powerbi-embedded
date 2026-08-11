@@ -27,6 +27,7 @@ from database import (
     db_get_user_report_list,
     db_get_activity_log, db_get_audit_log,
     db_admin_toggle_user_upload,
+    db_admin_get_company_codes, db_admin_upsert_company, db_admin_delete_company,
 )
 from deps import csrf_token, verify_csrf, require_admin_user, require_admin_csrf, json_body
 from errors import AppError
@@ -225,6 +226,7 @@ async def api_admin_get_reports(user: dict = Depends(require_admin_user)):
 
 
 DATA_SCOPES = ("self", "department", "all")
+COMPANY_SCOPES = ("own", "group")
 
 
 @router.post("/api/admin/users/add")
@@ -239,6 +241,8 @@ async def api_admin_add_user(
     group_ids: str = Form(""),
     department: str = Form(""),
     data_scope: str = Form("self"),
+    company_code: str = Form(""),
+    company_scope: str = Form("own"),
     csrf: str = Form(),
     user: dict = Depends(require_admin_user),
 ):
@@ -253,7 +257,7 @@ async def api_admin_add_user(
         new_id = await asyncio.to_thread(
             db_admin_add_user, username, pw_hash, display_name,
             pbi_username or username, is_admin, can_upload, group_id_list,
-            department.strip() or None, data_scope,
+            department.strip() or None, data_scope, company_code.strip() or None, company_scope,
         )
     except psycopg2.errors.UniqueViolation:
         raise AppError.USER_ALREADY_EXISTS.http(username=username)
@@ -278,18 +282,41 @@ async def api_admin_edit_user(
     body = await json_body(request)
     display_name = str(body.get("display_name", "")).strip()
     pbi_username = str(body.get("pbi_username", "")).strip()
-    if not display_name or not pbi_username:
+    department = str(body.get("department", "")).strip() or None
+    data_scope = str(body.get("data_scope", "self"))
+    company_code = str(body.get("company_code", "")).strip() or None
+    company_scope = str(body.get("company_scope", "own"))
+    if not display_name or not pbi_username or data_scope not in DATA_SCOPES or company_scope not in COMPANY_SCOPES:
         raise AppError.BODY_INVALID.http()
 
     updated = await asyncio.to_thread(
-        db_admin_update_user, user_id, display_name, pbi_username,
+        db_admin_update_user, user_id, display_name, pbi_username, department, data_scope, company_code, company_scope,
     )
     if not updated:
         raise AppError.USER_NOT_FOUND.http()
     logger.info("ADMIN EDIT USER | admin=%s | user_id=%s", user["username"], user_id)
     return {
         "user_id": user_id, "display_name": display_name, "pbi_username": pbi_username,
+        "department": department, "data_scope": data_scope, "company_code": company_code, "company_scope": company_scope,
     }
+
+@router.get("/api/admin/company-codes")
+async def api_admin_get_companies(user: dict = Depends(require_admin_user)):
+    return {"companies": await asyncio.to_thread(db_admin_get_company_codes)}
+
+@router.post("/api/admin/company-codes")
+async def api_admin_save_company(request: Request, user: dict = Depends(require_admin_csrf)):
+    body = await json_body(request)
+    code, name = str(body.get("code", "")).strip(), str(body.get("name", "")).strip()
+    parent = str(body.get("parent_code", "")).strip() or None
+    if not code or not name or len(code) > 30: raise AppError.BODY_INVALID.http()
+    try: return await asyncio.to_thread(db_admin_upsert_company, code, name, parent)
+    except psycopg2.errors.ForeignKeyViolation: raise AppError.BODY_INVALID.http()
+
+@router.post("/api/admin/company-codes/{code}/delete")
+async def api_admin_delete_company_code(code: str, user: dict = Depends(require_admin_csrf)):
+    if not await asyncio.to_thread(db_admin_delete_company, code): raise AppError.BODY_INVALID.http()
+    return {"deleted": True}
 
 
 def _parse_csv_bool(value: str, default: bool) -> bool:
@@ -652,5 +679,4 @@ async def api_admin_system_status(user: dict = Depends(require_admin_user)):
         "sync_interval_sec": config.PBI_SYNC_INTERVAL,
         **stats,
     }
-
 
