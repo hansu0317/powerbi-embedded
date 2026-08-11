@@ -20,6 +20,8 @@ from database import (
     db_health_check, db_get_report,
     db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
     db_fail_stuck_upload_job,
+    db_get_report_folders, db_create_report_folder, db_update_report_folder,
+    db_delete_report_folder, db_get_folder, db_move_report_to_folder,
     db_log_activity, db_get_popular_report_ids,
     db_get_user_activity_log, db_reserve_update,
 )
@@ -317,16 +319,67 @@ async def api_user_activity(request: Request):
     return {"activity": rows}
 
 
+@router.get("/api/report-folders")
+async def api_report_folders(request: Request):
+    user = await current_user(request)
+    if not user: raise AppError.NOT_AUTHENTICATED.http()
+    return {"folders": await asyncio.to_thread(db_get_report_folders, user["id"], user["is_admin"])}
+
+@router.post("/api/report-folders")
+async def api_create_report_folder(request: Request):
+    user = await current_user(request); verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    if not user: raise AppError.NOT_AUTHENTICATED.http()
+    body = await json_body(request)
+    name = str(body.get("name", "")).strip(); parent_id = body.get("parent_id") or None
+    visibility = str(body.get("visibility", "personal"))
+    if not name or len(name)>100 or visibility not in ("personal","group","shared"): raise AppError.BODY_INVALID.http()
+    if not user["is_admin"]: visibility="personal"
+    try:
+        row=await asyncio.to_thread(db_create_report_folder,name,parent_id,None if visibility=="shared" else user["id"],visibility,user["id"])
+    except psycopg2.errors.UniqueViolation: raise AppError.BODY_INVALID.http()
+    return row
+
+@router.post("/api/report-folders/{folder_id}")
+async def api_update_report_folder(request: Request, folder_id: int):
+    user=await current_user(request); verify_csrf(request,request.headers.get("X-CSRF-Token",""))
+    if not user: raise AppError.NOT_AUTHENTICATED.http()
+    body=await json_body(request); name=str(body.get("name","")).strip(); visibility=str(body.get("visibility","personal"))
+    if not name or visibility not in ("personal","group","shared"): raise AppError.BODY_INVALID.http()
+    row=await asyncio.to_thread(db_update_report_folder,folder_id,name,body.get("parent_id") or None,visibility,user["id"],user["is_admin"])
+    if not row: raise AppError.BODY_INVALID.http()
+    return row
+
+@router.post("/api/report-folders/{folder_id}/delete")
+async def api_delete_report_folder(request: Request, folder_id: int):
+    user=await current_user(request); verify_csrf(request,request.headers.get("X-CSRF-Token",""))
+    if not user: raise AppError.NOT_AUTHENTICATED.http()
+    if not await asyncio.to_thread(db_delete_report_folder,folder_id,user["id"],user["is_admin"]): raise AppError.BODY_INVALID.http()
+    return {"deleted":True}
+
+@router.post("/api/reports/{report_id}/folder")
+async def api_move_report_folder(request: Request, report_id: int):
+    user=await current_user(request); verify_csrf(request,request.headers.get("X-CSRF-Token",""))
+    if not user: raise AppError.NOT_AUTHENTICATED.http()
+    body=await json_body(request); folder_id=int(body.get("folder_id",0))
+    row=await asyncio.to_thread(db_move_report_to_folder,report_id,folder_id,user["id"],user["is_admin"])
+    if not row: raise AppError.BODY_INVALID.http()
+    folder=await asyncio.to_thread(db_get_folder,folder_id)
+    if row.get("pbi_report_id") and folder and folder.get("fabric_folder_id"):
+        await move_item_to_folder(config.resolve_workspace_id(row.get("pbi_workspace_id")),row["pbi_report_id"],folder["fabric_folder_id"])
+    return {"moved":True,"folder_id":folder_id}
+
 @router.post("/api/upload")
 async def api_upload(
     request: Request,
     file: UploadFile = File(...),
     report_description: str = Form(""),
+    folder_id: int | None = Form(None),
+    visibility: str = Form("personal"),
 ):
     """파일 수신 후 즉시 job_id 반환. 실제 PBI 게시는 백그라운드에서 진행.
 
-    보고서 명 입력·폴더 선택 없음(최대한 단순화) — 보고서 명은 파일명에서
-    확장자만 뗀 값, 카테고리(사이드바 폴더)는 항상 업로더 username.
+    보고서 명은 파일명에서 확장자를 뗀 값으로 정하고, 포털 폴더와 공개 범위를
+    별도로 받는다. 소유자는 항상 업로더로 유지되어 폴더 이동과 수정 권한이 분리된다.
 
     항상 새 보고서만 만든다 — 같은 이름이 이미 있으면 _read_and_validate_pbix가
     거부한다(REPORT_NAME_TAKEN). 기존 보고서 내용을 바꾸려면 그 보고서의
@@ -339,13 +392,21 @@ async def api_upload(
         logger.warning("UPLOAD DENY | user=%-12s | 업로드 권한 없음", user["username"])
         raise AppError.FORBIDDEN_UPLOAD.http()
 
+    if visibility not in ("personal", "group", "shared"):
+        raise AppError.BODY_INVALID.http()
+    folder = await asyncio.to_thread(db_get_folder, folder_id) if folder_id else None
+    if folder and not (user["is_admin"] or folder["owner_id"] == user["id"] or folder["visibility"] == "shared"):
+        raise AppError.FORBIDDEN_UPLOAD.http()
+    if not user["is_admin"] and visibility == "shared":
+        visibility = "personal"
     name, pbix_bytes, file_size = await _read_and_validate_pbix(file, user["id"])
     job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name)
     logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s", user["username"], name, job_id)
     ip = get_client_ip(request)
 
     asyncio.create_task(_process_upload(user, name, pbix_bytes, file_size, job_id, ip,
-                                        report_description.strip()[:500] or None, user["username"]))
+                                        report_description.strip()[:500] or None,
+                                        folder["name"] if folder else user["username"], folder_id, visibility))
     return {"job_id": job_id, "report_name": name, "status": "accepted"}
 
 
@@ -419,14 +480,16 @@ async def _read_and_validate_pbix(
 
 
 async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str,
-                          description: str | None = None, category: str | None = None):
+                          description: str | None = None, category: str | None = None,
+                          portal_folder_id: int | None = None, visibility: str = "personal"):
     """백그라운드 태스크 진입점 — 어떤 예외도 잡을 '진행 중' 상태로 남기지 않는다.
 
     알려진 실패는 _run_upload 각 지점이 잡 상태(failed/conflict/unknown 등)를 기록한 뒤
     HTTPException으로 탈출한다. 그 밖의 예상 밖 예외가 새면 잡이 publishing/accepted로
     남아 서버 재시작 전까지 같은 이름 재업로드가 409로 막히므로, 여기서 failed 처리한다."""
     try:
-        await _run_upload(user, name, pbix_bytes, file_size, job_id, ip, description, category)
+        await _run_upload(user, name, pbix_bytes, file_size, job_id, ip, description, category,
+                          portal_folder_id, visibility)
     except HTTPException as exc:
         # 잡 상태는 발생 지점에서 이미 기록됨. 이 태스크는 백그라운드라 main.py의
         # 전역 예외 핸들러가 못 잡으므로 5xx만 서버 로그에 남긴다.
@@ -444,7 +507,8 @@ async def _process_upload(user: dict, name: str, pbix_bytes: bytes, file_size: i
 
 
 async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, job_id: int, ip: str,
-                      description: str | None = None, category: str | None = None):
+                      description: str | None = None, category: str | None = None,
+                      portal_folder_id: int | None = None, visibility: str = "personal"):
     """실제 게시 파이프라인 오케스트레이터: 파일 검증·예약은 호출자(api_upload)에서 완료된 상태로 진입.
 
     각 단계는 실패 시 잡 상태(failed/conflict/unknown 등)를 스스로 기록한 뒤 HTTPException으로 탈출한다.
@@ -471,10 +535,11 @@ async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, 
     logger.info("UPLOAD PBI OK | user=%-12s | report=%s | pbi_report_id=%s", user["username"], name, pbi_report_id)
 
     # 4) Fabric 사용자 폴더로 이동 (비치명적)
-    await _move_to_user_folder(user, pbi_report_id, dataset_ids)
+    await _move_to_user_folder(user, pbi_report_id, dataset_ids, category)
 
     # 5) 게이트웨이 DB 등록 + 완료 처리
-    await _register_uploaded_report(user, name, pbi_report_id, dataset_ids, pbi_display_name, job_id, description, category)
+    await _register_uploaded_report(user, name, pbi_report_id, dataset_ids, pbi_display_name, job_id,
+                                    description, category, portal_folder_id, visibility)
     # 활동 기록은 실패한 업로드가 "업로드"로 남지 않도록 완료 시점에만 남긴다
     await asyncio.to_thread(db_log_activity, user["id"], user["username"], "report_upload", None, name, ip)
     logger.info("UPLOAD OK  | user=%-12s | ip=%s | report=%s", user["username"], ip, name)
@@ -542,9 +607,9 @@ async def _pbi_import_pbix(
         raise AppError.IMPORT_TIMEOUT.http()
 
 
-async def _move_to_user_folder(user: dict, pbi_report_id: str, dataset_ids: list[str]):
+async def _move_to_user_folder(user: dict, pbi_report_id: str, dataset_ids: list[str], folder_name: str | None = None):
     """/* fabric */ 사용자 폴더 생성 후 보고서·데이터셋 이동. 실패해도 보고서 기능에 영향 없음."""
-    folder_id = await get_or_create_folder(WORKSPACE_ID, user["username"])
+    folder_id = await get_or_create_folder(WORKSPACE_ID, folder_name or user["username"])
     if not folder_id:
         logger.warning("FOLDER UNAVAILABLE | user=%s | report will stay at workspace root", user["username"])
         return
@@ -560,7 +625,8 @@ async def _move_to_user_folder(user: dict, pbi_report_id: str, dataset_ids: list
 async def _register_uploaded_report(
     user: dict, name: str, pbi_report_id: str, dataset_ids: list[str],
     pbi_display_name: str, job_id: int, description: str | None = None,
-    category: str | None = None,
+    category: str | None = None, portal_folder_id: int | None = None,
+    visibility: str = "personal",
 ):
     """게이트웨이 DB에 보고서를 등록하고 잡을 completed로 마감한다. DB 실패는 db_failed로 기록."""
     try:
@@ -569,7 +635,7 @@ async def _register_uploaded_report(
             dataset_ids[0] if dataset_ids else None,
             WORKSPACE_ID, pbi_display_name,
             category or user["username"],  # 사이드바 폴더 트리 경로 (기본: 내 계정)
-            description,
+            description, portal_folder_id, visibility,
         )
     except psycopg2.Error as exc:
         await asyncio.to_thread(db_update_upload_job, job_id, "db_failed", error_message=str(exc))

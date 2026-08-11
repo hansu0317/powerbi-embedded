@@ -16,6 +16,13 @@ _CAN_VIEW_REPORT_SQL = """(
                     NOT EXISTS (SELECT 1 FROM user_reports udeny
                                 WHERE udeny.user_id = u.id AND udeny.report_id = r.id AND NOT udeny.can_view)
                 AND (
+                       r.owner_id = u.id
+                    OR r.visibility = 'shared'
+                    OR (r.visibility = 'group' AND EXISTS (
+                         SELECT 1 FROM user_groups me
+                         JOIN user_groups owner_group ON owner_group.group_id = me.group_id
+                         WHERE me.user_id = u.id AND owner_group.user_id = r.owner_id))
+                    OR
                        EXISTS (SELECT 1 FROM user_reports ur
                                WHERE ur.user_id = u.id AND ur.report_id = r.id AND ur.can_view)
                     OR EXISTS (SELECT 1 FROM user_groups ug
@@ -30,7 +37,7 @@ def db_get_reports(username: str) -> list:
         with conn.cursor() as cur:
             cur.execute(
                 f"""SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
-                          owner.username AS owner_username, r.tab_type
+                          owner.username AS owner_username, r.tab_type, r.portal_folder_id, r.visibility
                    FROM reports r
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    JOIN users u ON u.username = %s
@@ -47,7 +54,7 @@ def db_get_all_active_reports() -> list:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
-                          owner.username AS owner_username, r.tab_type
+                          owner.username AS owner_username, r.tab_type, r.portal_folder_id, r.visibility
                    FROM reports r
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    WHERE r.status = 'active'

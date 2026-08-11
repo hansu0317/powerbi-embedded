@@ -83,11 +83,14 @@ export interface UploadAccepted {
 }
 
 export async function uploadPbix(
-  file: File, csrf: string, description?: string,
+  file: File, csrf: string, description?: string, folderId?: number | null,
+  visibility: "personal" | "group" | "shared" = "personal",
 ): Promise<UploadAccepted> {
   const fd = new FormData();
   fd.append("file", file);
   if (description) fd.append("report_description", description);
+  if (folderId) fd.append("folder_id", String(folderId));
+  fd.append("visibility", visibility);
   const res = await authFetch("/api/upload", {
     method: "POST",
     body: fd,
@@ -97,6 +100,13 @@ export async function uploadPbix(
   if (!res.ok) throw new Error(extractDetail(data, res.statusText));
   return data;
 }
+
+export interface ReportFolder { id:number; name:string; parent_id:number|null; owner_id:number|null; visibility:"personal"|"group"|"shared"; owner_username:string|null; report_count:number }
+export async function fetchReportFolders():Promise<ReportFolder[]> { const r=await authFetch("/api/report-folders"); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"폴더 조회 실패")); return j.folders; }
+export async function createReportFolder(name:string,parentId:number|null,visibility:ReportFolder["visibility"],csrf:string){ const r=await authFetch("/api/report-folders",{method:"POST",headers:{"X-CSRF-Token":csrf,"Content-Type":"application/json"},body:JSON.stringify({name,parent_id:parentId,visibility})}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"폴더 생성 실패")); return j; }
+export async function updateReportFolder(id:number,name:string,parentId:number|null,visibility:ReportFolder["visibility"],csrf:string){ const r=await authFetch(`/api/report-folders/${id}`,{method:"POST",headers:{"X-CSRF-Token":csrf,"Content-Type":"application/json"},body:JSON.stringify({name,parent_id:parentId,visibility})}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"폴더 수정 실패")); return j; }
+export async function deleteReportFolder(id:number,csrf:string){ const r=await authFetch(`/api/report-folders/${id}/delete`,{method:"POST",headers:{"X-CSRF-Token":csrf}}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"비어 있는 폴더만 삭제할 수 있습니다")); return j; }
+export async function moveReportToFolder(reportId:number,folderId:number,csrf:string){ const r=await authFetch(`/api/reports/${reportId}/folder`,{method:"POST",headers:{"X-CSRF-Token":csrf,"Content-Type":"application/json"},body:JSON.stringify({folder_id:folderId})}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"보고서 이동 실패")); return j; }
 
 export interface UploadStatus {
   job_id: number;

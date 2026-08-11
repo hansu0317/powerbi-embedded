@@ -16,6 +16,8 @@ export interface ReportItem {
   owner_username: string | null;
   report_type: string;
   description?: string | null;
+  portal_folder_id?: number | null;
+  visibility?: "personal" | "group" | "shared";
 }
 
 export interface PopularItem {

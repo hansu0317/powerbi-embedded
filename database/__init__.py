@@ -46,6 +46,10 @@ from database.activity import (
     db_log_activity, db_get_activity_log, db_get_user_activity_log, db_get_audit_log,
     db_cleanup_activity_log, db_get_popular_report_ids,
 )
+from database.folders import (
+    db_get_report_folders, db_create_report_folder, db_update_report_folder,
+    db_delete_report_folder, db_get_folder, db_move_report_to_folder,
+)
 
 __all__ = [
     "db_conn", "db_health_check",
@@ -70,4 +74,6 @@ __all__ = [
     "db_set_report_group_access",
     "db_log_activity", "db_get_activity_log", "db_get_user_activity_log", "db_get_audit_log",
     "db_cleanup_activity_log", "db_get_popular_report_ids",
+    "db_get_report_folders", "db_create_report_folder", "db_update_report_folder",
+    "db_delete_report_folder", "db_get_folder", "db_move_report_to_folder",
 ]

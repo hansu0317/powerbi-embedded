@@ -159,6 +159,8 @@ def db_register_report(
     pbi_display_name: str | None = None,
     category: str | None = None,
     description: str | None = None,
+    portal_folder_id: int | None = None,
+    visibility: str = "personal",
 ):
     """업로드된 보고서를 등록하고 소유자에게 열람 권한을 부여한다.
 
@@ -185,21 +187,23 @@ def db_register_report(
                 report_id = existing["id"]
                 cur.execute(
                     "UPDATE reports SET status = 'active', deleted_at = NULL, updated_at = NOW(), "
-                    "updated_by = %s, category = COALESCE(category, %s), "
+                    "updated_by = %s, category = COALESCE(%s, category), portal_folder_id=COALESCE(%s,portal_folder_id), visibility=%s, "
                     "description = COALESCE(%s, description), "
                     "pbi_report_id = %s, pbi_workspace_id = %s, pbi_dataset_id = %s, pbi_display_name = %s "
                     "WHERE id = %s",
-                    (owner_id, category, description, pbi_report_id,
+                    (owner_id, category, portal_folder_id, visibility, description, pbi_report_id,
                      config.resolve_workspace_id(pbi_workspace_id), pbi_dataset_id, pbi_display_name, report_id),
                 )
             else:
                 cur.execute(
                     """INSERT INTO reports (
                            name, report_type, owner_id, status, category, description, created_by, updated_by,
-                           pbi_report_id, pbi_workspace_id, pbi_dataset_id, pbi_display_name
-                       ) VALUES (%s, 'personal', %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                           pbi_report_id, pbi_workspace_id, pbi_dataset_id, pbi_display_name,
+                           portal_folder_id, visibility
+                       ) VALUES (%s, 'personal', %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                     (name, owner_id, category, description, owner_id, owner_id,
-                     pbi_report_id, config.resolve_workspace_id(pbi_workspace_id), pbi_dataset_id, pbi_display_name),
+                     pbi_report_id, config.resolve_workspace_id(pbi_workspace_id), pbi_dataset_id, pbi_display_name,
+                     portal_folder_id, visibility),
                 )
                 report_id = cur.fetchone()["id"]
             cur.execute(

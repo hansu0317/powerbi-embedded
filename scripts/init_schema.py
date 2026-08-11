@@ -61,6 +61,18 @@ TABLES = [
         created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )""",
+    """CREATE TABLE IF NOT EXISTS report_folders (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        parent_id INTEGER REFERENCES report_folders(id) ON DELETE CASCADE,
+        owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        visibility VARCHAR(16) NOT NULL DEFAULT 'personal'
+            CHECK (visibility IN ('personal', 'group', 'shared')),
+        fabric_folder_id VARCHAR(36),
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )""",
     """CREATE TABLE IF NOT EXISTS reports (
         id SERIAL PRIMARY KEY,
         name VARCHAR(50) NOT NULL,
@@ -156,6 +168,8 @@ TABLES = [
 ]
 
 INDEXES = [
+    "CREATE UNIQUE INDEX IF NOT EXISTS report_folders_scope_name_uidx ON report_folders (COALESCE(parent_id, 0), COALESCE(owner_id, 0), LOWER(name))",
+    "CREATE INDEX IF NOT EXISTS report_folders_parent_idx ON report_folders(parent_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS reports_managed_name_uidx ON reports (LOWER(name)) WHERE owner_id IS NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS reports_personal_owner_name_uidx ON reports (owner_id, LOWER(name)) WHERE owner_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS reports_pbi_report_id_idx ON reports (pbi_report_id) WHERE pbi_report_id IS NOT NULL",
@@ -178,6 +192,28 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS event_log_audit_actor_idx ON event_log (user_id) WHERE log_type = 'audit'",
     "CREATE INDEX IF NOT EXISTS event_log_audit_created_idx ON event_log (created_at) WHERE log_type = 'audit'",
     "CREATE INDEX IF NOT EXISTS event_log_audit_details_gin ON event_log USING gin (details) WHERE log_type = 'audit'",
+]
+
+MIGRATIONS = [
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS portal_folder_id INTEGER REFERENCES report_folders(id) ON DELETE SET NULL",
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS visibility VARCHAR(16) NOT NULL DEFAULT 'personal' CHECK (visibility IN ('personal','group','shared'))",
+    "CREATE INDEX IF NOT EXISTS reports_portal_folder_idx ON reports(portal_folder_id) WHERE status = 'active'",
+    """INSERT INTO report_folders(name, owner_id, visibility, created_by)
+       SELECT DISTINCT COALESCE(NULLIF(r.category, ''), '미분류'), r.owner_id,
+              CASE WHEN r.owner_id IS NULL THEN 'shared' ELSE 'personal' END, r.owner_id
+       FROM reports r
+       WHERE NOT EXISTS (
+         SELECT 1 FROM report_folders f
+         WHERE f.name = COALESCE(NULLIF(r.category, ''), '미분류')
+           AND f.owner_id IS NOT DISTINCT FROM r.owner_id)""",
+    """UPDATE reports r SET portal_folder_id = f.id,
+              visibility = 'personal'
+       FROM report_folders f
+       WHERE r.portal_folder_id IS NULL
+         AND f.name = COALESCE(NULLIF(r.category, ''), '미분류')
+         AND f.owner_id IS NOT DISTINCT FROM r.owner_id""",
+    # 기존 owner 없는 관리 보고서는 종전의 직접/그룹 권한을 유지한다. 자동 전체공개 금지.
+    "UPDATE reports SET visibility='personal' WHERE owner_id IS NULL AND visibility='shared'",
 ]
 
 VIEWS = [
@@ -215,6 +251,8 @@ def init_schema():
     with psycopg2.connect(**DB_CONFIG) as conn:
         with conn.cursor() as cur:
             for stmt in TABLES:
+                cur.execute(stmt)
+            for stmt in MIGRATIONS:
                 cur.execute(stmt)
             for stmt in INDEXES:
                 cur.execute(stmt)

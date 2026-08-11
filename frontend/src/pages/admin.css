@@ -138,6 +138,7 @@
   margin-bottom: 10px;
 }
 .ad-section-actions { display: flex; align-items: center; gap: 10px; }
+.ad-folder-create { background:#fff; border:1px solid var(--line); border-radius:9px; padding:12px; margin-bottom:12px; }
 .ad-import-result { font-size: 0.82rem; color: var(--ink-soft); }
 
 /* ── 통계 카드 ────────────────────────────────────────── */

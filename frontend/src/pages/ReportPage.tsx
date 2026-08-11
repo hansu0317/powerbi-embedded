@@ -22,6 +22,7 @@ import type { ReportData, ReportItem, SessionUser } from "../bootstrap";
 import {
   fetchEmbed, fetchUploadStatus, logout, uploadPbix,
   fetchMyActivity, MyActivityRow, startReportUpdate,
+  fetchReportFolders, createReportFolder, ReportFolder,
 } from "../api";
 import { useFavorites } from "../useFavorites";
 import { useRecents } from "../useRecents";
@@ -290,7 +291,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
                   onGoUpload={() => setView("upload")}
                 />
               )}
-              {view === "upload" && canUpload && <UploadView csrf={csrf_token} />}
+              {view === "upload" && canUpload && <UploadView csrf={csrf_token} isAdmin={Boolean(user.is_admin)} />}
             </main>
           </div>
         )}
@@ -1555,14 +1556,20 @@ function deriveReportName(fileName: string): string {
   return fileName.toLowerCase().endsWith(".pbix") ? fileName.slice(0, -5) : fileName;
 }
 
-function UploadView({ csrf }: { csrf: string }) {
+function UploadView({ csrf, isAdmin }: { csrf: string; isAdmin: boolean }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [description, setDescription] = useState("");
+  const [folders,setFolders]=useState<ReportFolder[]>([]);
+  const [folderId,setFolderId]=useState<number|null>(null);
+  const [visibility,setVisibility]=useState<"personal"|"group"|"shared">("personal");
+  const [newFolder,setNewFolder]=useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ msg: string; tone: "" | "ok" | "err" }>(
     { msg: "", tone: "" },
   );
+  useEffect(()=>{fetchReportFolders().then((f)=>{setFolders(f);setFolderId(f[0]?.id??null)}).catch(()=>{})},[]);
+  const addFolder=async()=>{if(!newFolder.trim())return;try{const f=await createReportFolder(newFolder.trim(),null,visibility,csrf);setFolders(prev=>[...prev,f]);setFolderId(f.id);setNewFolder("")}catch(e){setStatus({msg:(e as Error).message,tone:"err"})}};
 
   const submit = async () => {
     const file = fileRef.current?.files?.[0];
@@ -1573,7 +1580,7 @@ function UploadView({ csrf }: { csrf: string }) {
     setBusy(true);
     setStatus({ msg: `'${file.name}' 전송 중...`, tone: "" });
     try {
-      const accepted = await uploadPbix(file, csrf, description.trim());
+      const accepted = await uploadPbix(file, csrf, description.trim(), folderId, visibility);
       const jobId = accepted.job_id;
       const name = accepted.report_name;
       setStatus({ msg: `'${name}' PBI 게시 중... (보통 30초~2분)`, tone: "" });
@@ -1608,6 +1615,12 @@ function UploadView({ csrf }: { csrf: string }) {
   return (
     <div className="rp-page">
       <h1 className="rp-page-title">보고서 등록</h1>
+      <div className="rp-upload-workspace">
+       <aside className="rp-upload-folders">
+        <div className="rp-upload-side-title">저장 위치</div>
+        {folders.map(f=><button key={f.id} className={`rp-upload-folder${folderId===f.id?" active":""}`} onClick={()=>{setFolderId(f.id);setVisibility(f.visibility)}}><Folder size={15}/><span>{f.name}</span><small>{f.report_count}</small></button>)}
+        <div className="rp-new-folder"><input value={newFolder} onChange={e=>setNewFolder(e.target.value)} placeholder="새 폴더"/><button onClick={addFolder}>+</button></div>
+       </aside>
       <div className="rp-form-card">
         <div className="rp-field">
           <label>
@@ -1636,6 +1649,15 @@ function UploadView({ csrf }: { csrf: string }) {
               보고서 명 : {deriveReportName(fileName)} (파일명 그대로 사용됩니다)
             </span>
           )}
+        </div>
+
+        <div className="rp-field">
+          <label>공개 범위</label>
+          <select value={visibility} onChange={e=>setVisibility(e.target.value as typeof visibility)} disabled={busy}>
+            <option value="personal">개인 — 나만 관리</option>
+            <option value="group">그룹 — 같은 그룹과 공유</option>
+            {isAdmin && <option value="shared">공용 — 포털 사용자와 공유</option>}
+          </select>
         </div>
 
         <div className="rp-field">
@@ -1668,6 +1690,7 @@ function UploadView({ csrf }: { csrf: string }) {
             {busy ? "처리 중..." : "파일 업로드"}
           </button>
         </div>
+      </div>
       </div>
     </div>
   );

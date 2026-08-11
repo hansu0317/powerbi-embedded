@@ -32,6 +32,7 @@ import {
   SyncStatus,
   UserReportRow,
   adminGetUserReports,
+  fetchReportFolders, createReportFolder, updateReportFolder, deleteReportFolder, ReportFolder,
   adminGetCompanies, adminSaveCompany, adminDeleteCompany, CompanyCode,
   adminAddUser,
   adminEditUser,
@@ -65,7 +66,7 @@ import { Rail, ContextBar } from "../AppShell";
 import { categoryColor, withAlpha } from "../categoryColor";
 
 type SectionKey =
-  | "overview" | "users" | "groups" | "companies" | "reports" | "logs";
+  | "overview" | "users" | "groups" | "companies" | "folders" | "reports" | "logs";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
 
 const SECTIONS: {
@@ -77,6 +78,7 @@ const SECTIONS: {
   { key: "users", Icon: UsersIcon, label: "사용자" },
   { key: "groups", Icon: Layers, label: "그룹" },
   { key: "companies", Icon: Layers, label: "회사 계층" },
+  { key: "folders", Icon: Layers, label: "보고서 폴더" },
   { key: "reports", Icon: BarChart3, label: "보고서" },
   { key: "logs", Icon: History, label: "로그" },
 ];
@@ -94,6 +96,17 @@ function CompaniesSection({csrf,showToast}:{csrf:string;showToast:(m:string,t?:"
   useEffect(()=>{load()},[load]);
   const save=async()=>{try{await adminSaveCompany({code,name,parent_code:parent||null},csrf);setCode("");setName("");setParent("");load();showToast("회사 계층을 저장했습니다.","ok")}catch(e){showToast((e as Error).message,"err")}};
   return <section><div className="ad-section-head"><h2 style={{marginBottom:0}}>회사 계층 관리</h2></div><div className="ad-form-grid" style={{marginBottom:16}}><Field label="회사 코드"><input value={code} onChange={e=>setCode(e.target.value)} placeholder="SECO"/></Field><Field label="회사명"><input value={name} onChange={e=>setName(e.target.value)} placeholder="회사 이름"/></Field><Field label="상위 회사"><select value={parent} onChange={e=>setParent(e.target.value)}><option value="">최상위</option>{rows.filter(r=>r.code!==code).map(r=><option key={r.code} value={r.code}>{r.code} — {r.name}</option>)}</select></Field><div className="ad-field"><label>&nbsp;</label><button className="btn btn-primary" onClick={save} disabled={!code||!name}>저장</button></div></div><div className="card-table"><table><thead><tr><th>코드</th><th>회사명</th><th>상위 회사</th><th>액션</th></tr></thead><tbody>{rows.map(r=><tr key={r.code}><td>{r.code}</td><td>{r.name}</td><td>{r.parent_code||"최상위"}</td><td><button className="btn btn-warn btn-sm" onClick={async()=>{if(confirm("삭제할까요?")){await adminDeleteCompany(r.code,csrf);load()}}}>삭제</button></td></tr>)}</tbody></table></div></section>;
+}
+
+function ReportFoldersSection({csrf,showToast}:{csrf:string;showToast:(m:string,t?:"ok"|"err"|"")=>void}) {
+  const [rows,setRows]=useState<ReportFolder[]>([]); const [name,setName]=useState(""); const [parent,setParent]=useState(""); const [visibility,setVisibility]=useState<ReportFolder["visibility"]>("shared");
+  const load=useCallback(()=>fetchReportFolders().then(setRows).catch(e=>showToast((e as Error).message,"err")),[showToast]);
+  useEffect(()=>{load()},[load]);
+  const save=async()=>{try{await createReportFolder(name,parent?Number(parent):null,visibility,csrf);setName("");setParent("");load();showToast("폴더를 만들었습니다.","ok")}catch(e){showToast((e as Error).message,"err")}};
+  return <section><div className="ad-section-head"><div><h2 style={{marginBottom:2}}>보고서 폴더</h2><span className="muted">소유권과 별개로 보고서의 표시 위치와 공유 범위를 관리합니다.</span></div></div>
+    <div className="ad-form-grid ad-folder-create"><Field label="폴더명"><input value={name} onChange={e=>setName(e.target.value)} placeholder="예: 영업/월간 보고서"/></Field><Field label="상위 폴더"><select value={parent} onChange={e=>setParent(e.target.value)}><option value="">최상위</option>{rows.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select></Field><Field label="공개 범위"><select value={visibility} onChange={e=>setVisibility(e.target.value as ReportFolder["visibility"])}><option value="personal">개인</option><option value="group">그룹</option><option value="shared">공용</option></select></Field><div className="ad-field"><label>&nbsp;</label><button className="btn btn-primary" disabled={!name.trim()} onClick={save}>폴더 만들기</button></div></div>
+    <div className="card-table"><table><thead><tr><th>폴더</th><th>상위 폴더</th><th>범위</th><th>소유자</th><th>보고서</th><th>관리</th></tr></thead><tbody>{rows.map(f=><tr key={f.id}><td>{f.name}</td><td>{rows.find(p=>p.id===f.parent_id)?.name||"—"}</td><td>{f.visibility==="shared"?"공용":f.visibility==="group"?"그룹":"개인"}</td><td>{f.owner_username||"포털"}</td><td>{f.report_count}</td><td><button className="btn btn-ghost btn-sm" onClick={async()=>{const n=prompt("새 폴더명",f.name);if(!n)return;await updateReportFolder(f.id,n,f.parent_id,f.visibility,csrf);load()}}>이름 변경</button> <button className="btn btn-warn btn-sm" disabled={f.report_count>0} onClick={async()=>{await deleteReportFolder(f.id,csrf);load()}}>삭제</button></td></tr>)}</tbody></table></div>
+  </section>;
 }
 
 export default function AdminPage({ data }: { data: AdminData }) {
@@ -315,6 +328,7 @@ export default function AdminPage({ data }: { data: AdminData }) {
               <GroupsSection csrf={csrf_token} showToast={showToast} />
             )}
             {section === "companies" && <CompaniesSection csrf={csrf_token} showToast={showToast} />}
+            {section === "folders" && <ReportFoldersSection csrf={csrf_token} showToast={showToast} />}
           </div>
         </main>
       </div>
