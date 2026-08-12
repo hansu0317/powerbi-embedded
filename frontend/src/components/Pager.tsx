@@ -50,6 +50,37 @@ export function usePaged<T>(items: T[], pageSize: number) {
   return { pageItems, page: cur, totalPages, total: items.length, setPage };
 }
 
+// 번호 버튼을 최대 몇 개까지 나란히 보여줄지 — 이 이상이면 옆으로 슬라이딩 창 +
+// 처음/끝 바로가기로 대체한다. 데이터가 늘어 페이지가 몇백 개가 돼도 버튼 줄이
+// 화면 폭을 넘기지 않는다(2026-08-12, 로그 화면에서 14페이지도 전부 나열되던 문제).
+const MAX_PAGE_BUTTONS = 10;
+
+// totalPages가 작으면 그냥 1..totalPages 그대로, 크면 현재 페이지를 중심으로 한
+// 창(최대 MAX_PAGE_BUTTONS개)만 보여주고 창 밖은 처음/끝 번호 + "…"로 압축한다.
+function pageWindow(page: number, totalPages: number): (number | "…")[] {
+  if (totalPages <= MAX_PAGE_BUTTONS) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const half = Math.floor(MAX_PAGE_BUTTONS / 2);
+  let start = Math.max(1, page - half);
+  let end = start + MAX_PAGE_BUTTONS - 1;
+  if (end > totalPages) {
+    end = totalPages;
+    start = end - MAX_PAGE_BUTTONS + 1;
+  }
+  const nums: (number | "…")[] = [];
+  if (start > 1) {
+    nums.push(1);
+    if (start > 2) nums.push("…");
+  }
+  for (let n = start; n <= end; n++) nums.push(n);
+  if (end < totalPages) {
+    if (end < totalPages - 1) nums.push("…");
+    nums.push(totalPages);
+  }
+  return nums;
+}
+
 // 공용 페이지네이션 (Total N + ‹ 1 2 3 ›)
 export function Pager({
   page,
@@ -62,7 +93,7 @@ export function Pager({
   total: number;
   onPage: (n: number) => void;
 }) {
-  const nums = Array.from({ length: totalPages }, (_, i) => i + 1);
+  const nums = pageWindow(page, totalPages);
   return (
     <div className="rp-pager">
       <span className="rp-pager-total">Total {total} records</span>
@@ -75,15 +106,19 @@ export function Pager({
           >
             ‹
           </button>
-          {nums.map((n) => (
-            <button
-              key={n}
-              className={`rp-pager-btn${n === page ? " active" : ""}`}
-              onClick={() => onPage(n)}
-            >
-              {n}
-            </button>
-          ))}
+          {nums.map((n, i) =>
+            n === "…" ? (
+              <span key={`ellipsis-${i}`} className="rp-pager-ellipsis">…</span>
+            ) : (
+              <button
+                key={n}
+                className={`rp-pager-btn${n === page ? " active" : ""}`}
+                onClick={() => onPage(n)}
+              >
+                {n}
+              </button>
+            ),
+          )}
           <button
             className="rp-pager-btn"
             disabled={page === totalPages}

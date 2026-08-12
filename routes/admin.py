@@ -24,10 +24,10 @@ from database import (
     db_admin_get_groups, db_admin_create_group, db_admin_delete_group,
     db_get_group_members, db_set_group_member,
     db_get_report_group_access, db_set_report_group_access,
+    db_admin_set_report_visibility,
     db_get_user_report_list,
     db_get_activity_log, db_get_audit_log,
     db_admin_toggle_user_upload,
-    db_admin_get_company_codes, db_admin_upsert_company, db_admin_delete_company,
 )
 from deps import csrf_token, verify_csrf, require_admin_user, require_admin_csrf, json_body
 from errors import AppError
@@ -163,6 +163,23 @@ async def api_admin_set_group_access(
     return {"report_id": report_id, "group_id": group_id, "can_view": can_view}
 
 
+@router.post("/api/admin/reports/{report_id}/visibility")
+async def api_admin_set_report_visibility(
+    request: Request, report_id: int, user: dict = Depends(require_admin_csrf),
+):
+    visibility = str((await json_body(request)).get("visibility", "personal"))
+    if visibility not in ("personal", "shared"):
+        raise AppError.BODY_INVALID.http()
+    changed = await asyncio.to_thread(
+        db_admin_set_report_visibility, report_id, visibility, user["id"],
+    )
+    if not changed:
+        raise AppError.REPORT_NOT_FOUND.http()
+    logger.info("ADMIN REPORT VISIBILITY | admin=%s | report_id=%s | visibility=%s",
+                user["username"], report_id, visibility)
+    return {"report_id": report_id, "visibility": visibility}
+
+
 # 설정 키별 허용 범위 — 관리자 실수로 서비스를 마비시키는 값(0 한도, 폴링 폭주 등)을 차단한다.
 # 키 추가 시 여기와 scripts/init_schema.py의 APP_CONFIG_DEFAULTS에 함께 등록할 것.
 CONFIG_LIMITS = {
@@ -180,6 +197,9 @@ CONFIG_LIMITS = {
     "pbi_token_cache_margin_sec": (0, 3600),
     "activity_log_retention_days": (7, 3650),
     "error_log_retention_days":  (7, 3650),
+    "recents_limit":              (1, 50),
+    "activity_log_max_rows":      (100, 10000),
+    "admin_upload_jobs_limit":    (5, 500),
 }
 
 
@@ -226,7 +246,6 @@ async def api_admin_get_reports(user: dict = Depends(require_admin_user)):
 
 
 DATA_SCOPES = ("self", "department", "all")
-COMPANY_SCOPES = ("own", "group")
 
 
 @router.post("/api/admin/users/add")
@@ -241,8 +260,6 @@ async def api_admin_add_user(
     group_ids: str = Form(""),
     department: str = Form(""),
     data_scope: str = Form("self"),
-    company_code: str = Form(""),
-    company_scope: str = Form("own"),
     csrf: str = Form(),
     user: dict = Depends(require_admin_user),
 ):
@@ -257,7 +274,7 @@ async def api_admin_add_user(
         new_id = await asyncio.to_thread(
             db_admin_add_user, username, pw_hash, display_name,
             pbi_username or username, is_admin, can_upload, group_id_list,
-            department.strip() or None, data_scope, company_code.strip() or None, company_scope,
+            department.strip() or None, data_scope,
         )
     except psycopg2.errors.UniqueViolation:
         raise AppError.USER_ALREADY_EXISTS.http(username=username)
@@ -272,58 +289,41 @@ async def api_admin_add_user(
 async def api_admin_edit_user(
     request: Request, user_id: int, user: dict = Depends(require_admin_csrf),
 ):
-    """표시 이름·RLS 식별자(pbi_username) 수정.
+    """표시 이름·RLS 속성(pbi_username, department, data_scope) 수정.
 
     비밀번호·아이디·관리자 권한·업로드 권한은 각각 별도 경로(add 시 지정, toggle-*)에서
-    다룬다. department/data_scope는 여기서 안 다룬다(db_admin_update_user 참고 — 값을
-    바꾸고 싶으면 SQL로 직접). RLS 역할 이름은 사용자별 값이 아니라 config.PBI_RLS_ROLE_NAME
-    고정값이라 여기서 다룰 게 없다.
-    body: {display_name, pbi_username}"""
+    다룬다. RLS 역할 이름은 사용자별 값이 아니라 config.PBI_RLS_ROLE_NAME 고정값이라
+    여기서 다룰 게 없다.
+    body: {display_name, pbi_username, department, data_scope}"""
     body = await json_body(request)
     display_name = str(body.get("display_name", "")).strip()
     pbi_username = str(body.get("pbi_username", "")).strip()
     department = str(body.get("department", "")).strip() or None
     data_scope = str(body.get("data_scope", "self"))
-    company_code = str(body.get("company_code", "")).strip() or None
-    company_scope = str(body.get("company_scope", "own"))
-    if not display_name or not pbi_username or data_scope not in DATA_SCOPES or company_scope not in COMPANY_SCOPES:
+    if not display_name or not pbi_username or data_scope not in DATA_SCOPES:
         raise AppError.BODY_INVALID.http()
 
     updated = await asyncio.to_thread(
-        db_admin_update_user, user_id, display_name, pbi_username, department, data_scope, company_code, company_scope,
+        db_admin_update_user, user_id, display_name, pbi_username, department, data_scope,
     )
     if not updated:
         raise AppError.USER_NOT_FOUND.http()
     logger.info("ADMIN EDIT USER | admin=%s | user_id=%s", user["username"], user_id)
     return {
         "user_id": user_id, "display_name": display_name, "pbi_username": pbi_username,
-        "department": department, "data_scope": data_scope, "company_code": company_code, "company_scope": company_scope,
+        "department": department, "data_scope": data_scope,
     }
-
-@router.get("/api/admin/company-codes")
-async def api_admin_get_companies(user: dict = Depends(require_admin_user)):
-    return {"companies": await asyncio.to_thread(db_admin_get_company_codes)}
-
-@router.post("/api/admin/company-codes")
-async def api_admin_save_company(request: Request, user: dict = Depends(require_admin_csrf)):
-    body = await json_body(request)
-    code, name = str(body.get("code", "")).strip(), str(body.get("name", "")).strip()
-    parent = str(body.get("parent_code", "")).strip() or None
-    if not code or not name or len(code) > 30: raise AppError.BODY_INVALID.http()
-    try: return await asyncio.to_thread(db_admin_upsert_company, code, name, parent)
-    except psycopg2.errors.ForeignKeyViolation: raise AppError.BODY_INVALID.http()
-
-@router.post("/api/admin/company-codes/{code}/delete")
-async def api_admin_delete_company_code(code: str, user: dict = Depends(require_admin_csrf)):
-    if not await asyncio.to_thread(db_admin_delete_company, code): raise AppError.BODY_INVALID.http()
-    return {"deleted": True}
 
 
 def _parse_csv_bool(value: str, default: bool) -> bool:
     v = value.strip().lower()
     if not v:
         return default
-    return v in ("true", "1", "y", "yes")
+    if v in ("true", "1", "y", "yes"):
+        return True
+    if v in ("false", "0", "n", "no"):
+        return False
+    raise ValueError(f"불리언 값은 true/false만 허용합니다: '{value}'")
 
 
 def _bulk_add_one(row: dict, group_map: dict[str, int]) -> tuple[str, str | None]:
@@ -342,8 +342,11 @@ def _bulk_add_one(row: dict, group_map: dict[str, int]) -> tuple[str, str | None
         return "error", f"존재하지 않는 그룹: {', '.join(missing)}"
     group_id_list = [group_map[g] for g in group_names]
 
-    is_admin = _parse_csv_bool(row.get("is_admin") or "", False)
-    can_upload = _parse_csv_bool(row.get("can_upload") or "", True)
+    try:
+        is_admin = _parse_csv_bool(row.get("is_admin") or "", False)
+        can_upload = _parse_csv_bool(row.get("can_upload") or "", True)
+    except ValueError as exc:
+        return "error", str(exc)
     pbi_username = (row.get("pbi_username") or "").strip() or username
     department = (row.get("department") or "").strip() or None
     data_scope = (row.get("data_scope") or "self").strip() or "self"
@@ -374,15 +377,18 @@ async def api_admin_bulk_add_users(
 ):
     """CSV로 사용자 여러 명을 한 번에 등록한다.
 
-    헤더: username,password,display_name,pbi_username,groups,is_admin,can_upload
+    헤더: username,password,display_name,pbi_username,groups,is_admin,can_upload,
+          department,data_scope
     groups는 세미콜론(;)으로 여러 값 구분하며 미리 존재하는 그룹 이름만 허용—
     그룹×보고서 권한은 그룹 쪽에서 한 번만 설정해두면, 이 경로로 늘어나는 인원은
     그룹 멤버십만으로 자동으로 동일한 열람 권한을 받는다.
     """
     verify_csrf(request, csrf)
-    raw = await file.read()
+    raw = await file.read(2 * 1024 * 1024 + 1)
     if not raw:
         raise AppError.CSV_EMPTY.http()
+    if len(raw) > 2 * 1024 * 1024:
+        raise AppError.CSV_TOO_LARGE.http(max_mb=2)
     text = raw.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
     if not reader.fieldnames or not {"username", "password", "display_name"} <= set(reader.fieldnames):
@@ -460,7 +466,7 @@ async def api_admin_delete_report(report_id: int, user: dict = Depends(require_a
 
 @router.post("/api/admin/import-pbi")
 async def api_admin_import_pbi(user: dict = Depends(require_admin_csrf)):
-    """Fabric 폴더 구조를 읽어 새 공용 보고서 + 대시보드(v6)를 DB에 등록한다.
+    """Fabric 폴더 구조를 읽어 새 비공개 보고서 + 대시보드(v6)를 DB에 등록한다.
 
     이미 등록된 항목은 건너뛴다(pbi_report_id 중복 체크).
     권한은 부여하지 않으므로 등록 후 보고서 관리에서 별도 설정이 필요하다.
@@ -629,7 +635,9 @@ async def api_admin_logs(
 ):
     """활동/감사 로그 조회 (관리자 로그 탭)."""
     rows = await asyncio.to_thread(_fetch_logs, type, username, event, date_from, date_to)
-    return {"rows": rows}
+    # limit도 같이 내려줘야 화면의 "최근 N건까지만 표시" 안내가 실제 조회 상한과
+    # 어긋나지 않는다(관리자가 설정에서 activity_log_max_rows를 바꿀 수 있으므로).
+    return {"rows": rows, "limit": config.ACTIVITY_LOG_MAX_ROWS}
 
 
 @router.get("/api/admin/logs/export")
@@ -679,4 +687,3 @@ async def api_admin_system_status(user: dict = Depends(require_admin_user)):
         "sync_interval_sec": config.PBI_SYNC_INTERVAL,
         **stats,
     }
-

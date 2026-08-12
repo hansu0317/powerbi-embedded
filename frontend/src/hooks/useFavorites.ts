@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { setFavorite } from "./api";
+import { setFavorite } from "../lib/api";
 
 // 즐겨찾기는 DB에 저장한다(기기 간 유지). 초기값은 서버 부트스트랩에서 받고,
 // 토글 시 낙관적으로 화면을 갱신한 뒤 API를 호출한다(실패하면 되돌림).

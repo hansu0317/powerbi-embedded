@@ -53,7 +53,7 @@ export interface EmbedResponse {
   // GET 필터 (PoC) — reports.filter_table/column/key가 설정된 보고서 + 사용자
   // (users.filter_key/filter_value)의 key가 일치할 때만 내려온다. 진짜 RLS(위
   // rls_enabled)와는 별개로, 필터 창에서 사용자가 지울 수 있는 표시 편의 기능이다.
-  // key는 "관계사 코드"처럼 특정 개념에 고정하지 않기 위한 값(예: company_code,
+  // key는 "관계사 코드"처럼 특정 개념에 고정하지 않기 위한 값(예: partner_code,
   // factory_code — 고객사마다 다를 수 있음). 한 사용자 한 값만 지원한다.
   get_filter?: {
     key: string;
@@ -103,9 +103,6 @@ export async function uploadPbix(
 
 export interface ReportFolder { id:number; name:string; parent_id:number|null; owner_id:number|null; visibility:"personal"|"group"|"shared"; owner_username:string|null; report_count:number }
 export async function fetchReportFolders():Promise<ReportFolder[]> { const r=await authFetch("/api/report-folders"); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"폴더 조회 실패")); return j.folders; }
-export async function createReportFolder(name:string,parentId:number|null,visibility:ReportFolder["visibility"],csrf:string){ const r=await authFetch("/api/report-folders",{method:"POST",headers:{"X-CSRF-Token":csrf,"Content-Type":"application/json"},body:JSON.stringify({name,parent_id:parentId,visibility})}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"폴더 생성 실패")); return j; }
-export async function updateReportFolder(id:number,name:string,parentId:number|null,visibility:ReportFolder["visibility"],csrf:string){ const r=await authFetch(`/api/report-folders/${id}`,{method:"POST",headers:{"X-CSRF-Token":csrf,"Content-Type":"application/json"},body:JSON.stringify({name,parent_id:parentId,visibility})}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"폴더 수정 실패")); return j; }
-export async function deleteReportFolder(id:number,csrf:string){ const r=await authFetch(`/api/report-folders/${id}/delete`,{method:"POST",headers:{"X-CSRF-Token":csrf}}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"비어 있는 폴더만 삭제할 수 있습니다")); return j; }
 export async function moveReportToFolder(reportId:number,folderId:number,csrf:string){ const r=await authFetch(`/api/reports/${reportId}/folder`,{method:"POST",headers:{"X-CSRF-Token":csrf,"Content-Type":"application/json"},body:JSON.stringify({folder_id:folderId})}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"보고서 이동 실패")); return j; }
 
 export interface UploadStatus {
@@ -248,14 +245,7 @@ export interface EditUserPayload {
   pbi_username: string;
   department?: string;
   data_scope?: "self" | "department" | "all";
-  company_code?: string;
-  company_scope?: "own" | "group";
 }
-
-export interface CompanyCode { code: string; name: string; parent_code: string | null; created_at?: string }
-export async function adminGetCompanies(): Promise<CompanyCode[]> { const r=await authFetch("/api/admin/company-codes"); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"회사 목록 조회 실패")); return j.companies; }
-export async function adminSaveCompany(p: Omit<CompanyCode,"created_at">, csrf:string) { const r=await authFetch("/api/admin/company-codes",{method:"POST",headers:{"X-CSRF-Token":csrf,"Content-Type":"application/json"},body:JSON.stringify(p)}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"회사 저장 실패")); return j; }
-export async function adminDeleteCompany(code:string,csrf:string) { const r=await authFetch(`/api/admin/company-codes/${encodeURIComponent(code)}/delete`,{method:"POST",headers:{"X-CSRF-Token":csrf}}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"회사 삭제 실패")); return j; }
 
 export async function adminEditUser(userId: number, payload: EditUserPayload, csrf: string) {
   const res = await authFetch(`/api/admin/users/${userId}/edit`, {
@@ -407,6 +397,19 @@ export async function adminSetGroupAccess(
   return j;
 }
 
+export async function adminSetReportVisibility(
+  reportId: number, visibility: "personal" | "shared", csrf: string,
+) {
+  const res = await authFetch(`/api/admin/reports/${reportId}/visibility`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+    body: JSON.stringify({ visibility }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(extractDetail(j, "공개 범위 변경 실패"));
+  return j;
+}
+
 export async function adminGetAccess(reportId: number): Promise<AccessUser[]> {
   const res = await authFetch(`/api/admin/reports/${reportId}/access`);
   const j = await res.json().catch(() => ({}));
@@ -469,11 +472,13 @@ export function logQueryString(
 export async function adminGetLogs(
   type: "activity" | "audit",
   filters: { username?: string; event?: string; date_from?: string; date_to?: string },
-): Promise<LogRow[]> {
+): Promise<{ rows: LogRow[]; limit: number }> {
   const res = await authFetch(`/api/admin/logs?${logQueryString(type, filters)}`);
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(extractDetail(j, "로그 조회 실패"));
-  return j.rows as LogRow[];
+  // limit은 서버 app_config(activity_log_max_rows)에서 온 실제 조회 상한 — 화면의
+  // "최근 N건까지만 표시" 안내가 관리자가 바꾼 값과 항상 맞도록 같이 받는다.
+  return { rows: j.rows as LogRow[], limit: typeof j.limit === "number" ? j.limit : 1000 };
 }
 
 /* ── v4: RLS 설정 ─────────────────────────────────────── */

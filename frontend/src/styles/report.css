@@ -63,6 +63,45 @@
   box-shadow: var(--shadow);
 }
 
+/* ── 보고서 탐색기: 폴더 카드 + 파일 목록 ─────────────── */
+.rp-browser-switch { display:flex; width:max-content; padding:3px; margin:4px 0 8px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+.rp-browser-switch button { border:0; border-radius:6px; padding:7px 12px; background:transparent; color:var(--ink-soft); font:inherit; font-size:.76rem; cursor:pointer; }
+.rp-browser-switch button.active { background:var(--sage-bg); color:var(--sage-deep); font-weight:700; }
+.rp-upload-policy { display:flex; flex-direction:column; gap:4px; padding:14px 16px; border:1px solid var(--line); border-radius:9px; background:var(--sage-bg); color:var(--ink); }
+.rp-upload-policy strong { font-size:.84rem; }
+.rp-upload-policy span { color:var(--muted); font-size:.76rem; line-height:1.5; }
+.rp-upload-note > div { display:flex; flex-direction:column; gap:4px; line-height:1.45; }
+.rp-update-rules { margin:0 0 16px; padding:12px 14px 12px 30px; border:1px solid var(--line); border-radius:8px; background:var(--sage-bg); color:var(--ink-soft); font-size:.78rem; line-height:1.65; }
+.rp-explorer-crumbs { display:flex; align-items:center; gap:3px; min-height:38px; border-bottom:1px solid var(--line); }
+.rp-explorer-crumbs span { display:flex; align-items:center; color:var(--muted); }
+.rp-explorer-crumbs button { border:0; background:transparent; color:var(--ink-soft); font:inherit; font-size:.78rem; cursor:pointer; padding:5px 7px; border-radius:5px; }
+.rp-explorer-crumbs button:hover { background:var(--sage-bg); color:var(--sage-deep); }
+.rp-explorer { flex:1; min-height:0; padding-top:14px; }
+.rp-explorer-section { margin-bottom:20px; }
+.rp-explorer-section h2 { margin:0 0 10px; font-size:.88rem; }
+.rp-explorer-section h2 span { color:var(--muted); font-size:.72rem; font-weight:500; margin-left:4px; }
+.rp-folder-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(205px,1fr)); gap:10px; }
+.rp-folder-card { min-width:0; display:flex; align-items:center; gap:12px; padding:15px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); text-align:left; font:inherit; cursor:pointer; }
+.rp-folder-card:hover { border-color:var(--sage); background:var(--sage-bg); }
+.rp-folder-card > svg:first-child { color:var(--sage); fill:var(--sage-soft); flex-shrink:0; }
+.rp-folder-card > svg:last-child { color:var(--muted); margin-left:auto; flex-shrink:0; }
+.rp-folder-card span { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.rp-folder-card b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.84rem; }
+.rp-folder-card small { color:var(--muted); font-size:.7rem; }
+.rp-file-list { border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff; }
+.rp-file-row { width:100%; display:grid; grid-template-columns:34px minmax(180px,1fr) 70px 70px; align-items:center; gap:10px; min-height:58px; padding:9px 14px; border:0; border-bottom:1px solid var(--line); background:#fff; color:var(--ink); text-align:left; font:inherit; cursor:pointer; }
+.rp-file-row:last-child { border-bottom:0; }
+.rp-file-row:hover { background:var(--sage-bg); }
+.rp-file-type { width:30px; height:30px; display:grid; place-items:center; border-radius:7px; background:var(--sage-soft); color:var(--sage-deep); }
+.rp-file-copy { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.rp-file-copy b,.rp-file-copy small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rp-file-copy b { font-size:.82rem; }.rp-file-copy small { color:var(--muted); font-size:.7rem; }
+.rp-file-meta { color:var(--ink-soft); font-size:.73rem; }
+.rp-file-open { display:flex; align-items:center; justify-content:flex-end; color:var(--sage-deep); font-size:.74rem; font-weight:700; }
+.rp-folder-empty { min-height:150px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--muted); }
+.rp-folder-empty p { margin:9px 0 0; font-size:.8rem; }
+@media(max-width:760px){.rp-folder-grid{grid-template-columns:1fr}.rp-file-row{grid-template-columns:34px minmax(0,1fr) 52px}.rp-file-open{display:none}}
+
 /* ── 내 보고서: 임베드(위) + 탭(아래) ─────────────────── */
 /* 캔버스 자체는 순정 흰 배경 그대로 두고, 주변(app-main)만 은은한 연회색으로
    낮춰서 리포트가 저절로 눈에 띄게 한다 — 흰 스테이지 카드 하나로 감싸는 것. */
@@ -144,6 +183,8 @@
 .rp-panel.active { display: flex; flex-direction: column; }
 .rp-embed { flex: 1; width: 100%; height: 100%; }
 .rp-embed iframe { border: none; display: block; width: 100%; height: 100%; }
+.rp-embed:fullscreen { width:100vw; height:100vh; background:#fff; }
+.rp-embed:fullscreen iframe { width:100vw !important; height:100vh !important; }
 
 .rp-panel-loading {
   position: absolute;
@@ -500,18 +541,34 @@
    다 안 들어갈 수 있다 — 그때는 표 영역만 안에서 스크롤되게(overflow-y: auto) 한다.
    숨겨서 안 보이게 자르는 것보다 스크롤이 훨씬 낫고, 화면 자체·페이저는 안 흔들린다.
    보통 화면 높이에서는 10개가 다 들어가서 스크롤바 자체가 안 보인다. */
+/* 배경·테두리·모서리 radius·그림자는 이제 안 적는다 — .card-table 클래스를 같이 붙여서
+   (ReportPage.tsx Home, AdminPage.tsx ReportsSection 둘 다) 그 쪽 값을 그대로 쓴다.
+   전엔 여기 border-radius:9px을 따로 박아놨는데 .card-table의 var(--radius)(10px)와
+   1px 어긋났고, report.css가 theme.css보다 나중에 로드돼 이 9px이 조용히 이겼다 —
+   같은 조합(.home-tablewrap.card-table)을 쓰는 두 표(홈 표, 관리자 "보고서 관리" 표)
+   모두에서 모서리가 살짝 어긋나 보인 원인이었다(2026-08-12). */
 .home-tablewrap { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.home-detail { align-self: flex-start; }
+.home-detail { align-self: stretch; }
 .home-table {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 9px;
+  border: 0;
+  border-radius: 0;
   overflow: hidden;
-  font-size: 0.81rem;
+  font-size: 0.8rem; /* 사용자 관리 등 .card-table 표들과 동일 폰트 크기 — 예전엔 0.81rem이라
+                        미세하게 달랐다(2026-08-12, 줄간격이 표마다 달라 보이던 원인 중 하나). */
   box-shadow: none;
 }
+/* table-layout만 별도 규칙으로 뺐다 — 이 div가 이제 .card-table도 같이 쓰는데(위
+   .home-tablewrap 주석), .card-table table이 table-layout:auto를 정하고 그 규칙이
+   .home-table 단독(0,1,0)보다 특정도가 높아(.card-table table = 0,1,1) 그냥 뒀으면
+   auto가 조용히 이겨서 탭(전체/즐겨찾기/공용 등) 전환마다 컬럼 폭이 다시 계산되며
+   흔들리는 예전 버그가 되살아난다. .card-table .home-table(0,2,0)로 확실히 이기게
+   써서 — report.css가 theme.css보다 나중에 로드된다는 사실에 기대지 않는다(그 우연한
+   로드 순서가 바로 위 border-radius 버그의 원인이었다). 폭 자체는 colgroup
+   (ReportPage.tsx)이 고정한다. */
+.card-table .home-table { table-layout: fixed; }
 .home-table th {
   text-align: left;
   background: var(--sage-bg);
@@ -520,14 +577,28 @@
   font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 9px 14px;
+  padding: var(--row-head-pad-v) 14px; /* .card-table th와 같은 변수(:root) — 숫자를
+                                            맞추는 게 아니라 값 자체를 공유해서 한쪽만
+                                            고치고 잊어버리는 일이 다시는 안 생기게 한다. */
   border-bottom: 1px solid var(--line);
 }
-.home-table td { padding: 7px 14px; border-bottom: 1px solid #F1F1F5; color: var(--ink); vertical-align: middle; }
+.home-table td {
+  padding: var(--row-pad-v) 14px; /* 세로 패딩은 .card-table td와 같은 변수(:root) —
+                                      예전엔 둘 다 "숫자"만 맞춰놔서(11px=11px) 다음에
+                                      한쪽만 바뀌면 다시 어긋날 뻔했다(2026-08-12). */
+  border-bottom: 1px solid #F1F1F5;
+  color: var(--ink);
+  vertical-align: middle;
+  overflow: hidden;
+  line-height: var(--row-line); /* .card-table td와 같은 변수 */
+  height: var(--row-h); /* .card-table과 같은 변수(:root) — table-cell height는 하한선이라
+                            아이콘(24px)이 낀 이 표에서는 실제로 조금 더 자란다(정상 동작). */
+}
 .home-table-row { cursor: pointer; transition: box-shadow 0.1s; }
 .home-table-row:last-child td { border-bottom: none; }
 .home-table-row.sel { background:var(--sage-soft); box-shadow:inset 3px 0 0 var(--sage); }
-.home-table-name { display: flex; align-items: center; gap: 9px; font-weight: 600; white-space: nowrap; }
+.home-table-name { display: flex; align-items: center; gap: 9px; font-weight: 600; min-width: 0; }
+.home-table-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .home-mini-ic {
   width: 24px;
   aspect-ratio: 1;
@@ -538,8 +609,8 @@
   color: #fff;
   flex-shrink: 0;
 }
-.home-cat-pill { font-size: 0.68rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
-.home-table-type { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+.home-cat-pill { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 0.68rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; box-sizing: border-box; vertical-align: middle; }
+.home-table-type { display: block; overflow: hidden; text-overflow: ellipsis; font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
 .home-table-empty { text-align: center; color: var(--muted); padding: 30px; }
 
 .home-detail {
@@ -704,9 +775,10 @@
 .rp-upload-folder small { color:var(--muted); }
 .rp-upload-folder:hover { background:var(--sage-bg); }
 .rp-upload-folder.active { background:var(--sage-soft); color:var(--sage-deep); font-weight:650; }
-.rp-new-folder { display:flex; gap:5px; margin-top:9px; padding-top:9px; border-top:1px solid var(--line); }
-.rp-new-folder input { min-width:0; flex:1; border:1px solid var(--line); border-radius:6px; padding:7px 8px; font:inherit; font-size:.75rem; }
-.rp-new-folder button { width:30px; border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; color:var(--sage-deep); }
+.rp-upload-folder--child { font-size:.73rem; color:var(--muted); }
+.rp-upload-folder--child.active { color:var(--sage-deep); }
+.rp-upload-side-empty { display:block; padding:9px 7px; font-size:.75rem; color:var(--muted); }
+.rp-upload-side-hint { display:block; margin-top:6px; padding:9px 7px 2px; border-top:1px solid var(--line); font-size:.72rem; line-height:1.4; color:var(--muted); }
 .rp-form-card select { width:100%; border:1px solid var(--line); border-radius:8px; padding:9px 10px; background:#fff; color:var(--ink); font:inherit; }
 @media(max-width:760px){.rp-upload-workspace{grid-template-columns:1fr}.rp-upload-folders{max-height:180px;overflow-y:auto}}
 
@@ -815,6 +887,7 @@
   color: #fff;
 }
 .rp-pager-btn:disabled { opacity: 0.4; cursor: default; }
+.rp-pager-ellipsis { min-width: 20px; text-align: center; color: var(--muted); font-size: 0.84rem; user-select: none; }
 
 
 /* ── 보고서 미리보기 팝업 ─────────────────────────────── */

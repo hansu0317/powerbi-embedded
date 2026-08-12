@@ -1,6 +1,7 @@
 """관리자 포털 전용 — 사용자/보고서 관리, PBI 가져오기, 런타임 설정(app_config)."""
 import psycopg2.errors
 
+import config
 from config import WORKSPACE_ID
 from database.pool import db_conn
 from database.reports import _CAN_VIEW_REPORT_SQL
@@ -35,14 +36,14 @@ def db_admin_get_stats() -> dict:
 def db_admin_get_users() -> list:
     """사용자 목록 + 열람 가능 보고서 수 (직접 부여 + 그룹 경유, active만).
 
-    department/data_scope/company_code/company_scope는 권한(위 report_count)과
-    완전히 별개인 RLS(2층·행 단위) 속성이다 — docs/01_RLS_적용가이드.md 참고."""
+    department/data_scope는 권한(위 report_count)과 완전히 별개인 RLS(2층·행 단위)
+    속성이다 — docs/01_RLS_적용가이드.md 참고."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"""SELECT u.id, u.username, u.display_name, u.pbi_username,
                           u.is_admin, u.is_active, u.can_upload, u.last_login_at, u.created_at,
-                          u.department, u.data_scope, u.company_code, u.company_scope,
+                          u.department, u.data_scope,
                           (SELECT COUNT(*) FROM reports r
                            WHERE r.status = 'active' AND {_CAN_VIEW_REPORT_SQL}
                           ) AS report_count
@@ -81,16 +82,15 @@ def db_get_user_report_list(user_id: int) -> list:
 def db_admin_add_user(username: str, pw_hash: str, display_name: str,
                       pbi_username: str, is_admin: bool,
                       can_upload: bool = True, group_ids: list[int] | None = None,
-                      department: str | None = None, data_scope: str = "self",
-                      company_code: str | None = None, company_scope: str = "own") -> int:
+                      department: str | None = None, data_scope: str = "self") -> int:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (username, password, display_name, pbi_username, is_admin, "
-                "can_upload, department, data_scope, company_code, company_scope) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                "can_upload, department, data_scope) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (username, pw_hash, display_name, pbi_username, is_admin,
-                 can_upload, department, data_scope, company_code, company_scope),
+                 can_upload, department, data_scope),
             )
             row = cur.fetchone()
             user_id = row["id"]
@@ -104,14 +104,10 @@ def db_admin_add_user(username: str, pw_hash: str, display_name: str,
 
 
 def db_admin_update_user(user_id: int, display_name: str, pbi_username: str,
-                         department: str | None, data_scope: str,
-                         company_code: str | None, company_scope: str) -> bool:
-    """사용자 표시정보·RLS 식별자(pbi_username) 수정.
-
-    RLS 역할 이름은 더 이상 사용자별 컬럼이 아니라 config.PBI_RLS_ROLE_NAME 고정값이라
-    여기서 다룰 게 없다. department/data_scope도 여기서 안 건드린다 — 지금 관리
-    화면에서 뺀 필드라(동적 RLS 작업 보류 중, 값은 나중에 SQL로 직접 채울 수 있음)
-    이 함수가 계속 건드리면 다른 필드 수정할 때마다 매번 기본값으로 조용히 덮어써진다.
+                         department: str | None, data_scope: str) -> bool:
+    """사용자 표시정보·RLS 속성(pbi_username, department, data_scope) 수정.
+    RLS 역할 이름 자체는 사용자별 컬럼이 아니라 config.PBI_RLS_ROLE_NAME 고정값이라
+    여기서 다룰 게 없다.
 
     admin 계정은 제외한다 — 실수로 관리자 계정을 건드리는 걸 막는다
     (toggle_active·toggle_upload와 동일한 보호 원칙)."""
@@ -119,37 +115,13 @@ def db_admin_update_user(user_id: int, display_name: str, pbi_username: str,
         with conn.cursor() as cur:
             cur.execute(
                 """UPDATE users SET display_name = %s, pbi_username = %s, department = %s,
-                          data_scope = %s, company_code = %s, company_scope = %s, updated_at = NOW()
+                          data_scope = %s, updated_at = NOW()
                    WHERE id = %s AND username != 'admin' RETURNING id""",
-                (display_name, pbi_username, department, data_scope, company_code, company_scope, user_id),
+                (display_name, pbi_username, department, data_scope, user_id),
             )
             row = cur.fetchone()
         conn.commit()
     return row is not None
-
-def db_admin_get_company_codes() -> list:
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT code, name, parent_code, created_at FROM company_codes ORDER BY code")
-            return cur.fetchall()
-
-def db_admin_upsert_company(code: str, name: str, parent_code: str | None) -> dict:
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""INSERT INTO company_codes(code,name,parent_code) VALUES(%s,%s,%s)
-                         ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name,parent_code=EXCLUDED.parent_code
-                         RETURNING code,name,parent_code,created_at""", (code,name,parent_code))
-            row = cur.fetchone()
-        conn.commit()
-    return row
-
-def db_admin_delete_company(code: str) -> bool:
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM company_codes WHERE code=%s RETURNING code", (code,))
-            ok = cur.fetchone() is not None
-        conn.commit()
-    return ok
 
 
 def db_admin_toggle_user_active(user_id: int):
@@ -186,6 +158,7 @@ def db_admin_get_reports() -> list:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.status, r.created_at, r.category, r.description,
+                          r.visibility,
                           u.username AS owner_username,
                           r.pbi_report_id, r.pbi_display_name, r.pbi_dataset_id,
                           COALESCE(r.pbi_workspace_id, %s) AS pbi_workspace_id,
@@ -264,8 +237,8 @@ def db_import_pbi_item(
             cur.execute(
                 """INSERT INTO reports (
                        name, report_type, owner_id, status, category, created_by, updated_by,
-                       pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id, tab_type
-                   ) VALUES (%s, %s, %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s)
+                       pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id, tab_type, visibility
+                   ) VALUES (%s, %s, %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s, 'personal')
                    RETURNING id""",
                 (display_name, report_type, owner_id, category, actor_id, actor_id,
                  pbi_item_id, pbi_workspace_id, dataset_id, folder_id, tab_type),
@@ -289,6 +262,24 @@ def db_import_pbi_item(
     return True
 
 
+def db_admin_set_report_visibility(report_id: int, visibility: str, actor_id: int) -> bool:
+    """관리자가 보고서를 비공개(personal) 또는 포털 공용(shared)으로 전환한다.
+
+    특정 그룹 공유는 visibility='group' 같은 암묵적 소유자 그룹 규칙을 쓰지 않고
+    group_reports에서 명시적으로 관리한다.
+    """
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE reports SET visibility=%s, updated_by=%s, updated_at=NOW() "
+                "WHERE id=%s AND status='active' RETURNING id",
+                (visibility, actor_id, report_id),
+            )
+            changed = cur.fetchone() is not None
+        conn.commit()
+    return changed
+
+
 def db_admin_soft_delete_report(report_id: int, admin_user_id: int) -> bool:
     with db_conn() as conn:
         with conn.cursor() as cur:
@@ -308,7 +299,10 @@ def db_admin_soft_delete_report(report_id: int, admin_user_id: int) -> bool:
     return bool(row)
 
 
-def db_admin_get_upload_jobs(limit: int = 30) -> list:
+def db_admin_get_upload_jobs(limit: int | None = None) -> list:
+    """limit 기본값은 config.ADMIN_UPLOAD_JOBS_LIMIT(app_config 'admin_upload_jobs_limit')."""
+    if limit is None:
+        limit = config.ADMIN_UPLOAD_JOBS_LIMIT
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(

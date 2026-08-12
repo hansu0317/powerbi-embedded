@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { LoginData } from "../bootstrap";
-import { setAuthToken } from "../api";
+import type { LoginData } from "../lib/bootstrap";
+import { setAuthToken } from "../lib/api";
 
 // 로그인은 fetch로 처리한다 — 성공 시 서버가 발급하는 탭 전용 토큰(token)을
 // sessionStorage에 저장해야 하는데, 일반 form POST(전체 페이지 이동)는 그 응답을

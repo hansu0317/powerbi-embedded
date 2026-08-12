@@ -33,11 +33,11 @@
 .ad-segtab:hover { background: rgba(255, 255, 255, 0.65); color: var(--ink); }
 .ad-segtab.on { background: #fff; color: var(--sage-deep); box-shadow: 0 1px 3px rgba(20, 22, 30, 0.08); }
 
-.ad-settings-trigger { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line); background:#fff; color:var(--ink-soft); border-radius:8px; padding:7px 12px; font:inherit; font-size:.82rem; cursor:pointer; }
 .ad-icon-trigger { position:relative; display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border:1px solid transparent; background:transparent; color:var(--ink-soft); border-radius:8px; cursor:pointer; }
 .ad-icon-trigger:hover { background:var(--sage-bg); color:var(--ink); }
+.ad-admin-trigger { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 11px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); font:inherit; font-size:.8rem; font-weight:700; cursor:pointer; }
+.ad-admin-trigger:hover { background:var(--sage-bg); color:var(--sage-deep); }
 .ad-notice-dot { position:absolute; top:5px; right:5px; width:7px; height:7px; border-radius:50%; background:#e05a55; border:2px solid #fff; }
-.ad-settings-trigger:hover { background:var(--sage-bg); color:var(--ink); }
 .ad-settings-overlay { position:fixed; inset:0; z-index:50; background:rgba(20,22,30,.16); display:flex; justify-content:flex-end; }
 .ad-settings-panel { width:min(520px, 92vw); height:100%; overflow-y:auto; overflow-x:hidden; background:#fff; box-shadow:-8px 0 28px rgba(20,22,30,.14); padding:18px 20px; scrollbar-width:thin; scrollbar-color:#c9ced8 transparent; }
 .ad-settings-panel::-webkit-scrollbar { width:7px; }
@@ -45,6 +45,7 @@
 .ad-settings-panel::-webkit-scrollbar-track { background:transparent; }
 .ad-settings-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:22px; }
 .ad-settings-head h2 { margin:0; font-size:1.18rem; }
+.ad-settings-head p { margin:5px 0 0; color:var(--muted); font-size:.8rem; }
 .ad-settings-head button { border:0; background:none; color:var(--ink-soft); cursor:pointer; padding:6px; }
 .ad-settings-panel > section { display:block; }
 .ad-settings-panel .ad-section-head { margin-bottom:20px; }
@@ -59,6 +60,22 @@
 .ad-notification-warn { color:#c58a21; flex-shrink:0; }
 .ad-notifications-empty { min-height:180px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--muted); gap:10px; }
 .ad-notifications-empty p { margin:0; font-size:.85rem; }
+.ad-admin-menu-panel { width:min(380px, 92vw); }
+.ad-config-panel { width:min(520px, 94vw); padding-bottom:0; }
+.ad-config-panel .cfg-page { min-height:calc(100vh - 84px); display:flex; flex-direction:column; }
+.ad-config-panel .cfg-savebar { bottom:0; margin-top:auto; margin-bottom:0; }
+.ad-admin-menu-list { display:flex; flex-direction:column; }
+.ad-admin-menu-list button { display:flex; align-items:center; justify-content:space-between; width:100%; padding:15px 4px; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--ink); font:inherit; cursor:pointer; }
+.ad-admin-menu-list a { display:flex; align-items:center; justify-content:space-between; width:100%; box-sizing:border-box; padding:15px 4px; border-bottom:1px solid var(--line); background:transparent; color:var(--ink); font:inherit; text-decoration:none; }
+.ad-admin-menu-list button > span:first-child { display:flex; align-items:center; gap:12px; }
+.ad-admin-menu-list a > span:first-child { display:flex; align-items:center; gap:12px; }
+.ad-admin-menu-list button > span:last-child { color:var(--muted); font-size:1.2rem; }
+.ad-admin-menu-list a > span:last-child { color:var(--muted); font-size:1.2rem; }
+.ad-admin-menu-list button:hover, .ad-admin-menu-list button.on { color:var(--sage-deep); background:var(--sage-bg); padding-left:10px; padding-right:10px; }
+.ad-admin-menu-list a:hover { color:var(--sage-deep); background:var(--sage-bg); padding-left:10px; padding-right:10px; }
+.ad-access-scope { display:flex; align-items:center; justify-content:space-between; gap:18px; margin:4px 0 14px; padding:13px 14px; border:1px solid var(--line); border-radius:9px; background:var(--sage-bg); }
+.ad-access-scope > div { display:flex; flex-direction:column; gap:3px; }
+.ad-access-scope span { color:var(--muted); font-size:.75rem; }
 
 /* ── 동기화 필요 배너 ─────────────────────────────────── */
 .ad-sync-banner {
@@ -128,6 +145,10 @@
    자체의 overflow-x: auto(theme.css)가 실제로 동작하도록 따로 풀어준다. */
 .ad-content > section > .card-table { flex: 1; min-height: 0; overflow: hidden; }
 .ad-content > section > .rp-pager { flex-shrink: 0; margin-top: 12px; }
+.ad-content > .cfg-page { overflow-y:auto; overflow-x:hidden; padding-right:6px; scrollbar-width:thin; scrollbar-color:#c9ced8 transparent; }
+.ad-content > .cfg-page::-webkit-scrollbar { width:7px; }
+.ad-content > .cfg-page::-webkit-scrollbar-thumb { background:#c9ced8; border-radius:8px; }
+.ad-content > .cfg-page .cfg-savebar { bottom:0; margin-bottom:0; }
 .ad-content h2 { font-size: 1.1rem; font-weight: 800; color: var(--ink); margin-bottom: 14px; }
 
 .ad-section-head {
@@ -138,7 +159,28 @@
   margin-bottom: 10px;
 }
 .ad-section-actions { display: flex; align-items: center; gap: 10px; }
-.ad-folder-create { background:#fff; border:1px solid var(--line); border-radius:9px; padding:12px; margin-bottom:12px; }
+/* ── 보고서 폴더 트리 (조회 전용, 2026-08-12~) ─────────────────────────── */
+.ad-folder-tree { background:#fff; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+.ad-folder-node {
+  display:flex; align-items:center; gap:10px;
+  padding:9px 14px; border-bottom:1px solid #f0f3ec; font-size:0.82rem; color:var(--ink);
+}
+.ad-folder-node:last-child { border-bottom:none; }
+.ad-folder-node--head {
+  background:var(--sage-bg); color:var(--ink-soft); font-weight:700; font-size:0.74rem;
+  letter-spacing:0.01em; padding-left:14px;
+}
+.ad-folder-node-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:6px; }
+.ad-folder-node-scope { width:90px; flex-shrink:0; font-size:0.78rem; color:var(--ink-soft); }
+.ad-folder-node-owner { width:110px; flex-shrink:0; color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ad-folder-node-count { width:60px; flex-shrink:0; text-align:right; color:var(--muted); }
+.ad-folder-node-empty { padding:20px 14px; color:var(--muted); font-size:0.82rem; }
+/* 하위 폴더가 있는 행만 접기/펼치기 가능(2026-08-12) — 기본은 접힘, 눌러서 펼친다. */
+.ad-folder-node--parent { cursor:pointer; }
+.ad-folder-node--parent:hover { background:var(--sage-bg); }
+.ad-folder-arrow { flex-shrink:0; color:var(--ink-soft); transition:transform 0.2s; }
+.ad-folder-arrow.collapsed { transform:rotate(-90deg); }
+.ad-folder-arrow-spacer { flex-shrink:0; width:13px; }
 .ad-import-result { font-size: 0.82rem; color: var(--ink-soft); }
 
 /* ── 통계 카드 ────────────────────────────────────────── */
@@ -237,6 +279,22 @@
   white-space: normal;
 }
 .ad-nowrap { white-space: nowrap; }
+
+/* 감사 로그 "상세" 셀 — .ad-err-*(오류 메시지용, 2줄 클램프+빨간색)를 그대로 재사용하다가
+   JSON 원문이 잘려 보이던 문제(2026-08-12). 오류가 아니라 구조화된 메타데이터라 성격이
+   다르므로 별도 스타일을 둔다: 줄 수를 강제로 자르지 않고(필요한 만큼 자연스럽게
+   줄바꿈), UUID처럼 긴 토큰만 overflow-wrap으로 부드럽게 끊는다(word-break: break-all은
+   글자 단위로 다 끊어서 지저분해 보임). 원본 JSON은 title(hover)로 확인. */
+.ad-detail-cell { white-space: normal !important; vertical-align: top !important; }
+.ad-detail-text {
+  display: block;
+  max-width: 420px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+  cursor: help;
+}
 
 /* ── 폼 필드 (모달 내부) ──────────────────────────────── */
 .ad-form-grid {

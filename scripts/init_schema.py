@@ -189,6 +189,8 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS event_log_activity_created_idx ON event_log (created_at DESC) WHERE log_type = 'activity'",
     "CREATE INDEX IF NOT EXISTS event_log_activity_user_idx ON event_log (user_id, created_at DESC) WHERE log_type = 'activity'",
     "CREATE INDEX IF NOT EXISTS event_log_activity_report_idx ON event_log (report_id, created_at DESC) WHERE log_type = 'activity'",
+    "CREATE INDEX IF NOT EXISTS event_log_popular_report_idx ON event_log (created_at DESC, report_id) "
+        "WHERE log_type = 'activity' AND event = 'report_view' AND report_id IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS event_log_audit_actor_idx ON event_log (user_id) WHERE log_type = 'audit'",
     "CREATE INDEX IF NOT EXISTS event_log_audit_created_idx ON event_log (created_at) WHERE log_type = 'audit'",
     "CREATE INDEX IF NOT EXISTS event_log_audit_details_gin ON event_log USING gin (details) WHERE log_type = 'audit'",
@@ -198,34 +200,30 @@ MIGRATIONS = [
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS portal_folder_id INTEGER REFERENCES report_folders(id) ON DELETE SET NULL",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS visibility VARCHAR(16) NOT NULL DEFAULT 'personal' CHECK (visibility IN ('personal','group','shared'))",
     "CREATE INDEX IF NOT EXISTS reports_portal_folder_idx ON reports(portal_folder_id) WHERE status = 'active'",
-    """INSERT INTO report_folders(name, owner_id, visibility, created_by)
-       SELECT DISTINCT COALESCE(NULLIF(r.category, ''), '미분류'), r.owner_id,
-              CASE WHEN r.owner_id IS NULL THEN 'shared' ELSE 'personal' END, r.owner_id
-       FROM reports r
-       WHERE NOT EXISTS (
-         SELECT 1 FROM report_folders f
-         WHERE f.name = COALESCE(NULLIF(r.category, ''), '미분류')
-           AND f.owner_id IS NOT DISTINCT FROM r.owner_id)""",
-    """UPDATE reports r SET portal_folder_id = f.id,
-              visibility = 'personal'
-       FROM report_folders f
-       WHERE r.portal_folder_id IS NULL
-         AND f.name = COALESCE(NULLIF(r.category, ''), '미분류')
-         AND f.owner_id IS NOT DISTINCT FROM r.owner_id""",
+    # (2026-08-11 폴더 기능 출시 때 있던 category→폴더 자동 생성 백필은 2026-08-12 제거했다.
+    # report_folders.name으로 매칭해서 없으면 새로 INSERT하는 방식이라, 이후 관리자가 폴더
+    # 이름을 바꾸면(예: "공장/생산"→"생산") 오래된 reports.category가 옛 이름 그대로 남아있는
+    # 한 재시작마다(=이 스크립트 재실행마다) 그 옛 이름으로 폴더를 다시 만들어냈다 — 지웠던
+    # 중복 폴더가 서버를 껐다 켤 때마다 되살아나는 버그의 원인이었다. 신규 설치 때의 최초
+    # 배정은 이미 다 끝났으므로(대상 reports.portal_folder_id가 전부 NOT NULL) 더 이상
+    # 실행할 필요가 없다 — 되살리려면 git 이력에서 이 커밋 이전 버전을 참고할 것.
     # 기존 owner 없는 관리 보고서는 종전의 직접/그룹 권한을 유지한다. 자동 전체공개 금지.
     "UPDATE reports SET visibility='personal' WHERE owner_id IS NULL AND visibility='shared'",
 ]
 
 VIEWS = [
-    # company_code/company_scope/company_parent는 scripts/add_company_hierarchy.py(2026-08)에서
-    # 추가된 회사 계층 RLS용 컬럼 — department/data_scope와 같은 패턴. CREATE OR REPLACE VIEW는
-    # 기존 컬럼을 빼거나 순서를 바꿀 수 없으므로(PostgreSQL 제약), 여기 정의는 항상 실제 뷰의
-    # 최신 형태와 일치시켜야 한다 — 안 맞으면 서버 시작 시 init_schema()가 에러로 죽는다.
-    """CREATE OR REPLACE VIEW v_rls_user_scope AS
-       SELECT u.pbi_username AS user_key, u.department, u.data_scope,
-              u.company_code, u.company_scope, cc.parent_code AS company_parent
+    # RLS가 읽는 보안 테이블 — department/data_scope만 노출한다(docs/01 참고).
+    # CREATE OR REPLACE VIEW는 기존 컬럼을 빼거나 순서를 바꿀 수 없으므로(PostgreSQL 제약),
+    # 컬럼 구성이 바뀔 때는 DROP 후 다시 만든다. 정의는 항상 실제 뷰의 최신 형태와
+    # 일치시켜야 한다 — 안 맞으면 서버 시작 시 init_schema()가 에러로 죽는다.
+    #
+    # 2026-08 초에는 company_code/company_scope/company_parent(회사 계층 RLS)도 있었으나,
+    # department 하나로 흡수하고 제거했다(scripts/remove_company_hierarchy.py, 이력은 git
+    # 로그와 scripts/add_company_hierarchy.py 참고 — 계층이 다시 필요해지면 그 패턴을 복원).
+    """DROP VIEW IF EXISTS v_rls_user_scope""",
+    """CREATE VIEW v_rls_user_scope AS
+       SELECT u.pbi_username AS user_key, u.department, u.data_scope
        FROM users u
-       LEFT JOIN company_codes cc ON cc.code = u.company_code
        WHERE u.is_active = TRUE""",
 ]
 
@@ -244,6 +242,9 @@ APP_CONFIG_DEFAULTS = [
     ("embed_token_lifetime_min",   "60",  "PBI 응답의 만료 시각 파싱에 실패했을 때만 쓰이는 예비값(분)."),
     ("pbi_token_cache_margin_sec","300",  "Azure AD 토큰 만료 N초 전에 갱신. 기본 5분."),
     ("activity_log_retention_days","90",  "사용자 활동 로그 보존 기간 (일). 초과분은 매일 자동 삭제."),
+    ("recents_limit",               "10", "홈 화면 '최근 열람'에 보관·표시할 보고서 개수."),
+    ("activity_log_max_rows",     "1000", "관리자 로그 화면(사용자 활동·관리 감사) 1회 조회 최대 건수. 초과분은 기간을 좁히거나 CSV로."),
+    ("admin_upload_jobs_limit",     "30", "관리자 현황 화면에 보여줄 최근 업로드 작업 최대 건수."),
 ]
 
 

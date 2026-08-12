@@ -3,8 +3,10 @@
 흩어진 Power BI 보고서를 한 곳에서 열람하고, 직원이 직접 `.pbix`를 올리는 **사내 통합 BI 포털**.
 보고서 권한을 사내 DB로 통제하고 직원을 `app.powerbi.com`에 노출하지 않는다 (App-Owns-Data).
 
-**Power BI 계정은 관리자용 1개(Pro)만 필요** — 열람 직원은 PBI 계정이 아예 없다.
+**Power BI 계정은 운영용 1개(PPU)만 필요** — 열람 직원은 PBI 계정이 아예 없다.
 Azure 앱 등록(서비스 주체) 1개가 모든 직원을 대신해 임베드 토큰을 발급받는다.
+(Pro는 용량이 자동으로 딸려오지 않아 서비스 주체 임베딩 자체가 안 될 수 있어 PPU를 쓴다 —
+근거는 `docs/05_라이선스_용량_비용가이드.md`.)
 
 ```
 직원 브라우저  →  이 게이트웨이(FastAPI)  →  Power BI REST API
@@ -154,16 +156,28 @@ DB_PASSWORD=<비밀번호>
 main.py            앱 조립 — 미들웨어·라우터·lifespan(시작 복구/백그라운드 루프)
 config.py          .env + app_config(DB) 로더, 핫 리로드
 errors.py          AppError — 모든 HTTP 에러의 중앙 레지스트리
-database.py        커넥션 풀 + 모든 SQL (db_* 함수)
 deps.py            세션 사용자·CSRF·관리자 Depends
+
+database/          커넥션 풀(pool.py) + 도메인별 SQL (db_* 함수)
+  pool.py            커넥션 풀, db_conn() 컨텍스트 매니저
+  auth.py            로그인·사용자 조회
+  reports.py         보고서 조회·권한·즐겨찾기
+  uploads.py         업로드 작업, 보고서 등록
+  folders.py         포털 보고서 폴더
+  groups.py          그룹, 회사 계층(RLS)
+  activity.py        활동·감사 로그
+  admin.py           관리자 통계·설정·사용자 관리
 
 routes/auth.py     /login /logout
 routes/report.py   / /api/embed /api/upload /api/favorites ...
+routes/folders.py  /api/report-folders, 보고서 폴더 이동
 routes/admin.py    /admin /api/admin/*
 
-services/azure.py    서비스 주체 토큰 (msal, 캐시)
-services/powerbi.py  임베드 토큰 발급·캐시, PBI REST 헬퍼
-services/fabric.py   PBI↔DB 동기화, 시작 시 복구
+services/azure.py          서비스 주체 토큰 (msal, 캐시)
+services/powerbi.py        임베드 토큰 발급·캐시, PBI REST 헬퍼
+services/fabric.py         PBI↔DB 동기화, 시작 시 복구
+services/fabric_folders.py Fabric 폴더/Item 이동
+services/backup.py         평일 정기 DB 백업
 
 frontend/          React + TypeScript 소스 (사람이 편집)
 static/dist/       npm run build 산출물 (브라우저가 받는 것)
@@ -171,29 +185,32 @@ templates/         Jinja HTML 셸 — 서버가 __BOOTSTRAP__ 주입
 scripts/           스키마 초기화·서버 제어·보조 스크립트
 ```
 
-**규칙** — `routes/`는 SQL을 직접 쓰지 않고 `database.py`의 `db_*`만 호출한다.
+**규칙** — `routes/`는 SQL을 직접 쓰지 않고 `database/`의 `db_*`만 호출한다.
 Power BI REST 호출도 `routes/`가 직접 하지 않고 `services/`를 거친다.
+
+세부 파일 지도와 읽는 순서는 `docs/10_프로젝트_코드구조_학습가이드.md`를 참고한다.
 
 ---
 
 ## 데이터베이스
 
-테이블 10개 + 뷰 1개. `scripts/init_schema.py` 하나가 전체 스키마를 정의한다 (버전 이력 없음 — 자세한 배경은 아래 "스키마 변경 규칙" 참고).
+테이블 12개 + 뷰 1개. `scripts/init_schema.py` 하나가 전체 스키마를 정의한다 (버전 이력 없음 — 자세한 배경은 아래 "스키마 변경 규칙" 참고). 전체 목록·비고는 `docs/02_백엔드_DB_API_흐름.md` 참고.
 
 | 테이블/뷰 | 내용 |
 |---|---|
-| `users` | 계정 (bcrypt 해시, 역할, 관리자·업로드 권한, RLS 매핑) |
-| `reports` | 보고서 본체 + PBI 연결 정보 (18컬럼) |
+| `users` | 계정 (bcrypt 해시, 관리자·업로드 권한, `department`/`data_scope` RLS 매핑) |
+| `reports` | 보고서 본체 + PBI 연결 정보, `owner_id`/`visibility`(personal/group/shared) |
+| `report_folders` | 계층형 포털 폴더 |
 | `user_reports` | 개인 열람 권한 (`can_view`: NULL=설정없음/TRUE=허용/FALSE=명시적 차단) |
 | `groups` / `user_groups` / `group_reports` | 그룹 단위 권한 |
 | `upload_jobs` | 업로드 상태 머신 (재시작 복구용) |
 | `user_report_marks` | 즐겨찾기 · 최근 본 |
 | `event_log` | 활동 · 관리 감사 · 로그인 시도 (`log_type`으로 구분) |
 | `app_config` | 런타임 설정 |
-| `v_rls_user_scope` (뷰) | Power BI RLS 보안 테이블 — `users`의 `pbi_username/department/data_scope`만 노출 |
+| `v_rls_user_scope` (뷰) | Power BI RLS 보안 테이블 — `pbi_username/department/data_scope` 노출 |
 
 **열람 가능 판정** = (직접 부여(`user_reports`) **OR** 소속 그룹 부여(`group_reports`)) **AND NOT** 개별 명시 차단.
-관리자는 권한 확인을 건너뛴다. 이 판정 SQL은 `database.py`의 `_CAN_VIEW_REPORT_SQL` **한 곳**에서만 관리한다.
+관리자는 권한 확인을 건너뛴다. 이 판정 SQL은 `database/reports.py`의 `_CAN_VIEW_REPORT_SQL` **한 곳**에서만 관리한다.
 
 ### 스키마 변경 규칙 (중요)
 
@@ -225,97 +242,52 @@ Pro 공유 용량에서의 App-Owns-Data 임베딩은 Microsoft가 **개발·테
 
 ---
 
-## RLS (행 수준 보안) — 준비 상태와 적용 절차
-
-**두 계층을 구분해야 한다.**
+## RLS (행 수준 보안) — 두 계층
 
 | 계층 | 통제 대상 | 담당 | 상태 |
 |---|---|---|---|
 | 1층 | 어떤 **보고서**가 보이는가 | 게이트웨이 DB | **동작 중** |
-| 2층 | 보고서 안에서 어떤 **행**이 보이는가 | Power BI RLS | 준비 완료, 미적용 |
+| 2층 | 보고서 안에서 어떤 **행**이 보이는가 | Power BI RLS | 보고서별 수동 적용 |
 
 1층은 개인 부여(`user_reports`)와 그룹 부여(`group_reports`)의 OR 판정으로 이미 동작한다.
 2층(RLS)은 **보고서마다 선택**이다 — PBIX에 역할이 정의된 데이터셋에만 적용되고,
 없으면 Power BI가 identity를 요구하지 않아 그냥 열린다.
 
-### 채택 방식 — 동적 RLS
+**채택 방식은 동적 RLS다** — 역할 하나만 두고 DAX가 `USERNAME()`으로 사용자를 알아내
+`v_rls_user_scope` 뷰(PostgreSQL)에서 조회 범위를 찾는다. 사람이나 부서가 늘어도 PBIX를
+다시 게시할 필요가 없다. 이 뷰는 Power BI Desktop이 PostgreSQL 커넥터로 **직접 Import**
+한다 — 보고서마다 데이터 원천이 제각각이라(직원이 각자 PBIX를 올림) 고정 원천을 전제하는
+별도 내보내기 절차는 쓰지 않는다(`scripts/export_rls_security_table.py`는 데이터 원천이
+고정된 특수한 경우를 위해 남겨둔 legacy 경로이며 기본 절차가 아니다).
 
-역할을 조직 수만큼 만드는 대신 **역할 하나**만 두고, DAX가 `USERNAME()`으로 사용자를
-알아내 보안 테이블에서 조회 범위를 찾는다. 사람이나 부서가 늘어도 **PBIX를 다시 게시하지 않는다.**
-
-정적 RLS(역할=부서)로는 "개인별 데이터 권한"을 표현할 수 없다 — 사람 수만큼 역할을
-만들어야 하기 때문이다. 그래서 동적 방식을 택했다.
-
-### 데이터 흐름
-
-```
-게이트웨이 users          →  보안 테이블(데이터 원천)  →  PBIX 역할 DAX
- pbi_username(식별자)         user_key                    USERNAME()으로 조회
- department(소속)             department
- data_scope(범위)             data_scope
-```
-
-`users.data_scope` 값은 세 가지다.
-
-| 값 | 의미 |
-|---|---|
-| `self` | 본인 행만 (기본값) |
-| `department` | 소속 부서 전체 |
-| `all` | 전사 — 관리자는 마이그레이션에서 이 값으로 초기화된다 |
-
-### 적용 절차
-
-**1. 식별자 맞추기** — `users.pbi_username`이 보안 테이블의 키가 된다.
-
-   **이 프로젝트는 로그인 아이디(`users.username`)를 그대로 키로 쓴다.** 이미 유일하고
-   변하지 않으며, 이메일과 달리 계정 정책이나 도메인 변경에 영향받지 않는다.
-   `pbi_username`은 Microsoft 로그인 계정이 아니라 **"이 사람이 누구인지 Power BI에
-   알려주는 문자열"**일 뿐이므로 실재하는 이메일일 필요가 없다.
-
-   단, PBIX의 DAX가 비교하는 값(사번·이메일 등)이 따로 있다면 **그쪽에 맞춰야 한다.**
-   3단계에서 DAX를 확인한 뒤 필요하면 이 값을 바꾼다.
-
-**2. 소속·범위 입력** — `users.department`, `users.data_scope`를 채운다.
-
-**3. 보안 테이블 생성** — 아래 스크립트가 DDL과 INSERT문을 만들어 준다.
-   출력물을 **데이터 원천(SQL Server·Databricks 등)에서** 실행한다.
-
-```bash
-python3 scripts/export_rls_security_table.py            # SQL 출력
-python3 scripts/export_rls_security_table.py --csv      # CSV 출력
-python3 scripts/export_rls_security_table.py --ddl-only # DDL·DAX 안내만
-```
-
-식별자가 이메일이거나 `department`가 비어 있으면 **경고를 함께 출력**한다.
-
-**4. PBIX 작업** — Power BI Desktop에서 보안 테이블을 모델에 추가하고,
-   역할 하나를 만들어 `--ddl-only` 출력의 DAX를 붙인다. 재게시.
-
-**5. 검증** — 보고서 하나로 시범 적용하고 **브라우저에서 실제 렌더링까지** 확인한다.
-   토큰 발급 성공은 검증이 아니다.
-
-> **주의** — 역할명·식별자가 어긋나면 토큰은 정상 발급되고 **렌더링만 실패**한다
-> (`Failed to open the MSOLAP connection`). 매핑이 없으면 빈 화면이 나온다.
-> 시범 적용 때 일부러 틀린 값도 한 번 넣어 보면 증상을 미리 알 수 있다.
-
-### 되돌리기
-
-RLS 적용 직전 상태에 `rls-before` 태그가 있다.
-
-```bash
-git show rls-before      # 그 시점 상태 확인
-```
+관리자 포털에서 사용자별 `department`/`data_scope`를 입력하는 것부터 PBIX의 역할·DAX
+작성, 트러블슈팅까지 **전체 절차는 `docs/01_RLS_적용가이드.md`** 에 있다. 여러 법인/
+자회사 구분이 필요할 때도 새 컬럼을 만들지 않고 `department` 값 자체를 조직 이름으로
+쓴다(같은 문서의 "여러 조직(자회사) 구분이 필요할 때" 절 참고).
 
 ---
 
 ## 문서
 
+`docs/`는 내부 참고용이라 **git에서 제외된다**(`.gitignore`) — 이 PC를 벗어나 인수인계할
+때는 저장소 클론만으로는 따라오지 않으므로 폴더 자체를 별도로 전달해야 한다. 클라이언트
+ID/테넌트 ID 등 사내 값이 평문으로 들어 있어(비밀번호·시크릿은 없음) 공개 저장소에는
+올리지 않는 편이 안전하다.
+
 | 문서 | 내용 |
 |---|---|
-| `docs/PROJECT.md` | 구조·흐름·DB·API 전체 — 프로젝트 파악은 이것부터 |
-| `docs/OPERATIONS.md` | 서버 운영, 배포, 업로드 복구, 트러블슈팅 |
-| `docs/LEARNING.md` | Python·TypeScript 문법 체계 (코드베이스 예제) |
-| `pdfpptx/PowerBI_Gateway_운영·사용_매뉴얼.pptx` | 설치·사용자/관리자 매뉴얼·운영·API·확장 시나리오 |
+| `docs/00_학습_로드맵.md` | 처음 이 프로젝트를 볼 때 시작점 — DB/백엔드/프론트엔드/설정/쿠키·캐시 학습 순서 |
+| `docs/01_RLS_적용가이드.md` | 1층(보고서 열람) vs 2층(RLS) 구분, 적용 절차, 회사 계층 RLS, 트러블슈팅 |
+| `docs/02_백엔드_DB_API_흐름.md` | DB 스키마, 열람 권한 판정 SQL, 임베드 토큰·업로드 흐름 |
+| `docs/03_모듈_함수_학습가이드.md` | 모듈별 "왜 이렇게 짰는지" 설계 패턴 |
+| `docs/04_서버_운영_가이드.md` | `server.ps1`/`server.sh` 기동·중지, PID/포트 트러블슈팅 |
+| `docs/05_라이선스_용량_비용가이드.md` | PPU vs Pro, 용량(SKU) 결정 근거 |
+| `docs/06_인프라_현황.md` | Entra 앱 등록, 워크스페이스·용량 현재 값 |
+| `docs/07_DB접속_및_외부포털_참고.md` | psql 접속, 관리 화면이 흩어진 4개 포털 정리 |
+| `docs/08_GET_필터_방식_참고.md` | GET 필터(레거시)와 RLS의 차이, 왜 내부용으로는 안 쓰는지 |
+| `docs/09_PowerBI_Fabric_API_개발가이드.md` | Power BI REST vs Fabric REST 구분, 내부 API 목록 |
+| `docs/10_프로젝트_코드구조_학습가이드.md` | 파일 지도, 읽는 순서, 학습 단계 |
+| `docs/11_QA_전수테스트_시나리오.md` | 배포 전 회귀 체크리스트 — 인증·관리자 CRUD·폴더·RLS·업로드 시나리오 |
 
 API 전체 스펙은 서버의 **`/openapi.json`** 에서 항상 최신으로 확인할 수 있다
 (Postman·Insomnia에 그대로 import 가능). 대화형 문서(`/docs`·`/redoc`)는 보안상 비활성화돼 있다.

@@ -20,12 +20,14 @@ from database import (
     db_health_check, db_get_report,
     db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
     db_fail_stuck_upload_job,
-    db_get_report_folders, db_create_report_folder, db_update_report_folder,
-    db_delete_report_folder, db_get_folder, db_move_report_to_folder,
+    db_get_folder, db_can_write_folder,
     db_log_activity, db_get_popular_report_ids,
     db_get_user_activity_log, db_reserve_update,
 )
-from deps import current_user, csrf_token, verify_csrf, get_client_ip, json_body
+from deps import (
+    current_user, csrf_token, get_client_ip, json_body,
+    require_user, require_user_csrf,
+)
 from errors import AppError, extract_code_message
 from services.azure import get_access_token
 from services.fabric_folders import get_or_create_folder, move_item_to_folder
@@ -57,7 +59,7 @@ async def _build_report_context(user: dict) -> dict:
     # 인기 보고서: 전체 순위를 뽑은 뒤 이 사용자가 볼 수 있는 것과 교집합 → 상위 5개.
     # 권한 없는 보고서가 인기 목록으로 존재를 노출하지 않도록 필터링이 필수다.
     visible_ids = {r["id"] for r in report_list}
-    ranking = await asyncio.to_thread(db_get_popular_report_ids, 30, 20)
+    ranking = await asyncio.to_thread(db_get_popular_report_ids, 7, 20)
     popular = [
         {"report_id": row["report_id"], "views": row["views"]}
         for row in ranking if row["report_id"] in visible_ids
@@ -70,6 +72,10 @@ async def _build_report_context(user: dict) -> dict:
         "recents":   recents,
         "popular":   popular,
         "marketing_portal_url": config.MARKETING_PORTAL_URL,
+        # 프론트(useRecents의 MAX)가 db_get_user_recents와 같은 상한을 쓰도록 값 자체를
+        # 내려준다 — 프론트에 따로 하드코딩하면 관리자가 설정을 바꿔도 화면은 예전
+        # 숫자로 계속 자르는 불일치가 생긴다(2026-08-12).
+        "recents_limit": config.RECENTS_LIMIT,
     }
 
 
@@ -113,10 +119,7 @@ async def _require_viewable_report(user: dict, report_id: int, error: AppError =
 @router.post("/api/favorites/{report_id}")
 async def api_set_favorite(request: Request, report_id: int):
     """즐겨찾기 추가/해제. body: {"favorite": true|false}"""
-    user = await current_user(request)
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
+    user = await require_user_csrf(request)
     await _require_viewable_report(user, report_id)
     body = await json_body(request)
     on = bool(body.get("favorite", False))
@@ -130,10 +133,7 @@ async def api_set_favorite(request: Request, report_id: int):
 @router.post("/api/recents/{report_id}")
 async def api_add_recent(request: Request, report_id: int):
     """최근 본 보고서 기록."""
-    user = await current_user(request)
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
+    user = await require_user_csrf(request)
     await _require_viewable_report(user, report_id)
     try:
         await asyncio.to_thread(db_add_recent, user["id"], report_id)
@@ -245,9 +245,7 @@ async def _report_pbi_ids(user: dict, report_id: int) -> tuple[str, str]:
 @router.get("/api/reports/{report_id}/download/pbix")
 async def api_download_pbix(request: Request, report_id: int):
     """원본 .pbix 다운로드 (v6). 대시보드는 지원하지 않는다."""
-    user = await current_user(request)
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
+    user = await require_user(request)
     workspace_id, pbi_report_id = await _report_pbi_ids(user, report_id)
     try:
         content = await pbi_download_pbix(workspace_id, pbi_report_id)
@@ -263,10 +261,7 @@ async def api_download_pbix(request: Request, report_id: int):
 @router.post("/api/reports/{report_id}/export/pptx")
 async def api_export_pptx_start(request: Request, report_id: int):
     """PPTX 내보내기 시작 (v6). 전용 용량(Premium/Embedded/Fabric) 필요 — Pro는 503."""
-    user = await current_user(request)
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
+    user = await require_user_csrf(request)
     workspace_id, pbi_report_id = await _report_pbi_ids(user, report_id)
     try:
         export_id = await pbi_start_export(workspace_id, pbi_report_id, "PPTX")
@@ -279,9 +274,7 @@ async def api_export_pptx_start(request: Request, report_id: int):
 
 @router.get("/api/reports/{report_id}/export/pptx/{export_id}/status")
 async def api_export_pptx_status(request: Request, report_id: int, export_id: str):
-    user = await current_user(request)
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
+    user = await require_user(request)
     workspace_id, pbi_report_id = await _report_pbi_ids(user, report_id)
     try:
         status = await pbi_poll_export(workspace_id, pbi_report_id, export_id)
@@ -292,9 +285,7 @@ async def api_export_pptx_status(request: Request, report_id: int, export_id: st
 
 @router.get("/api/reports/{report_id}/export/pptx/{export_id}/file")
 async def api_export_pptx_file(request: Request, report_id: int, export_id: str):
-    user = await current_user(request)
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
+    user = await require_user(request)
     workspace_id, pbi_report_id = await _report_pbi_ids(user, report_id)
     try:
         content = await pbi_get_export_file(workspace_id, pbi_report_id, export_id)
@@ -312,61 +303,10 @@ async def api_user_activity(request: Request):
     """내 활동 로그 (v6) — 일반 사용자가 본인이 열람·업로드한 이력을 직접 확인.
 
     관리자 전용이던 활동 로그(v3)와 달리 인증만 요구하고 항상 본인 것만 반환한다."""
-    user = await current_user(request)
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
+    user = await require_user(request)
     rows = await asyncio.to_thread(db_get_user_activity_log, user["id"], 200)
     return {"activity": rows}
 
-
-@router.get("/api/report-folders")
-async def api_report_folders(request: Request):
-    user = await current_user(request)
-    if not user: raise AppError.NOT_AUTHENTICATED.http()
-    return {"folders": await asyncio.to_thread(db_get_report_folders, user["id"], user["is_admin"])}
-
-@router.post("/api/report-folders")
-async def api_create_report_folder(request: Request):
-    user = await current_user(request); verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    if not user: raise AppError.NOT_AUTHENTICATED.http()
-    body = await json_body(request)
-    name = str(body.get("name", "")).strip(); parent_id = body.get("parent_id") or None
-    visibility = str(body.get("visibility", "personal"))
-    if not name or len(name)>100 or visibility not in ("personal","group","shared"): raise AppError.BODY_INVALID.http()
-    if not user["is_admin"]: visibility="personal"
-    try:
-        row=await asyncio.to_thread(db_create_report_folder,name,parent_id,None if visibility=="shared" else user["id"],visibility,user["id"])
-    except psycopg2.errors.UniqueViolation: raise AppError.BODY_INVALID.http()
-    return row
-
-@router.post("/api/report-folders/{folder_id}")
-async def api_update_report_folder(request: Request, folder_id: int):
-    user=await current_user(request); verify_csrf(request,request.headers.get("X-CSRF-Token",""))
-    if not user: raise AppError.NOT_AUTHENTICATED.http()
-    body=await json_body(request); name=str(body.get("name","")).strip(); visibility=str(body.get("visibility","personal"))
-    if not name or visibility not in ("personal","group","shared"): raise AppError.BODY_INVALID.http()
-    row=await asyncio.to_thread(db_update_report_folder,folder_id,name,body.get("parent_id") or None,visibility,user["id"],user["is_admin"])
-    if not row: raise AppError.BODY_INVALID.http()
-    return row
-
-@router.post("/api/report-folders/{folder_id}/delete")
-async def api_delete_report_folder(request: Request, folder_id: int):
-    user=await current_user(request); verify_csrf(request,request.headers.get("X-CSRF-Token",""))
-    if not user: raise AppError.NOT_AUTHENTICATED.http()
-    if not await asyncio.to_thread(db_delete_report_folder,folder_id,user["id"],user["is_admin"]): raise AppError.BODY_INVALID.http()
-    return {"deleted":True}
-
-@router.post("/api/reports/{report_id}/folder")
-async def api_move_report_folder(request: Request, report_id: int):
-    user=await current_user(request); verify_csrf(request,request.headers.get("X-CSRF-Token",""))
-    if not user: raise AppError.NOT_AUTHENTICATED.http()
-    body=await json_body(request); folder_id=int(body.get("folder_id",0))
-    row=await asyncio.to_thread(db_move_report_to_folder,report_id,folder_id,user["id"],user["is_admin"])
-    if not row: raise AppError.BODY_INVALID.http()
-    folder=await asyncio.to_thread(db_get_folder,folder_id)
-    if row.get("pbi_report_id") and folder and folder.get("fabric_folder_id"):
-        await move_item_to_folder(config.resolve_workspace_id(row.get("pbi_workspace_id")),row["pbi_report_id"],folder["fabric_folder_id"])
-    return {"moved":True,"folder_id":folder_id}
 
 @router.post("/api/upload")
 async def api_upload(
@@ -384,10 +324,7 @@ async def api_upload(
     항상 새 보고서만 만든다 — 같은 이름이 이미 있으면 _read_and_validate_pbix가
     거부한다(REPORT_NAME_TAKEN). 기존 보고서 내용을 바꾸려면 그 보고서의
     '업데이트' 기능(/api/reports/{id}/update-content)을 써야 한다."""
-    user = await current_user(request)
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
+    user = await require_user_csrf(request)
     if not user.get("is_admin") and not user.get("can_upload"):
         logger.warning("UPLOAD DENY | user=%-12s | 업로드 권한 없음", user["username"])
         raise AppError.FORBIDDEN_UPLOAD.http()
@@ -395,10 +332,11 @@ async def api_upload(
     if visibility not in ("personal", "group", "shared"):
         raise AppError.BODY_INVALID.http()
     folder = await asyncio.to_thread(db_get_folder, folder_id) if folder_id else None
-    if folder and not (user["is_admin"] or folder["owner_id"] == user["id"] or folder["visibility"] == "shared"):
+    if folder_id and not await asyncio.to_thread(db_can_write_folder, folder_id, user["id"], user["is_admin"]):
         raise AppError.FORBIDDEN_UPLOAD.http()
-    if not user["is_admin"] and visibility == "shared":
-        visibility = "personal"
+    # 신규 업로드는 항상 비공개로 시작한다. 그룹·공용 공개는 업로드 이후
+    # 관리자 포털의 권한 관리에서만 명시적으로 수행한다.
+    visibility = "personal"
     name, pbix_bytes, file_size = await _read_and_validate_pbix(file, user["id"])
     job_id = await asyncio.to_thread(db_reserve_upload, user["id"], name)
     logger.info("UPLOAD RESERVED | user=%-12s | report=%s | job_id=%s", user["username"], name, job_id)
@@ -413,9 +351,7 @@ async def api_upload(
 @router.get("/api/upload/status/{job_id}")
 async def api_upload_status(request: Request, job_id: int):
     """업로드 잡 상태 폴링 엔드포인트."""
-    user = await current_user(request)
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
+    user = await require_user(request)
     job = await asyncio.to_thread(db_get_upload_job, job_id, user["id"])
     if not job:
         raise AppError.REPORT_NOT_FOUND.http()
@@ -655,10 +591,7 @@ async def api_update_report_content(request: Request, report_id: int, file: Uplo
 
     권한: 보고서 소유자 또는 admin만 — 열람 권한(can_view)과는 완전히 별개 체크다.
     can_view이 있어도 소유자·admin이 아니면 이 API는 쓸 수 없다."""
-    user = await current_user(request)
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
-    if not user:
-        raise AppError.NOT_AUTHENTICATED.http()
+    user = await require_user_csrf(request)
 
     report_row = await asyncio.to_thread(db_get_report, report_id)
     if not report_row or not report_row["pbi_report_id"]:

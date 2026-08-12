@@ -2,6 +2,7 @@
 
 _CAN_VIEW_REPORT_SQL — 열람 가능 판정 SQL의 유일한 소스. database/admin.py의
 db_admin_get_users도 이걸 그대로 가져다 쓴다(중복 정의 금지 — 판정 규칙은 여기 한 곳에서만)."""
+import config
 from database.pool import db_conn
 
 # ── 보고서 ────────────────────────────────────────────────────────────────────
@@ -37,7 +38,9 @@ def db_get_reports(username: str) -> list:
         with conn.cursor() as cur:
             cur.execute(
                 f"""SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
-                          owner.username AS owner_username, r.tab_type, r.portal_folder_id, r.visibility
+                          owner.username AS owner_username, r.tab_type, r.portal_folder_id, r.visibility,
+                          EXISTS (SELECT 1 FROM group_reports gr
+                                  WHERE gr.report_id=r.id AND gr.can_view) AS has_group_access
                    FROM reports r
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    JOIN users u ON u.username = %s
@@ -54,7 +57,9 @@ def db_get_all_active_reports() -> list:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
-                          owner.username AS owner_username, r.tab_type, r.portal_folder_id, r.visibility
+                          owner.username AS owner_username, r.tab_type, r.portal_folder_id, r.visibility,
+                          EXISTS (SELECT 1 FROM group_reports gr
+                                  WHERE gr.report_id=r.id AND gr.can_view) AS has_group_access
                    FROM reports r
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    WHERE r.status = 'active'
@@ -104,8 +109,15 @@ def db_set_favorite(user_id: int, report_id: int, on: bool) -> None:
         conn.commit()
 
 
-def db_get_user_recents(user_id: int, limit: int = 8) -> list:
-    """사용자의 최근 본 보고서 ID 목록 (active 보고서만, 최신순)."""
+def db_get_user_recents(user_id: int, limit: int | None = None) -> list:
+    """사용자의 최근 본 보고서 ID 목록 (active 보고서만, 최신순).
+
+    limit 기본값은 config.RECENTS_LIMIT(app_config 'recents_limit', 관리자 설정에서
+    재시작 없이 변경 가능) — 함수 기본 인자로 `limit: int = config.RECENTS_LIMIT`처럼
+    쓰면 import 시점 값에 고정돼 설정 변경이 반영 안 되므로(config.py의
+    reload_app_config 주석 참고) 반드시 호출 시점에 읽는다."""
+    if limit is None:
+        limit = config.RECENTS_LIMIT
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(

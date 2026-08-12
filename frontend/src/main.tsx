@@ -1,16 +1,16 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { readBootstrap, type Bootstrap } from "./bootstrap";
-import { getAuthToken, getAuthUser } from "./api";
+import { readBootstrap, type Bootstrap } from "./lib/bootstrap";
+import { getAuthToken, getAuthUser } from "./lib/api";
 import LoginPage from "./pages/LoginPage";
 import ReportPage from "./pages/ReportPage";
 import AdminPage from "./pages/AdminPage";
 
-import "./theme.css";
-import "./appshell.css";
-import "./pages/login.css";
-import "./pages/report.css";
-import "./pages/admin.css";
+import "./styles/theme.css";
+import "./styles/appshell.css";
+import "./styles/login.css";
+import "./styles/report.css";
+import "./styles/admin.css";
 
 // 서버가 __BOOTSTRAP__에 심어준 데이터는 "이 요청 순간 공유 쿠키가 가리키던 사람" 기준이다
 // (일반 페이지 이동은 커스텀 헤더를 못 실어서 탭 토큰을 서버가 볼 방법이 없다 — 쿠키만 본다).

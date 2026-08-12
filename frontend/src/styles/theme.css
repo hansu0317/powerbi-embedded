@@ -31,6 +31,23 @@
   --shadow:  0 2px 10px rgba(20, 22, 30, 0.07);
   --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
           "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+
+  /* 표 행 리듬(row rhythm) — .card-table(관리자 화면 표 전체)과 .home-table(홈 화면
+     보고서 표)이 공유한다. 전에는 이 네 값이 두 표에 "같은 숫자"로 따로따로 박혀
+     있었다 — 값이 같아 보여도 선언이 둘이면 한쪽만 고치고 넘어가는 순간 다시
+     어긋난다(실제로 두 번 그랬다: --row-h가 .card-table 안에만 있어 home-table이
+     못 받아쓴 것 하나, .home-tablewrap의 border-radius(9px)가 .card-table의
+     var(--radius)(10px)와 살짝 달라 표 모서리가 어긋난 것 둘). 그래서 숫자를
+     맞추는 대신 아예 여기 하나로 모아 두 표가 항상 같은 변수를 읽게 한다 —
+     하나를 고치면 나머지도 같이 움직인다(2026-08-12).
+       --row-h        : td 행 높이 하한(배지·아이콘이 껴도 이보다 낮아지진 않음)
+       --row-pad-v     : td 위아래 패딩
+       --row-line      : td line-height
+       --row-head-pad-v: th 위아래 패딩                                          */
+  --row-h: 45px;
+  --row-pad-v: 11px;
+  --row-line: 1.35;
+  --row-head-pad-v: 10px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -95,6 +112,15 @@ body {
   font-size: 0.72rem;
   font-weight: 600;
   white-space: nowrap;
+  /* line-height를 명시 안 하면 브라우저 기본값(보통 폰트 자체 메트릭 기준 ~1.15~1.2배)을
+     쓰는데, 이게 배지가 안 낀 일반 텍스트 줄의 line-height와 미묘하게 달라서 표
+     (table-layout:auto)에서 배지가 낀 행만 높이가 달라지는 원인이었다(2026-08-12,
+     사용자 관리 표의 "관리자" 배지). 표마다 폰트 크기가 달라도(0.74~0.84rem대) 항상
+     맞도록 절대 px 대신 배지 자기 폰트 크기 기준 비율(line-height:1)로 고정한다 —
+     어느 표에 놓여도 패딩(4px) + 1줄만큼만 차지해 웬만한 본문 line-height보다
+     작거나 같아서, 표 쪽에서 행 높이를 따로 못박을 필요가 없어진다. */
+  line-height: 1;
+  vertical-align: middle;
 }
 .pill.active, .pill.ok      { background: var(--sage-soft); color: var(--sage-deep); }
 .pill.inactive, .pill.fail  { background: #fdecec; color: #b3403c; }
@@ -261,6 +287,15 @@ body {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
+  /* --row-h(표 행 표준 높이, :root에 정의)는 아래 font-size(0.8rem)·td padding(11px×2)·
+     line-height(1.35) 조합의 "평범한 한 줄" 자연 높이(2026-08-12 실측 45px)를 이름 붙여
+     못박은 값이다. .pill 배지처럼 자기만의 박스를 가진 inline-block이 낀 셀은
+     table-layout:auto가 행마다 내용 구성에 따라 이 값보다 몇 px 작게 계산해버려서
+     (배지 없는 행과 섞이면 그 행만 낮아 보임) — .pill 쪽 line-height를 1로 좁혀 배지
+     자체 높이를 최소화하는 것까지 같이 해봤지만 그것만으론 행 높이 차이가 없어지지
+     않아(실측 확인), 최종적으로 이 표준값을 셀 높이 하한으로 강제한다. font-size나
+     padding을 바꾸면 이 값도 같이 맞출 것 — 아래서 실제로 재는 게 아니라 위 세 값에서
+     유도되는 결과값이기 때문이다. */
 }
 .card-table table {
   width: 100%;
@@ -277,16 +312,17 @@ body {
   letter-spacing: 0.01em;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
-  padding: 10px 10px;
+  padding: var(--row-head-pad-v) 10px;
   background: var(--sage-bg);
 }
 .card-table td {
-  padding: 11px 10px;
+  padding: var(--row-pad-v) 10px;
   border-bottom: 1px solid #f0f3ec;
   color: var(--ink);
   vertical-align: middle;
   white-space: nowrap;
-  line-height: 1.35;
+  line-height: var(--row-line);
+  height: var(--row-h); /* table-cell의 height는 하한선일 뿐이라 이보다 긴 내용은 그만큼 자란다 */
 }
 .card-table td:first-child,
 .card-table th:first-child { padding-left: 14px; padding-right: 8px; }

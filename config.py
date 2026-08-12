@@ -95,6 +95,9 @@ def reload_app_config():
     g["ACTIVITY_LOG_RETENTION_DAYS"] = _int(cfg, "activity_log_retention_days", 90)
     g["REFRESH_AUTO_RETRY_MAX"] = _int(cfg, "refresh_auto_retry_max", 2)
     g["ERROR_LOG_RETENTION_DAYS"] = _int(cfg, "error_log_retention_days", 90)
+    g["RECENTS_LIMIT"]        = _int(cfg, "recents_limit",              10)
+    g["ACTIVITY_LOG_MAX_ROWS"] = _int(cfg, "activity_log_max_rows",   1000)
+    g["ADMIN_UPLOAD_JOBS_LIMIT"] = _int(cfg, "admin_upload_jobs_limit", 30)
 
 
 reload_app_config()

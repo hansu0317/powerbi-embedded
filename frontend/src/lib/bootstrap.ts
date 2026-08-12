@@ -18,6 +18,7 @@ export interface ReportItem {
   description?: string | null;
   portal_folder_id?: number | null;
   visibility?: "personal" | "group" | "shared";
+  has_group_access?: boolean;
 }
 
 export interface PopularItem {
@@ -39,6 +40,8 @@ export interface ReportData {
   csrf_token: string;
   /** 설정 시에만 상단바에 "마케팅 포털" 링크 노출 (MARKETING_PORTAL_URL, 선택) */
   marketing_portal_url: string | null;
+  /** 관리자 설정 app_config.recents_limit — useRecents의 상한을 서버와 맞추는 데 쓴다. */
+  recents_limit: number;
 }
 
 export interface AdminStats {
@@ -60,8 +63,6 @@ export interface AdminUser {
   last_login_at: string | null;
   department: string | null;
   data_scope: "self" | "department" | "all";
-  company_code: string | null;
-  company_scope: "own" | "group";
 }
 
 export interface AdminReport {
@@ -72,6 +73,7 @@ export interface AdminReport {
   owner_username: string | null;
   category: string | null;
   description?: string | null;
+  visibility: "personal" | "group" | "shared";
   viewer_count: number;
   group_count: number;
   pbi_dataset_id: string | null;

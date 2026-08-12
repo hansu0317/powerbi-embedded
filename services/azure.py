@@ -13,14 +13,23 @@ _token_lock          = threading.Lock()
 _fabric_token_cache  = {"access_token": None, "expires_at": 0}
 _fabric_token_lock   = threading.Lock()
 
-# ConfidentialClientApplication을 모듈 레벨에서 한 번만 생성한다.
-# 인스턴스를 매 갱신마다 new하면 MSAL 내부 토큰 캐시가 초기화되어
-# 항상 네트워크 요청이 발생하고, 불필요한 객체 생성 비용이 누적된다.
-_msal_app = msal.ConfidentialClientApplication(
-    CLIENT_ID,
-    authority=f"https://login.microsoftonline.com/{TENANT_ID}",
-    client_credential=CLIENT_SECRET,
-)
+# import만으로 네트워크에 접속하지 않는다. 실제 토큰이 필요한 첫 요청에서 생성한다.
+# 덕분에 오프라인 코드 검사와 단위 테스트가 Microsoft 로그인 상태와 분리된다.
+_msal_app = None
+_msal_app_lock = threading.Lock()
+
+def _get_msal_app():
+    """MSAL 애플리케이션을 최초 사용 시 한 번만 생성한다."""
+    global _msal_app
+    if _msal_app is None:
+        with _msal_app_lock:
+            if _msal_app is None:
+                _msal_app = msal.ConfidentialClientApplication(
+                    CLIENT_ID,
+                    authority=f"https://login.microsoftonline.com/{TENANT_ID}",
+                    client_credential=CLIENT_SECRET,
+                )
+    return _msal_app
 
 
 def get_access_token() -> str:
@@ -29,7 +38,7 @@ def get_access_token() -> str:
         now = time.time()
         if _token_cache["access_token"] and now < _token_cache["expires_at"] - config.PBI_TOKEN_CACHE_MARGIN_SEC:
             return _token_cache["access_token"]
-        result = _msal_app.acquire_token_for_client(
+        result = _get_msal_app().acquire_token_for_client(
             scopes=["https://analysis.windows.net/powerbi/api/.default"]
         )
         if "access_token" not in result:
@@ -45,7 +54,7 @@ def get_fabric_token() -> str:
         now = time.time()
         if _fabric_token_cache["access_token"] and now < _fabric_token_cache["expires_at"] - config.PBI_TOKEN_CACHE_MARGIN_SEC:
             return _fabric_token_cache["access_token"]
-        result = _msal_app.acquire_token_for_client(
+        result = _get_msal_app().acquire_token_for_client(
             scopes=["https://api.fabric.microsoft.com/.default"]
         )
         if "access_token" not in result:

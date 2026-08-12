@@ -66,6 +66,7 @@ class AppError(Enum):
     CSV_HEADER_INVALID   = (400, "CSV_HEADER_INVALID",
                              "CSV 헤더에 최소 'username,password,display_name' 컬럼이 있어야 합니다.")
     CSV_TOO_MANY_ROWS    = (400, "CSV_TOO_MANY_ROWS",     "한 번에 최대 {max}행까지 등록할 수 있습니다.")
+    CSV_TOO_LARGE        = (400, "CSV_TOO_LARGE",         "CSV 파일은 {max_mb}MB 이하여야 합니다.")
     CONFIG_VALUE_INVALID = (400, "CONFIG_VALUE_INVALID",  "설정 값은 정수여야 합니다: '{value}'")
     CONFIG_KEY_UNKNOWN   = (400, "CONFIG_KEY_UNKNOWN",    "알 수 없는 설정 키입니다: '{key}'")
     CONFIG_VALUE_OUT_OF_RANGE = (400, "CONFIG_VALUE_OUT_OF_RANGE", "'{key}' 값은 {min}~{max} 범위여야 합니다.")

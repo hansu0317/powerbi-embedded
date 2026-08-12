@@ -2,33 +2,35 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as pbi from "powerbi-client";
 import {
   BarChart3,
-  ChevronDown,
-  Clock,
   Folder,
   Home as HomeIcon,
+  History,
   Info,
   LayoutDashboard,
-  LayoutList,
+  Layers,
   LogOut,
   Maximize,
   Search,
-  Settings,
   Star,
-  TrendingUp,
   Upload,
+  Users,
   X,
 } from "lucide-react";
-import type { ReportData, ReportItem, SessionUser } from "../bootstrap";
+import type { ReportData, ReportItem, SessionUser } from "../lib/bootstrap";
 import {
   fetchEmbed, fetchUploadStatus, logout, uploadPbix,
   fetchMyActivity, MyActivityRow, startReportUpdate,
-  fetchReportFolders, createReportFolder, ReportFolder,
-} from "../api";
-import { useFavorites } from "../useFavorites";
-import { useRecents } from "../useRecents";
-import { Pager, useFitRows } from "../Pager";
-import { Rail, ContextBar } from "../AppShell";
-import { categoryColor, withAlpha } from "../categoryColor";
+  fetchReportFolders, ReportFolder,
+  adminSyncStatus, SyncStatus,
+} from "../lib/api";
+import { orderFoldersAsTree } from "../lib/folderTree";
+import { useFavorites } from "../hooks/useFavorites";
+import { useRecents } from "../hooks/useRecents";
+import { Pager, useFitRows } from "../components/Pager";
+import { Rail, ContextBar } from "../components/AppShell";
+import { categoryColor, withAlpha } from "../utils/categoryColor";
+import { ReportSidebar, type BrowserMode, type ReportView } from "../components/ReportSidebar";
+import { ConfigSection, AdminSyncBell } from "./AdminPage";
 
 // PowerBI 서비스 싱글턴 (탭 전체가 공유)
 const powerbi = new pbi.service.Service(
@@ -55,7 +57,7 @@ function buildGetFilter(table: string, column: string, value: string): pbi.model
   };
 }
 
-type View = "my" | "all" | "upload";
+type View = ReportView;
 interface OpenTab {
   id: number;
   name: string;
@@ -63,7 +65,6 @@ interface OpenTab {
 
 const TABS_KEY = "open-tabs";
 const ACTIVE_KEY = "active-tab";
-const GROUPS_KEY = "sb-groups";
 
 function loadTabs(): OpenTab[] {
   try {
@@ -81,7 +82,14 @@ export default function ReportPage({ data }: { data: ReportData }) {
   const canUpload = user.can_upload !== false;
 
   const { isFav, toggle: toggleFav } = useFavorites(data.favorites, csrf_token);
-  const { recents, push: pushRecent } = useRecents(data.recents, csrf_token);
+  const { recents, push: pushRecent } = useRecents(data.recents, csrf_token, data.recents_limit);
+
+  // 사이드바 트리가 report_folders의 실제 parent_id 계층을 그대로 쓰도록 여기서 한 번만
+  // 불러와 내려준다 — 예전엔 report.category 문자열을 "/"로 쪼개 계층을 흉내냈는데,
+  // 그 방식은 폴더 이름 자체에 구분자를 넣어야 해서 관리자 화면(진짜 parent_id 트리)과
+  // 서로 다른 걸 보여주는 문제가 있었다(2026-08-12).
+  const [folders, setFolders] = useState<ReportFolder[]>([]);
+  useEffect(() => { fetchReportFolders().then(setFolders).catch(() => {}); }, []);
 
   // 열람 보고서 = 열람 가능한 보고서 전체(폴더 트리).
   //  - 관리자: 모든 보고서(권한과 무관하게 다 봄)
@@ -92,7 +100,21 @@ export default function ReportPage({ data }: { data: ReportData }) {
     () => (sessionStorage.getItem(MODE_KEY) as Mode) || "home",
   );
   const [view, setView] = useState<View>("my");
+  const [browserMode, setBrowserMode] = useState<BrowserMode>(
+    () => (sessionStorage.getItem("report-browser-mode") as BrowserMode) || "tree",
+  );
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false);
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  // 관리자에게만 필요한 데이터라 is_admin일 때만 부른다 — 일반 사용자는 /api/admin/sync-status가
+  // 403이라 어차피 못 쓰는 값을 매번 조회할 이유가 없다(2026-08-12, 알림 벨을 홈/보고서
+  // 화면에도 노출하면서 추가 — AdminSyncBell 참고).
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+  useEffect(() => {
+    if (user.is_admin) adminSyncStatus().then(setSync).catch(() => {});
+  }, [user.is_admin]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsToast, setSettingsToast] = useState<{ msg: string; tone: "ok" | "err" | "" } | null>(null);
   const [allQuery, setAllQuery] = useState("");
   const [tabs, setTabs] = useState<OpenTab[]>(() => loadTabs());
   const [active, setActive] = useState<number | null>(
@@ -103,6 +125,19 @@ export default function ReportPage({ data }: { data: ReportData }) {
     sessionStorage.setItem(TABS_KEY, JSON.stringify(tabs));
     sessionStorage.setItem(ACTIVE_KEY, String(active ?? ""));
   }, [tabs, active]);
+
+  // 저장된 활성 탭이 없거나 더 이상 열람 가능한 보고서가 아니면 첫 유효 탭을 선택한다.
+  // 이 보정이 없으면 탭 데이터는 남아 있는데 active가 null이라 보고서 영역이 비어 보인다.
+  useEffect(() => {
+    const validIds = new Set(myReports.map((report) => report.id));
+    const validTabs = tabs.filter((tab) => validIds.has(tab.id));
+    if (validTabs.length !== tabs.length) setTabs(validTabs);
+    if (validTabs.length && !validTabs.some((tab) => tab.id === active)) {
+      setActive(validTabs[0].id);
+    } else if (!validTabs.length && active !== null) {
+      setActive(null);
+    }
+  }, [myReports, tabs, active]);
 
   const goMode = useCallback((m: Mode) => {
     setMode(m);
@@ -133,6 +168,18 @@ export default function ReportPage({ data }: { data: ReportData }) {
       return next;
     });
   }, []);
+
+  const changeBrowserMode = (next: BrowserMode) => {
+    setBrowserMode(next);
+    sessionStorage.setItem("report-browser-mode", next);
+    setTabs([]);
+    setActive(null);
+  };
+  const selectCategory = (category: string | null) => {
+    setSelectedCategory(category);
+    setTabs([]);
+    setActive(null);
+  };
 
   const runSearch = useCallback(
     (q: string) => {
@@ -169,12 +216,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
   return (
     <div className="as-shell">
       <Rail
-        logo={
-          <span className="brand on-dark" style={{ fontSize: "0.68rem" }}>
-            <span className="b-quali">q</span>
-            <span className="b-soft">s</span>
-          </span>
-        }
         items={[
           {
             key: "home",
@@ -190,9 +231,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
             active: mode === "reports",
             onClick: () => goMode("reports"),
           },
-          ...(user.is_admin
-            ? [{ key: "admin", icon: <Settings size={19} />, label: "관리자 포털", href: "/admin" }]
-            : []),
         ]}
         footer={
           <button
@@ -214,6 +252,11 @@ export default function ReportPage({ data }: { data: ReportData }) {
           crumb={crumb}
           right={
             <>
+              {user.is_admin && <>
+                <AdminSyncBell sync={sync} onGoReports={() => { window.location.href = "/admin?section=reports"; }} />
+                <button className="as-ctxbar-pill" onClick={() => setAdminMenuOpen(true)}>관리</button>
+                <button className="as-ctxbar-pill" onClick={() => setSettingsOpen(true)}>설정</button>
+              </>}
               {data.marketing_portal_url && (
                 <a
                   href={data.marketing_portal_url}
@@ -232,6 +275,28 @@ export default function ReportPage({ data }: { data: ReportData }) {
           }
         />
         {showActivity && <MyActivityModal onClose={() => setShowActivity(false)} />}
+        {adminMenuOpen && <div className="ad-settings-overlay" onClick={() => setAdminMenuOpen(false)}>
+          <aside className="ad-settings-panel ad-admin-menu-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="ad-settings-head"><div><h2>관리자 포털</h2><p>확인할 관리 화면을 선택하세요.</p></div><button onClick={() => setAdminMenuOpen(false)}><X size={18}/></button></div>
+            <nav className="ad-admin-menu-list">
+              <AdminMenuLink section="overview" label="현황" icon={<LayoutDashboard size={17}/>}/>
+              <AdminMenuLink section="users" label="사용자" icon={<Users size={17}/>}/>
+              <AdminMenuLink section="groups" label="그룹" icon={<Layers size={17}/>}/>
+              <AdminMenuLink section="reports" label="보고서" icon={<BarChart3 size={17}/>}/>
+              <AdminMenuLink section="logs" label="로그" icon={<History size={17}/>}/>
+            </nav>
+          </aside>
+        </div>}
+        {settingsOpen && <div className="ad-settings-overlay" onClick={() => setSettingsOpen(false)}>
+          <aside className="ad-settings-panel ad-config-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="ad-settings-head"><div><h2>설정</h2><p>포털 운영에 필요한 제한값을 변경합니다.</p></div><button onClick={() => setSettingsOpen(false)}><X size={18}/></button></div>
+            <ConfigSection csrf={csrf_token} showToast={(msg, tone = "") => {
+              setSettingsToast({ msg, tone });
+              window.setTimeout(() => setSettingsToast(null), 3000);
+            }}/>
+          </aside>
+        </div>}
+        {settingsToast && <div className={`ad-toast show ${settingsToast.tone}`}>{settingsToast.msg}</div>}
 
         {mode === "home" ? (
           <Home
@@ -252,15 +317,18 @@ export default function ReportPage({ data }: { data: ReportData }) {
           />
         ) : (
           <div className="app-body rp-body-shell">
-            <Sidebar
+          <ReportSidebar
               reports={reports}
               myReports={myReports}
+              folders={folders}
               view={view}
               activeId={active}
               isAdmin={Boolean(user.is_admin)}
               canUpload={canUpload}
+              browserMode={browserMode}
               isFav={isFav}
               onSelectView={setView}
+              onSelectFolder={selectCategory}
               onOpen={openReport}
             />
             <main className="app-main">
@@ -273,10 +341,14 @@ export default function ReportPage({ data }: { data: ReportData }) {
                   canUpload={canUpload}
                   onToggleFav={toggleFav}
                   onActivate={setActive}
+                  onOpen={openReport}
                   onClose={closeTab}
                   onGoUpload={() => setView("upload")}
                   csrf={csrf_token}
                   user={user}
+                  browserMode={browserMode}
+                  selectedCategory={selectedCategory}
+                  onBrowserMode={changeBrowserMode}
                 />
               )}
               {view === "all" && (
@@ -300,10 +372,14 @@ export default function ReportPage({ data }: { data: ReportData }) {
   );
 }
 
+function AdminMenuLink({ section, label, icon }: { section: string; label: string; icon: React.ReactNode }) {
+  return <a href={`/admin?section=${section}`}><span>{icon}<b>{label}</b></span><span aria-hidden="true">›</span></a>;
+}
+
 /* ── 홈 (메인 랜딩) — CyberClinic(헬스케어 CRM) + slothui(파일매니저) 참고 ──
    벤토 카드 대신: 큰 숫자 통계 → 색 채운 액션 타일 4개 → 최근 열람 아이콘 카드 →
    필터 가능한 표(파스텔 행) + 오른쪽 상세 패널. 표·타일 전부 실제 데이터 기준. */
-type HomeFilter = "all" | "fav" | "managed" | "personal";
+type HomeFilter = "all" | "fav" | "recent" | "popular" | "managed" | "personal";
 
 function Home({
   reports,
@@ -335,18 +411,20 @@ function Home({
 
   const byId = useMemo(() => new Map(reports.map((r) => [r.id, r])), [reports]);
   const favReports = useMemo(() => reports.filter((r) => isFav(r.id)), [reports, isFav]);
+  // recentIds(useRecents의 recents)는 이미 서버 app_config.recents_limit만큼만 들어있다
+  // (useRecents의 max로 매 push마다 잘림) — 여기서 또 다른 숫자로 재차 자르면 두 상한이
+  // 어긋날 때 항목이 조용히 사라지는 문제가 생기므로(2026-08-12) 여기선 그대로 쓴다.
   const recentReports = useMemo(
     () =>
       recentIds
         .map((id) => byId.get(id))
-        .filter((r): r is ReportItem => Boolean(r))
-        .slice(0, 6),
+        .filter((r): r is ReportItem => Boolean(r)),
     [recentIds, byId],
   );
-  const topPopular = useMemo(() => {
-    const r = popular[0] && byId.get(popular[0].report_id);
-    return r || null;
-  }, [popular, byId]);
+  const popularReports = useMemo(
+    () => popular.map((p) => byId.get(p.report_id)).filter((r): r is ReportItem => Boolean(r)),
+    [popular, byId],
+  );
 
   const suggestions = useMemo(() => {
     const k = q.trim().toLowerCase();
@@ -365,6 +443,10 @@ function Home({
     switch (filter) {
       case "fav":
         return favReports;
+      case "recent":
+        return recentReports;
+      case "popular":
+        return popularReports;
       case "managed":
         return reports.filter((r) => r.report_type !== "personal");
       case "personal":
@@ -372,14 +454,17 @@ function Home({
       default:
         return reports;
     }
-  }, [filter, reports, favReports]);
+  }, [filter, reports, favReports, recentReports, popularReports]);
 
   const detail = (selectedId && byId.get(selectedId)) || filtered[0] || null;
 
   // 고정 개수 대신 화면 높이에 맞춰 실제로 들어가는 행 수를 계산한다 — 스크롤이
   // 아예 안 생기는 걸 페이지네이션 하나로 보장하는 유일한 방법(고정 개수면 화면이
   // 작을 때 넘치고, 화면이 크면 남는 공간이 그냥 빈다).
-  const [pageSize, tableRef] = useFitRows(40, 36, 5);
+  // 45 = --row-h(theme.css, .card-table와 공유하는 표준 행 높이). 이 표는 아이콘(24px)이
+  // 낀 셀이 있어 실제로는 45px보다 살짝 더 자라므로 46으로 여유를 둔다 — useFitRows는
+  // 과소추정(덜 채움)이 항상 더 안전하다(Pager.tsx SAFETY_MARGIN_PX 주석 참고).
+  const [pageSize, tableRef] = useFitRows(46, 38, 5);
   const [page, setPage] = useState(1);
   useEffect(() => setPage(1), [filter, pageSize]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -452,35 +537,9 @@ function Home({
         </form>
       </div>
 
-      <div className="home-actions">
-        <ActionTile
-          Icon={Star}
-          title="즐겨찾기"
-          sub={favReports[0] ? favReports[0].name : "별표한 보고서가 없습니다"}
-          onClick={() => setFilter("fav")}
-        />
-        <ActionTile
-          Icon={Clock}
-          title="최근 열람"
-          sub={recentReports[0] ? recentReports[0].name : "아직 연 보고서가 없습니다"}
-          onClick={() => setSelectedId(recentReports[0]?.id ?? null)}
-        />
-        <ActionTile
-          Icon={TrendingUp}
-          title="이번 주 인기"
-          sub={topPopular ? topPopular.name : "집계된 데이터가 없습니다"}
-          onClick={() => topPopular && setSelectedId(topPopular.id)}
-        />
-        {isAdmin ? (
-          <ActionTile Icon={LayoutList} title="보고서 관리" sub={`${reports.length}건의 공개·권한 상태 확인`} onClick={onGoAll} />
-        ) : (
-          <ActionTile Icon={LayoutList} title="사용 가능한 보고서" sub={`${reports.length}건 보기`} onClick={() => setFilter("all")} />
-        )}
-      </div>
-
-      {recentReports.length > 0 && (
+      {!isAdmin && recentReports.length > 0 && (
         <>
-          <div className="home-section-label">{isAdmin ? "최근 확인한 보고서" : "이어서 보기"}</div>
+          <div className="home-section-label">이어서 보기</div>
           <div className="home-recent-grid">
             {recentReports.map((r) => (
               <FileCard key={r.id} report={r} selected={detail?.id === r.id} onClick={() => setSelectedId(r.id)} onOpen={onOpen} />
@@ -492,14 +551,27 @@ function Home({
       <div className="home-filterrow">
         <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>전체</FilterChip>
         <FilterChip active={filter === "fav"} onClick={() => setFilter("fav")}>★ 즐겨찾기</FilterChip>
+        <FilterChip active={filter === "recent"} onClick={() => setFilter("recent")}>최근 열람</FilterChip>
+        <FilterChip active={filter === "popular"} onClick={() => setFilter("popular")}>이번 주 인기</FilterChip>
         <FilterChip active={filter === "managed"} onClick={() => setFilter("managed")}>공용</FilterChip>
         <FilterChip active={filter === "personal"} onClick={() => setFilter("personal")}>개인</FilterChip>
       </div>
       </div>
 
       <div className="home-main">
-        <div className="home-tablewrap" ref={tableRef}>
+        <div className="home-tablewrap card-table" ref={tableRef}>
           <table className="home-table">
+            {/* 네 컬럼 폭 합이 정확히 100%여야 한다 — px 고정값(예: 36px)을 하나라도 섞으면
+                table-layout:fixed 아래서 표 전체 폭이 "100% + 36px"가 되어 컨테이너보다
+                넓어지고, home-tablewrap의 overflow:hidden이 그 초과분을 조용히 잘라낸다.
+                이때 셀 안 텍스트 길이에 따라 잘리는 지점이 달라져 줄마다 오른쪽 경계가
+                들쭉날쭉해 보인다("줄이 어긋나 보임") — 그래서 전부 %로만 맞춘다. */}
+            <colgroup>
+              <col style={{ width: "4%" }} />
+              <col style={{ width: "42%" }} />
+              <col style={{ width: "29%" }} />
+              <col style={{ width: "25%" }} />
+            </colgroup>
             <thead>
               <tr>
                 <th></th>
@@ -537,7 +609,7 @@ function Home({
                           <BarChart3 size={12} />
                         )}
                       </span>
-                      {r.name}
+                      <span className="home-table-name-text" title={r.name}>{r.name}</span>
                     </div>
                   </td>
                   <td>
@@ -603,31 +675,6 @@ function Home({
   );
 }
 
-function ActionTile({
-  Icon,
-  title,
-  sub,
-  onClick,
-}: {
-  Icon: typeof Star;
-  title: string;
-  sub: string;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" className="home-atile" onClick={onClick}>
-      <span className="home-atile-badge">
-        <Icon size={16} className="icn" />
-      </span>
-      <span className="home-atile-go">→</span>
-      <div className="home-atile-title">{title}</div>
-      <div className="home-atile-sub" title={sub}>
-        {sub}
-      </div>
-    </button>
-  );
-}
-
 function FilterChip({
   active,
   onClick,
@@ -671,227 +718,6 @@ function FileCard({
   );
 }
 
-/* ── 사이드바 ─────────────────────────────────────────── */
-function Sidebar({
-  reports,
-  myReports,
-  view,
-  activeId,
-  isAdmin,
-  canUpload,
-  isFav,
-  onSelectView,
-  onOpen,
-}: {
-  reports: ReportItem[];
-  myReports: ReportItem[];
-  view: View;
-  activeId: number | null;
-  isAdmin: boolean;
-  canUpload: boolean;
-  isFav: (id: number) => boolean;
-  onSelectView: (v: View) => void;
-  onOpen: (r: ReportItem) => void;
-}) {
-  const favReports = reports.filter((r) => isFav(r.id));
-  const { folderTree, uncategorized } = useMemo(() => {
-    // category("본부/팀" 경로 문자열)를 "/"로 쪼개 N단계 폴더 트리를 만든다
-    const root = new Map<string, FolderNode>();
-    const u: ReportItem[] = [];
-    for (const r of myReports) {
-      const parts = (r.category || "").split("/").filter(Boolean);
-      if (parts.length === 0) {
-        u.push(r);
-        continue;
-      }
-      let level = root;
-      let node: FolderNode | null = null;
-      let path = "";
-      for (const name of parts) {
-        path = path ? `${path}/${name}` : name;
-        if (!level.has(name)) level.set(name, { name, path, children: new Map(), reports: [] });
-        node = level.get(name)!;
-        level = node.children;
-      }
-      node!.reports.push(r);
-    }
-    return { folderTree: root, uncategorized: u };
-  }, [myReports]);
-
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
-    try {
-      return JSON.parse(sessionStorage.getItem(GROUPS_KEY) || "{}");
-    } catch {
-      return {};
-    }
-  });
-  const toggle = (cat: string) =>
-    setCollapsed((prev) => {
-      const next = { ...prev, [cat]: !prev[cat] };
-      sessionStorage.setItem(GROUPS_KEY, JSON.stringify(next));
-      return next;
-    });
-
-  return (
-    <nav className="app-sidebar rp-sidepanel">
-      <div className="app-sidebar-title">보고서</div>
-      <div className="app-sidebar-scroll">
-        <div
-          className={`app-nav-item${view === "my" ? " active" : ""}`}
-          onClick={() => onSelectView("my")}
-        >
-          <Folder size={17} className="icn" /> 열람 보고서
-        </div>
-
-        {view === "my" && (
-          <div className="rp-tree">
-            {favReports.length > 0 && (
-              <div className="rp-group">
-                <div className="rp-group-header rp-group-fav">
-                  <Star size={12} className="icn" fill="currentColor" /> 즐겨찾기
-                </div>
-                <div className="rp-group-body">
-                  {favReports.map((r) => (
-                    <TreeItem
-                      key={"fav-" + r.id}
-                      report={r}
-                      active={r.id === activeId}
-                      onOpen={onOpen}
-                      indent
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-            {[...folderTree.values()].map((node) => (
-              <TreeGroup
-                key={node.path}
-                node={node}
-                depth={0}
-                collapsed={collapsed}
-                onToggle={toggle}
-                activeId={activeId}
-                onOpen={onOpen}
-              />
-            ))}
-            {uncategorized.map((r) => (
-              <TreeItem
-                key={r.id}
-                report={r}
-                active={r.id === activeId}
-                onOpen={onOpen}
-              />
-            ))}
-            {myReports.length === 0 && (
-              <div className="rp-tree-empty">열람 가능한 보고서가 없습니다</div>
-            )}
-          </div>
-        )}
-
-        {isAdmin && (
-          <div
-            className={`app-nav-item${view === "all" ? " active" : ""}`}
-            onClick={() => onSelectView("all")}
-          >
-            <LayoutList size={17} className="icn" /> 전체 보고서
-          </div>
-        )}
-        {canUpload && (
-          <div
-            className={`app-nav-item${view === "upload" ? " active" : ""}`}
-            onClick={() => onSelectView("upload")}
-          >
-            <Upload size={17} className="icn" /> 보고서 등록
-          </div>
-        )}
-      </div>
-    </nav>
-  );
-}
-
-type FolderNode = {
-  name: string;
-  path: string; // "본부/팀" — 접기 상태 키
-  children: Map<string, FolderNode>;
-  reports: ReportItem[];
-};
-
-function TreeGroup({
-  node,
-  depth,
-  collapsed,
-  onToggle,
-  activeId,
-  onOpen,
-}: {
-  node: FolderNode;
-  depth: number;
-  collapsed: Record<string, boolean>;
-  onToggle: (path: string) => void;
-  activeId: number | null;
-  onOpen: (r: ReportItem) => void;
-}) {
-  return (
-    <div className={`rp-group${collapsed[node.path] ? " collapsed" : ""}`}>
-      <div
-        className="rp-group-header"
-        style={{ paddingLeft: 30 + depth * 12 }}
-        onClick={() => onToggle(node.path)}
-      >
-        <ChevronDown size={13} className="icn rp-group-arrow" /> {node.name}
-      </div>
-      <div className="rp-group-body">
-        {[...node.children.values()].map((child) => (
-          <TreeGroup
-            key={child.path}
-            node={child}
-            depth={depth + 1}
-            collapsed={collapsed}
-            onToggle={onToggle}
-            activeId={activeId}
-            onOpen={onOpen}
-          />
-        ))}
-        {node.reports.map((r) => (
-          <TreeItem
-            key={r.id}
-            report={r}
-            active={r.id === activeId}
-            onOpen={onOpen}
-            indent
-            depth={depth}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function TreeItem({
-  report,
-  active,
-  onOpen,
-  indent,
-  depth,
-}: {
-  report: ReportItem;
-  active: boolean;
-  onOpen: (r: ReportItem) => void;
-  indent?: boolean;
-  depth?: number;
-}) {
-  return (
-    <div
-      className={`rp-tree-item${active ? " active" : ""}${indent ? " indent" : ""}`}
-      style={depth ? { paddingLeft: 46 + depth * 12 } : undefined}
-      onClick={() => onOpen(report)}
-      title={report.name}
-    >
-      <span className="rp-tree-label">{report.name}</span>
-    </div>
-  );
-}
-
 /* ── 내 보고서 (랜딩 / 탭 + 임베드, 탭은 하단) ─────────── */
 function MyReportsView({
   reports,
@@ -901,10 +727,14 @@ function MyReportsView({
   canUpload,
   onToggleFav,
   onActivate,
+  onOpen,
   onClose,
   onGoUpload,
   csrf,
   user,
+  browserMode,
+  selectedCategory,
+  onBrowserMode,
 }: {
   reports: ReportItem[];
   tabs: OpenTab[];
@@ -913,16 +743,22 @@ function MyReportsView({
   canUpload: boolean;
   onToggleFav: (id: number) => void;
   onActivate: (id: number) => void;
+  onOpen: (report: ReportItem) => void;
   onClose: (id: number) => void;
   onGoUpload: () => void;
   csrf: string;
   user: SessionUser;
+  browserMode: BrowserMode;
+  selectedCategory: string | null;
+  onBrowserMode: (mode: BrowserMode) => void;
 }) {
   // 탭별 임베드 인스턴스 참조 — 전체화면·보기모드 버튼이 활성 탭의 인스턴스를 직접 조작한다.
   // ref라 리렌더를 트리거하지 않고, 탭이 바뀌면 해당 탭의 것만 조회한다.
-  const reportRefs = useRef<Record<number, { report: pbi.Report; isDashboard: boolean }>>({});
-  const onReady = useCallback((rid: number, report: pbi.Report, isDashboard: boolean) => {
-    reportRefs.current[rid] = { report, isDashboard };
+  const reportRefs = useRef<Record<number, { report: pbi.Report; isDashboard: boolean; container: HTMLDivElement }>>({});
+  const [, setReadyVersion] = useState(0);
+  const onReady = useCallback((rid: number, report: pbi.Report, isDashboard: boolean, container: HTMLDivElement) => {
+    reportRefs.current[rid] = { report, isDashboard, container };
+    setReadyVersion((version) => version + 1);
   }, []);
 
   // React 훅은 조건부로 호출하면 안 된다 — tabs가 빈 상태(→ 아래 조기 return)에서
@@ -933,9 +769,6 @@ function MyReportsView({
   type DisplayMode = "FitToPage" | "FitToWidth" | "ActualSize";
   const [displayModes, setDisplayModes] = useState<Record<number, DisplayMode>>({});
 
-  if (tabs.length === 0) {
-    return <ReportLanding reports={reports} canUpload={canUpload} onGoUpload={onGoUpload} />;
-  }
   const activeTab = tabs.find((t) => t.id === active);
   const activeEntry = activeTab ? reportRefs.current[activeTab.id] : undefined;
   const activeReportItem = activeTab ? reports.find((r) => r.id === activeTab.id) : undefined;
@@ -958,13 +791,40 @@ function MyReportsView({
       /* SDK가 설정 변경을 거부하면 선택 표시도 바꾸지 않는다. */
     }
   };
-  const goFullscreen = () => {
+  const goFullscreen = async () => {
+    if (!activeEntry) return;
     try {
-      activeEntry?.report.fullscreen();
+      // SDK report.fullscreen()은 iframe 내부 캔버스가 기존 크기를 유지하는 경우가 있다.
+      // 실제 embed 컨테이너를 전체화면으로 만들고 크기 변경 후 맞춤을 다시 적용한다.
+      await activeEntry.container.requestFullscreen();
+      if (!activeEntry.isDashboard) {
+        window.setTimeout(() => activeEntry.report.updateSettings({
+          layoutType: pbi.models.LayoutType.Custom,
+          customLayout: { displayOption: pbi.models.DisplayOption.FitToPage },
+        }), 150);
+      }
     } catch {
-      /* 대시보드 등 일부 타입은 fullscreen 미지원일 수 있음 — 무시 */
+      // 구형 브라우저에서는 SDK 전체화면을 최후 수단으로 사용한다.
+      activeEntry.report.fullscreen();
     }
   };
+
+  useEffect(() => {
+    const restoreDisplay = () => {
+      if (document.fullscreenElement || !activeTab || !activeEntry || activeEntry.isDashboard) return;
+      const selected = displayModes[activeTab.id] ?? "FitToPage";
+      window.setTimeout(() => activeEntry.report.updateSettings({
+        layoutType: pbi.models.LayoutType.Custom,
+        customLayout: { displayOption: pbi.models.DisplayOption[selected] },
+      }), 100);
+    };
+    document.addEventListener("fullscreenchange", restoreDisplay);
+    return () => document.removeEventListener("fullscreenchange", restoreDisplay);
+  }, [activeTab, activeEntry, displayModes]);
+
+  if (tabs.length === 0) {
+    return <ReportLanding reports={reports} canUpload={canUpload} onGoUpload={onGoUpload} onOpen={onOpen} browserMode={browserMode} selectedCategory={selectedCategory} onBrowserMode={onBrowserMode} />;
+  }
   return (
     <div className="rp-workarea">
       {activeTab && (
@@ -1055,13 +915,21 @@ function MyReportsView({
 }
 
 function ReportLanding({
-  reports,
+  reports: _reports,
   canUpload,
   onGoUpload,
+  onOpen: _onOpen,
+  browserMode: _browserMode,
+  selectedCategory: _selectedCategory,
+  onBrowserMode: _onBrowserMode,
 }: {
   reports: ReportItem[];
   canUpload: boolean;
   onGoUpload: () => void;
+  onOpen: (report: ReportItem) => void;
+  browserMode: BrowserMode;
+  selectedCategory: string | null;
+  onBrowserMode: (mode: BrowserMode) => void;
 }) {
   return (
     <div className="rp-landing">
@@ -1076,15 +944,6 @@ function ReportLanding({
           </button>
         )}
       </div>
-
-      <div className="rp-landing-empty">
-        <BarChart3 size={52} className="icn" />
-        {reports.length === 0 ? (
-          <p>아직 열람 가능한 보고서가 없습니다</p>
-        ) : (
-          <p>왼쪽 ‘열람 보고서’ 목록에서 보고서를 선택하세요</p>
-        )}
-      </div>
     </div>
   );
 }
@@ -1096,7 +955,7 @@ function ReportPanel({
 }: {
   id: number;
   active: boolean;
-  onReady: (rid: number, report: pbi.Report, isDashboard: boolean) => void;
+  onReady: (rid: number, report: pbi.Report, isDashboard: boolean, container: HTMLDivElement) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
@@ -1179,7 +1038,7 @@ function ReportPanel({
             };
         const report = powerbi.embed(el, config);
         scheduleRenew(report, d.expires_at);
-        onReady(id, report as pbi.Report, isDashboard);
+        onReady(id, report as pbi.Report, isDashboard, el);
         report.on("loaded", () => {
           if (cancelled) return;
           setLoading(false);
@@ -1302,11 +1161,6 @@ function AllReportsView({
                   {r.report_type === "dashboard"
                     ? <LayoutDashboard size={15} className="icn" />
                     : <BarChart3 size={15} className="icn" />} {r.name}
-                  {r.report_type === "personal" && (
-                    <span className="pill pending" style={{ marginLeft: 6 }}>
-                      개인
-                    </span>
-                  )}
                   {r.description && (
                     <span className="rp-all-desc">{r.description}</span>
                   )}
@@ -1418,9 +1272,14 @@ function UpdateReportModal({
         )}
         <div className="rp-modal-name">보고서 업데이트 — {reportName}</div>
         <p className="rp-landing-sub" style={{ marginBottom: 16 }}>
-          새 pbix로 페이지·시각화만 교체합니다. 데이터셋(RLS·관계·DAX)은 그대로 유지됩니다.
-          파일명이 <b>"{reportName}.pbix"</b>와 같아야 합니다 — 다른 보고서라면 "보고서 등록"을 이용하세요.
+          기존 보고서의 화면만 새 PBIX 내용으로 교체합니다. 아래 조건을 모두 확인하세요.
         </p>
+        <ul className="rp-update-rules">
+          <li>파일명은 반드시 <b>{reportName}.pbix</b>여야 합니다.</li>
+          <li>데이터셋, 관계, DAX와 RLS 역할은 기존 보고서의 것을 유지합니다.</li>
+          <li>페이지와 시각화는 새 파일 내용으로 교체되며 자동으로 되돌릴 수 없습니다.</li>
+          <li>대시보드는 업데이트할 수 없고, 보고서 소유자 또는 관리자만 실행할 수 있습니다.</li>
+        </ul>
         <div className="rp-filepick" style={{ marginBottom: 16 }}>
           <input
             type="file"
@@ -1556,25 +1415,30 @@ function deriveReportName(fileName: string): string {
   return fileName.toLowerCase().endsWith(".pbix") ? fileName.slice(0, -5) : fileName;
 }
 
+
 function UploadView({ csrf, isAdmin }: { csrf: string; isAdmin: boolean }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [description, setDescription] = useState("");
   const [folders,setFolders]=useState<ReportFolder[]>([]);
   const [folderId,setFolderId]=useState<number|null>(null);
-  const [visibility,setVisibility]=useState<"personal"|"group"|"shared">("personal");
-  const [newFolder,setNewFolder]=useState("");
+  const visibility = "personal" as const;
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ msg: string; tone: "" | "ok" | "err" }>(
     { msg: "", tone: "" },
   );
+  // 폴더 생성·이름변경·삭제는 이 앱에서 다루지 않는다(2026-08-12~) — 이미 있는 폴더
+  // 중에서 고르기만 한다. 새 폴더가 필요하면 Power BI/Fabric 쪽 구조를 먼저 정리한다.
   useEffect(()=>{fetchReportFolders().then((f)=>{setFolders(f);setFolderId(f[0]?.id??null)}).catch(()=>{})},[]);
-  const addFolder=async()=>{if(!newFolder.trim())return;try{const f=await createReportFolder(newFolder.trim(),null,visibility,csrf);setFolders(prev=>[...prev,f]);setFolderId(f.id);setNewFolder("")}catch(e){setStatus({msg:(e as Error).message,tone:"err"})}};
 
   const submit = async () => {
     const file = fileRef.current?.files?.[0];
     if (!file) {
       setStatus({ msg: ".pbix 파일을 선택해 주세요.", tone: "err" });
+      return;
+    }
+    const folderName = folders.find((f) => f.id === folderId)?.name;
+    if (folderName && !confirm(`'${folderName}' 폴더에 등록합니다. 맞습니까?`)) {
       return;
     }
     setBusy(true);
@@ -1618,8 +1482,18 @@ function UploadView({ csrf, isAdmin }: { csrf: string; isAdmin: boolean }) {
       <div className="rp-upload-workspace">
        <aside className="rp-upload-folders">
         <div className="rp-upload-side-title">저장 위치</div>
-        {folders.map(f=><button key={f.id} className={`rp-upload-folder${folderId===f.id?" active":""}`} onClick={()=>{setFolderId(f.id);setVisibility(f.visibility)}}><Folder size={15}/><span>{f.name}</span><small>{f.report_count}</small></button>)}
-        <div className="rp-new-folder"><input value={newFolder} onChange={e=>setNewFolder(e.target.value)} placeholder="새 폴더"/><button onClick={addFolder}>+</button></div>
+        {orderFoldersAsTree(folders).map(({ folder: f, depth }) => (
+          <button
+            key={f.id}
+            className={`rp-upload-folder${folderId===f.id?" active":""}${depth>0?" rp-upload-folder--child":""}`}
+            style={{ paddingLeft: 9 + depth * 16 }}
+            onClick={()=>setFolderId(f.id)}
+          >
+            <Folder size={depth>0?13:15}/><span>{f.name}</span><small>{f.report_count}</small>
+          </button>
+        ))}
+        {folders.length === 0 && <span className="rp-upload-side-empty">등록 가능한 폴더가 없습니다 — 관리자에게 문의하세요.</span>}
+        <span className="rp-upload-side-hint">필요한 폴더가 없나요? 이 목록은 자동으로 늘어나지 않습니다 — 개발 담당자에게 Fabric 폴더 반영을 요청하세요.</span>
        </aside>
       <div className="rp-form-card">
         <div className="rp-field">
@@ -1651,13 +1525,9 @@ function UploadView({ csrf, isAdmin }: { csrf: string; isAdmin: boolean }) {
           )}
         </div>
 
-        <div className="rp-field">
-          <label>공개 범위</label>
-          <select value={visibility} onChange={e=>setVisibility(e.target.value as typeof visibility)} disabled={busy}>
-            <option value="personal">개인 — 나만 관리</option>
-            <option value="group">그룹 — 같은 그룹과 공유</option>
-            {isAdmin && <option value="shared">공용 — 포털 사용자와 공유</option>}
-          </select>
+        <div className="rp-upload-policy">
+          <strong>신규 보고서는 비공개로 등록됩니다.</strong>
+          <span>{isAdmin ? "등록 후 관리자 보고서 권한에서 그룹 또는 공용으로 공개할 수 있습니다." : "공유가 필요하면 관리자에게 그룹 또는 공용 공개를 요청하세요."}</span>
         </div>
 
         <div className="rp-field">
@@ -1673,12 +1543,11 @@ function UploadView({ csrf, isAdmin }: { csrf: string; isAdmin: boolean }) {
 
         <div className="rp-upload-note">
           <Info size={15} className="icn" />
-          <span>
-            보고서 명은 파일명에서 자동으로 정해집니다
-            (예: <code>test0101.pbix</code> → "test0101"). <b>이미 등록한 것과 같은
-            파일명으로는 올릴 수 없습니다 — 기존 보고서 내용을 바꾸려면 그 보고서를
-            열어서 '업데이트' 기능을 사용하세요.</b>
-          </span>
+          <div>
+            <b>새 보고서를 등록하는 화면입니다.</b>
+            <span>PBIX 파일명이 보고서 이름이 됩니다. 예: <code>test0101.pbix</code> → <code>test0101</code></span>
+            <span>이미 등록된 보고서를 수정하려면 새로 등록하지 말고, 해당 보고서를 연 뒤 <b>업데이트</b>를 사용하세요.</span>
+          </div>
         </div>
 
         {status.msg && (

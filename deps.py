@@ -76,9 +76,24 @@ def require_admin(user):
         raise AppError.FORBIDDEN_ADMIN.http()
 
 
+async def require_user(request: Request) -> dict:
+    """인증된 사용자 반환. 일반 사용자 API의 반복 인증 검사를 한곳에 둔다."""
+    user = await current_user(request)
+    if not user:
+        raise AppError.NOT_AUTHENTICATED.http()
+    return user
+
+
+async def require_user_csrf(request: Request) -> dict:
+    """사용자 인증 후 상태 변경 요청의 CSRF를 검증한다."""
+    user = await require_user(request)
+    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    return user
+
+
 async def require_admin_user(request: Request) -> dict:
     """관리자 세션 확인. `Depends(require_admin_user)`로 라우트에 주입해 보일러플레이트를 줄인다."""
-    user = await current_user(request)
+    user = await require_user(request)
     require_admin(user)
     return user
 
@@ -88,8 +103,7 @@ async def require_admin_csrf(request: Request) -> dict:
 
     current_user()를 먼저 호출해야 request.state.auth_via_token이 세팅되고,
     verify_csrf()가 탭 토큰 인증 여부를 알 수 있다 — 순서를 바꾸면 안 된다."""
-    user = await current_user(request)
-    verify_csrf(request, request.headers.get("X-CSRF-Token", ""))
+    user = await require_user_csrf(request)
     require_admin(user)
     return user
 

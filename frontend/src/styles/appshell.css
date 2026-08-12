@@ -79,6 +79,11 @@
 .as-ctxbar-crumb .dim { color: var(--muted); font-weight: 500; margin: 0 4px; }
 .as-ctxbar-spacer { flex: 1; }
 .as-ctxbar-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 34px;
   border: 1px solid var(--line);
   background: #fff;
   color: var(--ink-soft);
@@ -88,6 +93,7 @@
   font-family: inherit;
   font-size: 0.8rem;
   font-weight: 600;
+  line-height: 1;
   text-decoration: none;
   white-space: nowrap;
   transition: background 0.15s, border-color 0.15s;

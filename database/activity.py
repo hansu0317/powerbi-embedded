@@ -36,8 +36,13 @@ def db_log_activity(user_id: int, username: str, event: str,
 
 def db_get_activity_log(username: str | None = None, event: str | None = None,
                         date_from: str | None = None, date_to: str | None = None,
-                        limit: int = 1000) -> list:
-    """활동 로그 조회 (관리자 로그 화면·CSV 내보내기용). 필터는 전부 선택."""
+                        limit: int | None = None) -> list:
+    """활동 로그 조회 (관리자 로그 화면·CSV 내보내기용). 필터는 전부 선택.
+
+    limit 기본값은 config.ACTIVITY_LOG_MAX_ROWS(app_config 'activity_log_max_rows') —
+    db_get_audit_log과 같은 설정값을 공유한다(관리자 로그 화면의 두 탭이 같은 개념)."""
+    if limit is None:
+        limit = config.ACTIVITY_LOG_MAX_ROWS
     conds, params = ["log_type = 'activity'"], []
     if username:
         conds.append("username ILIKE %s")
@@ -79,8 +84,12 @@ def db_get_user_activity_log(user_id: int, limit: int = 200) -> list:
 
 
 def db_get_audit_log(date_from: str | None = None, date_to: str | None = None,
-                     limit: int = 1000) -> list:
-    """관리 행위 감사 로그 조회 (event_log의 log_type='audit' — 등록/삭제/권한변경)."""
+                     limit: int | None = None) -> list:
+    """관리 행위 감사 로그 조회 (event_log의 log_type='audit' — 등록/삭제/권한변경).
+
+    limit 기본값은 config.ACTIVITY_LOG_MAX_ROWS — db_get_activity_log 참고."""
+    if limit is None:
+        limit = config.ACTIVITY_LOG_MAX_ROWS
     conds, params = ["a.log_type = 'audit'"], []
     if date_from:
         conds.append("a.created_at >= %s::date")
@@ -118,7 +127,7 @@ def db_cleanup_activity_log() -> int:
     return deleted
 
 
-def db_get_popular_report_ids(days: int = 30, limit: int = 20) -> list:
+def db_get_popular_report_ids(days: int = 7, limit: int = 20) -> list:
     """최근 N일 조회수 상위 보고서 [(report_id, views)]. active 보고서만.
 
     호출자(홈 부트스트랩)가 사용자의 열람 가능 목록과 교집합을 내서 노출한다 —

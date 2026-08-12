@@ -33,9 +33,9 @@ from database.admin import (
     db_admin_get_stats, db_admin_get_users, db_get_user_report_list, db_admin_add_user,
     db_admin_update_user, db_admin_toggle_user_active, db_admin_toggle_user_upload,
     db_admin_get_reports, db_import_pbi_item, db_admin_soft_delete_report,
+    db_admin_set_report_visibility,
     db_admin_get_upload_jobs, db_get_report_access, db_set_report_access,
     db_get_app_config, db_update_app_config,
-    db_admin_get_company_codes, db_admin_upsert_company, db_admin_delete_company,
 )
 from database.groups import (
     db_admin_get_groups, db_admin_create_group, db_admin_delete_group,
@@ -47,8 +47,8 @@ from database.activity import (
     db_cleanup_activity_log, db_get_popular_report_ids,
 )
 from database.folders import (
-    db_get_report_folders, db_create_report_folder, db_update_report_folder,
-    db_delete_report_folder, db_get_folder, db_move_report_to_folder,
+    db_get_report_folders, db_get_folder, db_move_report_to_folder,
+    db_can_write_folder,
 )
 
 __all__ = [
@@ -66,14 +66,14 @@ __all__ = [
     "db_admin_get_stats", "db_admin_get_users", "db_get_user_report_list", "db_admin_add_user",
     "db_admin_update_user", "db_admin_toggle_user_active", "db_admin_toggle_user_upload",
     "db_admin_get_reports", "db_import_pbi_item", "db_admin_soft_delete_report",
+    "db_admin_set_report_visibility",
     "db_admin_get_upload_jobs", "db_get_report_access", "db_set_report_access",
     "db_get_app_config", "db_update_app_config",
-    "db_admin_get_company_codes", "db_admin_upsert_company", "db_admin_delete_company",
     "db_admin_get_groups", "db_admin_create_group", "db_admin_delete_group",
     "db_get_group_members", "db_set_group_member", "db_get_report_group_access",
     "db_set_report_group_access",
     "db_log_activity", "db_get_activity_log", "db_get_user_activity_log", "db_get_audit_log",
     "db_cleanup_activity_log", "db_get_popular_report_ids",
-    "db_get_report_folders", "db_create_report_folder", "db_update_report_folder",
-    "db_delete_report_folder", "db_get_folder", "db_move_report_to_folder",
+    "db_get_report_folders", "db_get_folder", "db_move_report_to_folder",
+    "db_can_write_folder",
 ]

@@ -26,6 +26,14 @@ $LogDir      = Join-Path $ProjectRoot "logs"
 $LogFile     = Join-Path $LogDir "server.log"
 $Port        = 8247
 
+# 콘솔 인코딩은 스크립트 전체에서 출력이 시작되기 전에 딱 한 번만 맞춘다. restart처럼
+# Stop-Server → Start-Server가 한 프로세스 안에서 이어질 때, 이미 이전 인코딩으로 그려진
+# 줄이 있는 상태에서 중간에 인코딩을 바꾸면 콘솔이 기존 줄의 폭(한글 2칸)을 다시 계산하며
+# 글자가 겹쳐 찍히는 현상(예: "실실행행 중중")이 생긴다. 그래서 Start-Server 안이 아니라
+# 여기서 가장 먼저 설정한다.
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+$env:PYTHONUTF8 = "1"
+
 # 프로젝트 venv가 있으면 우선 사용, 없으면 PATH의 python (환경별 경로 하드코딩 금지)
 $Python = Join-Path $ProjectRoot "venv\Scripts\python.exe"
 if (-not (Test-Path $Python)) { $Python = "python" }
@@ -79,10 +87,7 @@ function Start-Server {
     }
     New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
-    # Start-Process가 자식 프로세스의 리다이렉트 출력을 읽을 때 콘솔 코드페이지(한글 Windows는
-    # cp949)를 쓰기 때문에, Python이 UTF-8로 써도 여기서 다시 깨진다. 두 쪽 다 UTF-8로 맞춘다.
-    try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
-    $env:PYTHONUTF8 = "1"
+    # (콘솔/PYTHONUTF8 인코딩은 스크립트 최상단에서 한 번만 설정 — 위 주석 참고)
 
     # 서버 시작 전 DB 스키마 확인/생성 (server.sh와 동일한 순서)
     & $Python (Join-Path $ProjectRoot "scripts\init_schema.py")
