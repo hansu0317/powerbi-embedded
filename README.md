@@ -230,10 +230,28 @@ pg_dump -h 127.0.0.1 -U <계정> -d powerbi_gateway -F c -f backup_$(date +%Y%m%
 
 ## 운영 시 알아둘 것
 
-**프로덕션 전환에는 전용 용량이 필요하다.**
-Pro 공유 용량에서의 App-Owns-Data 임베딩은 Microsoft가 **개발·테스트 전용**으로 규정한다.
-직원 대상 상시 운영은 Azure Power BI Embedded(A SKU) 또는 Fabric F64+ 배정이 필요하다.
-용량을 배정해도 **코드·DB는 수정하지 않는다** — 워크스페이스에 용량만 붙이면 된다.
+**"캐패시티 없는 Pro 공유"가 아니라 PPU 예약 용량(PP3)이 워크스페이스에 붙어 있다 —
+2026-08-14에 `scripts/check_capacity.py`로 라이브 재확인함(`isOnDedicatedCapacity: true`,
+capacityId가 PP3 capacity와 일치, `docs/05_라이선스_용량_비용가이드.md` 참고).** 예전
+버전의 이 문단은 "지금 Pro 공유 용량 위에서 운영 중이라 체험판 배너가 뜬다"고 적혀
+있었는데, 그건 MS 공식 문서([Capacity and SKUs in Power BI embedded
+analytics](https://learn.microsoft.com/en-us/power-bi/developer/embedded/embedded-capacity))의
+일반론만 보고 쓴 추정이었지 이 워크스페이스를 직접 조회한 결과가 아니었다 — 실제로
+조회해보니 틀린 서술이었다.
+
+MS 문서는 이렇게 명시한다:
+
+> Free trial tokens are limited to development testing only. Once going to production,
+> a capacity must be purchased. **Until a capacity is purchased, the Free trial version
+> banner will continue to appear at the top of the embedded report.**
+
+이 워크스페이스는 캐패시티(PP3)가 이미 붙어 있으므로 위 "캐패시티 미구매" 케이스에
+해당하지 않는다 — 체험판 배너가 뜰 이유가 없다. 다만 한 가지 남는 불확실성이 있다:
+MS가 "최종 사용자 라이선스 불필요"를 공식 보장하는 목록은 F/A/EM/P SKU고 **PP(Premium
+Per User)는 이 목록에 없다** — 실제로 되는 건 확인된 사실이지 공식 보장 문서는 아니다.
+그래서 배너가 뜨는지 자체는 실제로 로그인해서 보고서를 열어 눈으로 30초만 확인하면
+끝나는 일이고, 아직 그 확인은 안 했다. `scripts/check_capacity.py`를 재실행하면
+캐패시티 배정이 그 사이 바뀌었는지도 같이 확인된다.
 
 **기존 Power BI 항목은 수정·이동·삭제하지 않는다.** 업로드는 신규 생성만 한다.
 업로드된 보고서는 `계정__보고서명` 형식으로 게시되며, 이 접두사가 소유자 추적의 근거다.
@@ -243,6 +261,13 @@ Pro 공유 용량에서의 App-Owns-Data 임베딩은 Microsoft가 **개발·테
 ---
 
 ## RLS (행 수준 보안) — 두 계층
+
+> **전제조건: 보고서가 Power BI 워크스페이스에 게시(Publish)돼 있어야 한다.**
+> "웹에 게시(Publish to Web)"로 만든 공개 링크(`app.powerbi.com/view?r=...`)는 이 전제를
+> 만족하지 않는다 — 완전 익명 공개라 "지금 보는 사람이 누구인지" 자체가 없고, RLS도
+> URL 쿼리스트링 필터도 전혀 지원하지 않는다(MS 공식 문서: "Query string filtering
+> doesn't work with Publish to web"). 아래 두 계층은 전부 워크스페이스에 정식
+> 게시된 보고서에 이 앱(Service Principal)이 Embed Token으로 접근하는 것을 전제로 한다.
 
 | 계층 | 통제 대상 | 담당 | 상태 |
 |---|---|---|---|
@@ -279,12 +304,11 @@ ID/테넌트 ID 등 사내 값이 평문으로 들어 있어(비밀번호·시�
 | `docs/00_학습_로드맵.md` | 처음 이 프로젝트를 볼 때 시작점 — DB/백엔드/프론트엔드/설정/쿠키·캐시 학습 순서 |
 | `docs/01_RLS_적용가이드.md` | 1층(보고서 열람) vs 2층(RLS) 구분, 적용 절차, 회사 계층 RLS, 트러블슈팅 |
 | `docs/02_백엔드_DB_API_흐름.md` | DB 스키마, 열람 권한 판정 SQL, 임베드 토큰·업로드 흐름 |
-| `docs/03_모듈_함수_학습가이드.md` | 모듈별 "왜 이렇게 짰는지" 설계 패턴 |
-| `docs/04_서버_운영_가이드.md` | `server.ps1`/`server.sh` 기동·중지, PID/포트 트러블슈팅 |
+| `docs/04_서버_운영_가이드.md` | `server.ps1`/`server.sh` 기동·중지, 자동 백업, PID/포트 트러블슈팅 |
 | `docs/05_라이선스_용량_비용가이드.md` | PPU vs Pro, 용량(SKU) 결정 근거 |
 | `docs/06_인프라_현황.md` | Entra 앱 등록, 워크스페이스·용량 현재 값 |
 | `docs/07_DB접속_및_외부포털_참고.md` | psql 접속, 관리 화면이 흩어진 4개 포털 정리 |
-| `docs/08_GET_필터_방식_참고.md` | GET 필터(레거시)와 RLS의 차이, 왜 내부용으로는 안 쓰는지 |
+| `docs/08_GET_필터_방식_참고.md` | GET/SDK 필터(RLS를 못 바꿀 때 쓰는 임시 필터링) 구조와 한계 — 진짜 RLS 아님 |
 | `docs/09_PowerBI_Fabric_API_개발가이드.md` | Power BI REST vs Fabric REST 구분, 내부 API 목록 |
 | `docs/10_프로젝트_코드구조_학습가이드.md` | 파일 지도, 읽는 순서, 학습 단계 |
 | `docs/11_QA_전수테스트_시나리오.md` | 배포 전 회귀 체크리스트 — 인증·관리자 CRUD·폴더·RLS·업로드 시나리오 |
