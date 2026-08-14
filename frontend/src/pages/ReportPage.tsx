@@ -103,7 +103,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
   const [browserMode, setBrowserMode] = useState<BrowserMode>(
     () => (sessionStorage.getItem("report-browser-mode") as BrowserMode) || "tree",
   );
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   // 관리자에게만 필요한 데이터라 is_admin일 때만 부른다 — 일반 사용자는 /api/admin/sync-status가
@@ -169,18 +168,19 @@ export default function ReportPage({ data }: { data: ReportData }) {
     });
   }, []);
 
+  // 보고서를 여러 개 열면 탭이 줄줄이 쌓여 가로 스크롤 없이는 찾기 힘들어진다 —
+  // 한 번에 정리할 수 있는 탈출구.
+  const closeAllTabs = useCallback(() => {
+    setTabs([]);
+    setActive(null);
+  }, []);
+
   const changeBrowserMode = (next: BrowserMode) => {
     setBrowserMode(next);
     sessionStorage.setItem("report-browser-mode", next);
     setTabs([]);
     setActive(null);
   };
-  const selectCategory = (category: string | null) => {
-    setSelectedCategory(category);
-    setTabs([]);
-    setActive(null);
-  };
-
   const runSearch = useCallback(
     (q: string) => {
       setAllQuery(q);
@@ -328,7 +328,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
               browserMode={browserMode}
               isFav={isFav}
               onSelectView={setView}
-              onSelectFolder={selectCategory}
               onOpen={openReport}
             />
             <main className="app-main">
@@ -343,11 +342,11 @@ export default function ReportPage({ data }: { data: ReportData }) {
                   onActivate={setActive}
                   onOpen={openReport}
                   onClose={closeTab}
+                  onCloseAll={closeAllTabs}
                   onGoUpload={() => setView("upload")}
                   csrf={csrf_token}
                   user={user}
                   browserMode={browserMode}
-                  selectedCategory={selectedCategory}
                   onBrowserMode={changeBrowserMode}
                 />
               )}
@@ -729,11 +728,11 @@ function MyReportsView({
   onActivate,
   onOpen,
   onClose,
+  onCloseAll,
   onGoUpload,
   csrf,
   user,
   browserMode,
-  selectedCategory,
   onBrowserMode,
 }: {
   reports: ReportItem[];
@@ -745,11 +744,11 @@ function MyReportsView({
   onActivate: (id: number) => void;
   onOpen: (report: ReportItem) => void;
   onClose: (id: number) => void;
+  onCloseAll: () => void;
   onGoUpload: () => void;
   csrf: string;
   user: SessionUser;
   browserMode: BrowserMode;
-  selectedCategory: string | null;
   onBrowserMode: (mode: BrowserMode) => void;
 }) {
   // 탭별 임베드 인스턴스 참조 — 전체화면·보기모드 버튼이 활성 탭의 인스턴스를 직접 조작한다.
@@ -822,8 +821,18 @@ function MyReportsView({
     return () => document.removeEventListener("fullscreenchange", restoreDisplay);
   }, [activeTab, activeEntry, displayModes]);
 
+  // 탭이 많이 열리면 가로 스크롤 없이는 활성 탭이 화면 밖으로 밀려날 수 있다 —
+  // 탭을 열거나 전환할 때마다 그 탭이 항상 보이는 위치로 자동 스크롤한다.
+  const tabsBarRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!active) return;
+    tabsBarRef.current
+      ?.querySelector<HTMLElement>(`[data-tab-id="${active}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active]);
+
   if (tabs.length === 0) {
-    return <ReportLanding reports={reports} canUpload={canUpload} onGoUpload={onGoUpload} onOpen={onOpen} browserMode={browserMode} selectedCategory={selectedCategory} onBrowserMode={onBrowserMode} />;
+    return <ReportLanding reports={reports} canUpload={canUpload} onGoUpload={onGoUpload} onOpen={onOpen} browserMode={browserMode} onBrowserMode={onBrowserMode} />;
   }
   return (
     <div className="rp-workarea">
@@ -888,12 +897,23 @@ function MyReportsView({
           />
         ))}
       </div>
-      {/* 탭 바 — 하단 */}
-      <div className="rp-tabsbar">
+      {/* 탭 바 — 하단. 세로 휠 스크롤을 가로로 돌려준다 — 트랙패드 없이 마우스 휠만
+          있는 환경에서도 탭이 많을 때 스크롤할 수 있게(발견하기 어려운 Shift+휠 대신). */}
+      <div
+        className="rp-tabsbar"
+        ref={tabsBarRef}
+        onWheel={(e) => {
+          if (e.deltaY === 0 || e.deltaX !== 0) return;
+          e.currentTarget.scrollLeft += e.deltaY;
+          e.preventDefault();
+        }}
+      >
         {tabs.map((t) => (
           <div
             key={t.id}
+            data-tab-id={t.id}
             className={`rp-tab${t.id === active ? " active" : ""}`}
+            title={t.name}
             onClick={() => onActivate(t.id)}
           >
             <span className="rp-tab-label">{t.name}</span>
@@ -909,6 +929,11 @@ function MyReportsView({
             </button>
           </div>
         ))}
+        {tabs.length > 1 && (
+          <button className="rp-tabsbar-closeall" title="열린 탭 모두 닫기" onClick={onCloseAll}>
+            전체 닫기
+          </button>
+        )}
       </div>
     </div>
   );
@@ -920,7 +945,6 @@ function ReportLanding({
   onGoUpload,
   onOpen: _onOpen,
   browserMode: _browserMode,
-  selectedCategory: _selectedCategory,
   onBrowserMode: _onBrowserMode,
 }: {
   reports: ReportItem[];
@@ -928,7 +952,6 @@ function ReportLanding({
   onGoUpload: () => void;
   onOpen: (report: ReportItem) => void;
   browserMode: BrowserMode;
-  selectedCategory: string | null;
   onBrowserMode: (mode: BrowserMode) => void;
 }) {
   return (

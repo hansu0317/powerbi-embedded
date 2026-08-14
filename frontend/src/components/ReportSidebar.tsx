@@ -10,12 +10,12 @@ type Props = {
   reports: ReportItem[]; myReports: ReportItem[]; folders: ReportFolder[]; view: ReportView;
   activeId: number | null; isAdmin: boolean; canUpload: boolean;
   browserMode: BrowserMode; isFav: (id:number)=>boolean; onSelectView:(view:ReportView)=>void;
-  onSelectFolder:(path:string|null)=>void; onOpen:(report:ReportItem)=>void;
+  onOpen:(report:ReportItem)=>void;
 };
 const STORAGE_KEY = "sb-groups-v2";
 const FAVORITES_KEY = "__favorites";
 
-export function ReportSidebar({ reports, myReports, folders, view, activeId, isAdmin, canUpload, isFav, onSelectView, onSelectFolder, onOpen }: Props) {
+export function ReportSidebar({ reports, myReports, folders, view, activeId, isAdmin, canUpload, isFav, onSelectView, onOpen }: Props) {
   const favoriteReports = reports.filter((report) => isFav(report.id));
   const { tree, uncategorized } = useMemo(() => buildFolderTree(myReports, folders), [myReports, folders]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed);
@@ -33,7 +33,7 @@ export function ReportSidebar({ reports, myReports, folders, view, activeId, isA
       <NavItem active={view === "my"} onClick={() => onSelectView("my")}><Folder size={17}/> 열람 보고서</NavItem>
       {view === "my" && <div className="rp-tree">
         {favoriteReports.length > 0 && <div className={`rp-group${(collapsed[FAVORITES_KEY] ?? true) ? " collapsed" : ""}`}><div className="rp-group-header rp-group-fav" onClick={() => toggle(FAVORITES_KEY)}><ChevronDown size={13} className="rp-group-arrow"/><Star size={12} fill="currentColor"/> 즐겨찾기</div><div className="rp-group-body">{favoriteReports.map((report) => <TreeItem key={`fav-${report.id}`} report={report} active={report.id === activeId} onOpen={onOpen} indent/>)}</div></div>}
-        {tree.map((node) => <TreeGroup key={node.path} node={node} depth={0} collapsed={collapsed} onToggle={toggle} onSelectFolder={onSelectFolder} activeId={activeId} onOpen={onOpen}/>) }
+        {tree.map((node) => <TreeGroup key={node.path} node={node} depth={0} collapsed={collapsed} onToggle={toggle} activeId={activeId} onOpen={onOpen}/>) }
         {uncategorized.map((report) => <TreeItem key={report.id} report={report} active={report.id === activeId} onOpen={onOpen}/>) }
         {myReports.length === 0 && <div className="rp-tree-empty">열람 가능한 보고서가 없습니다</div>}
       </div>}
@@ -93,7 +93,7 @@ function buildFolderTree(reports: ReportItem[], folders: ReportFolder[]) {
 
 function loadCollapsed() { try { return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; } }
 function NavItem({active,onClick,children}:{active:boolean;onClick:()=>void;children:React.ReactNode}) { return <div className={`app-nav-item${active ? " active" : ""}`} onClick={onClick}>{children}</div>; }
-function TreeGroup({node,depth,collapsed,onToggle,onSelectFolder,activeId,onOpen}:{node:FolderNode;depth:number;collapsed:Record<string,boolean>;onToggle:(path:string)=>void;onSelectFolder:(path:string|null)=>void;activeId:number|null;onOpen:(report:ReportItem)=>void}) {
-  return <div className={`rp-group${(collapsed[node.path] ?? true) ? " collapsed" : ""}`}><div className="rp-group-header" style={{paddingLeft:30+depth*12}} onClick={() => {onSelectFolder(node.path);onToggle(node.path);}}><ChevronDown size={13} className="rp-group-arrow"/> {node.name}</div><div className="rp-group-body">{node.children.map((child) => <TreeGroup key={child.path} node={child} depth={depth+1} collapsed={collapsed} onToggle={onToggle} onSelectFolder={onSelectFolder} activeId={activeId} onOpen={onOpen}/>)}{node.reports.map((report) => <TreeItem key={report.id} report={report} active={report.id===activeId} onOpen={onOpen} indent depth={depth}/>)}</div></div>;
+function TreeGroup({node,depth,collapsed,onToggle,activeId,onOpen}:{node:FolderNode;depth:number;collapsed:Record<string,boolean>;onToggle:(path:string)=>void;activeId:number|null;onOpen:(report:ReportItem)=>void}) {
+  return <div className={`rp-group${(collapsed[node.path] ?? true) ? " collapsed" : ""}`}><div className="rp-group-header" style={{paddingLeft:30+depth*12}} onClick={() => onToggle(node.path)}><ChevronDown size={13} className="rp-group-arrow"/> {node.name}</div><div className="rp-group-body">{node.children.map((child) => <TreeGroup key={child.path} node={child} depth={depth+1} collapsed={collapsed} onToggle={onToggle} activeId={activeId} onOpen={onOpen}/>)}{node.reports.map((report) => <TreeItem key={report.id} report={report} active={report.id===activeId} onOpen={onOpen} indent depth={depth}/>)}</div></div>;
 }
 function TreeItem({report,active,onOpen,indent,depth=0}:{report:ReportItem;active:boolean;onOpen:(report:ReportItem)=>void;indent?:boolean;depth?:number}) { return <div className={`rp-tree-item${active ? " active" : ""}${indent ? " indent" : ""}`} style={depth ? {paddingLeft:46+depth*12}:undefined} onClick={() => onOpen(report)} title={report.name}><span className="rp-tree-label">{report.name}</span></div>; }

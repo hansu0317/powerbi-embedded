@@ -207,22 +207,40 @@
   font-size: 0.88rem;
 }
 
-/* 탭 바 — 하단 고정 */
+/* 탭 바 — 하단 고정. 보고서를 여러 개 열면 탭이 옆으로 계속 쌓이는데, 예전엔
+   overflow-x:hidden이라 넘치는 탭은 스크롤도 안 되고 아예 클릭할 방법이 없이
+   화면 밖으로 잘려나갔다(2026-08-14 버그 리포트) — auto로 바꿔 가로 스크롤 가능하게
+   하고, 얇은 스크롤바를 남겨 "더 있다"는 걸 시각적으로 알 수 있게 한다. */
 .rp-tabsbar {
   display: flex;
   align-items: stretch;
   background: #fff;
   border-top: 1px solid var(--line);
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: hidden;
   flex-shrink: 0;
   height: 42px;
+  scrollbar-width: thin;
 }
 
 /* 포털 목록은 보고서 자체의 색/아이콘보다 이름과 정보가 우선이다. */
 .home-mini-ic, .home-filecard-icon, .home-detail-icon { display: none !important; }
 .home-cat-pill { background: none !important; color: var(--ink-soft) !important; padding: 0; border-radius: 0; font-weight: 500; }
-.rp-tabsbar::-webkit-scrollbar { height: 0; }
+.rp-tabsbar::-webkit-scrollbar { height: 6px; }
+.rp-tabsbar::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.rp-tabsbar-closeall {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 14px;
+  border: none;
+  border-left: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rp-tabsbar-closeall:hover { background: var(--sage-bg); color: var(--ink); }
 .rp-tab {
   display: flex;
   align-items: center;
