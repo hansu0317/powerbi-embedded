@@ -1,6 +1,6 @@
 """Power BI 게이트웨이 — 앱 초기화 진입점.
 
-모듈 구조 (자세한 파일 지도는 docs/10_프로젝트_코드구조_학습가이드.md 참고):
+모듈 구조 (자세한 파일 지도는 docs/00_학습_로드맵.md 참고):
   config.py           환경변수 + app_config DB 로더 + 런타임 상수
   errors.py           AppError enum (중앙 에러 레지스트리)
   database/           커넥션 풀(pool.py) + 도메인별 DB 쿼리 함수(auth/reports/uploads/folders/groups/activity/admin)
