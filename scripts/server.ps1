@@ -24,7 +24,16 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $PidFile     = Join-Path $ProjectRoot ".server.pid"
 $LogDir      = Join-Path $ProjectRoot "logs"
 $LogFile     = Join-Path $LogDir "server.log"
-$Port        = 8249
+
+# 포트는 .env의 PORT로 오버라이드 가능(없으면 8249) — server.sh와 동일한 이유
+# (배포 환경마다 로컬 포트 점유 상황이 달라 스크립트에 고정값을 두면 계속
+# merge 충돌이 남, 2026-08-20 발견). .pgpass류 파서 없이 정규식으로 그 줄만 읽는다.
+$Port = 8249
+$EnvFile = Join-Path $ProjectRoot ".env"
+if (Test-Path $EnvFile) {
+    $envPortLine = Get-Content $EnvFile | Where-Object { $_ -match '^PORT=' } | Select-Object -First 1
+    if ($envPortLine) { $Port = ($envPortLine -replace '^PORT=', '').Trim() }
+}
 
 # 콘솔 인코딩은 스크립트 전체에서 출력이 시작되기 전에 딱 한 번만 맞춘다. restart처럼
 # Stop-Server → Start-Server가 한 프로세스 안에서 이어질 때, 이미 이전 인코딩으로 그려진

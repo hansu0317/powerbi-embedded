@@ -137,6 +137,12 @@ WORKSPACE_ID=<워크스페이스 GUID>
 SECRET_KEY=<32자 이상 랜덤 문자열>   # 미만이면 기동 즉시 중단된다
 COOKIE_SECURE=false                  # HTTPS 적용 시 true
 
+# 서버 포트 (선택, 없으면 8249) — scripts/server.sh·server.ps1이 읽는다.
+# 이 저장소를 쓰는 PC마다 로컬 포트 점유 상황이 다를 수 있어(예: VS Code가 8247을
+# 점유) 스크립트에 고정하지 않고 .env로 뺐다 — 상시 배포 서버는 앞단(nginx 등)이
+# 이미 특정 포트로 프록시하고 있을 테니 그 값을 여기에 맞춰 넣으면 된다.
+# PORT=8249
+
 # PostgreSQL
 DB_HOST=127.0.0.1
 DB_PORT=5432

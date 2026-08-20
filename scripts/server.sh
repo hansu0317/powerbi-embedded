@@ -12,6 +12,13 @@ fi
 PID_FILE="$PROJECT_ROOT/.server.pid"
 LOG_DIR="$PROJECT_ROOT/logs"
 LOG_FILE="$LOG_DIR/server.log"
+# 포트는 .env의 PORT로 오버라이드 가능(없으면 8249) — 환경마다 로컬 포트 점유
+# 상황이 달라서(예: 이 저장소를 쓰는 다른 PC는 VS Code가 8247을 물고 있어 8249로
+# 피함, 반면 상시 배포된 서버는 nginx가 이미 특정 포트로 프록시 중이라 그 값을 써야
+# 함) 스크립트에 고정값을 박아두면 배포 환경마다 서로 값을 덮어쓰는 merge 충돌이
+# 계속 난다(2026-08-20 발견). .env는 배포마다 다르고 git 추적도 안 되니 여기가 맞다.
+PORT="$(grep -m1 '^PORT=' "$PROJECT_ROOT/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r')"
+PORT="${PORT:-8249}"
 
 
 # 기존 로그를 시각이 포함된 파일명으로 보관하고 15일이 지난 로그를 정리한다.
@@ -50,7 +57,7 @@ start() {
     cd "$PROJECT_ROOT"
     nohup "$PYTHON" -m uvicorn main:app \
     	--host 0.0.0.0 \
-    	--port 8249 \
+    	--port "$PORT" \
     	--no-access-log \
     	</dev/null > "$LOG_FILE" 2>&1 &
 
@@ -63,7 +70,7 @@ start() {
     # 시작 시 복구 작업 때문에 포트 바인딩이 늦을 수 있어 최대 15초까지 재시도한다.
     HEALTHY=""
     for _ in $(seq 1 15); do
-        if curl -fsS --max-time 3 http://127.0.0.1:8249/health >/dev/null 2>&1; then
+        if curl -fsS --max-time 3 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
             HEALTHY=1
             break
         fi
