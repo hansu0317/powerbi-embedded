@@ -238,6 +238,8 @@ export interface EditUserPayload {
   department?: string;
   data_scope?: "self" | "department" | "all";
   email?: string;
+  company_code?: string;
+  company_scope?: "own" | "all";
 }
 
 export async function adminEditUser(userId: number, payload: EditUserPayload, csrf: string) {

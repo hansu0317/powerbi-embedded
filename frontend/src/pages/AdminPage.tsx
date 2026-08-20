@@ -678,6 +678,15 @@ function AddUserModal({
               <datalist id="department-options">{departments.map((d) => <option key={d} value={d} />)}</datalist>
             </Field>
             <Field label="데이터 범위 (RLS)"><select value={dataScope} onChange={e=>setDataScope(e.target.value)}><option value="self">본인</option><option value="department">부서</option><option value="all">전체</option></select></Field>
+            <Field label="회사/도메인 (RLS, 선택)">
+              <input name="company_code" placeholder="예: AMT — 비우면 이 축 미적용" />
+            </Field>
+            <Field label="회사 조회범위 (RLS)">
+              <select name="company_scope" defaultValue="own">
+                <option value="own">본인 회사만</option>
+                <option value="all">전체 회사</option>
+              </select>
+            </Field>
           </div>
           <div className="ad-modal-footer">
             <button type="button" className="btn btn-ghost" onClick={onClose}>
@@ -712,6 +721,8 @@ function EditUserModal({
   const [department, setDepartment] = useState(user.department || "");
   const [dataScope, setDataScope] = useState(user.data_scope || "self");
   const [email, setEmail] = useState(user.email || "");
+  const [companyCode, setCompanyCode] = useState(user.company_code || "");
+  const [companyScope, setCompanyScope] = useState(user.company_scope || "own");
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -719,13 +730,17 @@ function EditUserModal({
     try {
       await adminEditUser(
         user.id,
-        { display_name: displayName, pbi_username: user.pbi_username, department, data_scope: dataScope, email },
+        {
+          display_name: displayName, pbi_username: user.pbi_username, department, data_scope: dataScope,
+          email, company_code: companyCode, company_scope: companyScope,
+        },
         csrf,
       );
       onSaved({
         ...user,
         display_name: displayName,
         department, data_scope: dataScope, email: email || null,
+        company_code: companyCode || null, company_scope: companyScope,
       });
     } catch (err) {
       onError((err as Error).message);
@@ -759,6 +774,15 @@ function EditUserModal({
               <datalist id="department-options">{departments.map((d) => <option key={d} value={d} />)}</datalist>
             </Field>
             <Field label="데이터 범위 (RLS)"><select value={dataScope} onChange={e=>setDataScope(e.target.value as any)}><option value="self">본인</option><option value="department">부서</option><option value="all">전체</option></select></Field>
+            <Field label="회사/도메인 (RLS, 선택)">
+              <input value={companyCode} onChange={e=>setCompanyCode(e.target.value)} placeholder="예: AMT — 비우면 이 축 미적용" />
+            </Field>
+            <Field label="회사 조회범위 (RLS)">
+              <select value={companyScope} onChange={e=>setCompanyScope(e.target.value as any)}>
+                <option value="own">본인 회사만</option>
+                <option value="all">전체 회사</option>
+              </select>
+            </Field>
           </div>
         </div>
         <div className="ad-modal-footer">

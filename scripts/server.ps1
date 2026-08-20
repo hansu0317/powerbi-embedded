@@ -121,6 +121,15 @@ function Start-Server {
         exit 1
     }
 
+    # 회사/도메인 축 RLS(users.company_code/company_scope) — init_schema.py가 만드는
+    # 기본 v_rls_user_scope 뷰(department/data_scope 2컬럼)를 이 스크립트가 확장한다.
+    # 반드시 init_schema.py 다음에 실행해야 한다(2026-08-20 도입, 재실행 안전).
+    & $Python (Join-Path $ProjectRoot "scripts\add_company_axis.py")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output "회사 축 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
+        exit 1
+    }
+
     Invoke-LogRotate
     # 로그는 server.log 한 파일로만 모은다 — main.py가 모든 레벨을 표준출력 하나로만
     # 내보내므로 그게 곧 이 리다이렉트 대상이다. 표준에러는 NUL로 버린다: 우리 앱

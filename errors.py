@@ -72,6 +72,7 @@ class AppError(Enum):
     CONFIG_KEY_UNKNOWN   = (400, "CONFIG_KEY_UNKNOWN",    "알 수 없는 설정 키입니다: '{key}'")
     CONFIG_VALUE_OUT_OF_RANGE = (400, "CONFIG_VALUE_OUT_OF_RANGE", "'{key}' 값은 {min}~{max} 범위여야 합니다.")
     DATA_SCOPE_INVALID   = (400, "DATA_SCOPE_INVALID",    "조회 범위(data_scope)는 self/department/all 중 하나여야 합니다.")
+    COMPANY_SCOPE_INVALID = (400, "COMPANY_SCOPE_INVALID", "회사 조회범위(company_scope)는 own/all 중 하나여야 합니다.")
 
     # ── 외부 서비스 오류 ──────────────────────────────────────────────────────
     TOKEN_FAILED         = (500, "TOKEN_FAILED",          "Azure AD 토큰 발급 실패: {detail}")

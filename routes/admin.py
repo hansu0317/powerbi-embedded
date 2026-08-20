@@ -246,6 +246,7 @@ async def api_admin_get_reports(user: dict = Depends(require_admin_user)):
 
 
 DATA_SCOPES = ("self", "department", "all")
+COMPANY_SCOPES = ("own", "all")
 
 
 @router.post("/api/admin/users/add")
@@ -261,6 +262,8 @@ async def api_admin_add_user(
     department: str = Form(""),
     data_scope: str = Form("self"),
     email: str = Form(""),
+    company_code: str = Form(""),
+    company_scope: str = Form("own"),
     csrf: str = Form(),
     user: dict = Depends(require_admin_user),
 ):
@@ -269,6 +272,8 @@ async def api_admin_add_user(
         raise AppError.PASSWORD_TOO_SHORT.http(min=config.PASSWORD_MIN_LEN)
     if data_scope not in DATA_SCOPES:
         raise AppError.DATA_SCOPE_INVALID.http()
+    if company_scope not in COMPANY_SCOPES:
+        raise AppError.COMPANY_SCOPE_INVALID.http()
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     group_id_list = [int(g) for g in group_ids.split(",") if g.strip()]
     email_clean = email.strip() or None
@@ -277,6 +282,7 @@ async def api_admin_add_user(
             db_admin_add_user, username, pw_hash, display_name,
             pbi_username or username, is_admin, can_upload, group_id_list,
             department.strip() or None, data_scope, email_clean,
+            company_code.strip() or None, company_scope,
         )
     except psycopg2.errors.UniqueViolation as exc:
         if "users_email_unique_idx" in str(exc):
@@ -298,19 +304,24 @@ async def api_admin_edit_user(
     비밀번호·아이디·관리자 권한·업로드 권한은 각각 별도 경로(add 시 지정, toggle-*)에서
     다룬다. RLS 역할 이름은 사용자별 값이 아니라 config.PBI_RLS_ROLE_NAME 고정값이라
     여기서 다룰 게 없다.
-    body: {display_name, pbi_username, department, data_scope, email}"""
+    body: {display_name, pbi_username, department, data_scope, email, company_code, company_scope}"""
     body = await json_body(request)
     display_name = str(body.get("display_name", "")).strip()
     pbi_username = str(body.get("pbi_username", "")).strip()
     department = str(body.get("department", "")).strip() or None
     data_scope = str(body.get("data_scope", "self"))
     email = str(body.get("email", "")).strip() or None
+    company_code = str(body.get("company_code", "")).strip() or None
+    company_scope = str(body.get("company_scope", "own"))
     if not display_name or not pbi_username or data_scope not in DATA_SCOPES:
         raise AppError.BODY_INVALID.http()
+    if company_scope not in COMPANY_SCOPES:
+        raise AppError.COMPANY_SCOPE_INVALID.http()
 
     try:
         updated = await asyncio.to_thread(
             db_admin_update_user, user_id, display_name, pbi_username, department, data_scope, email,
+            company_code, company_scope,
         )
     except psycopg2.errors.UniqueViolation:
         raise AppError.EMAIL_ALREADY_EXISTS.http(email=email)
@@ -320,6 +331,7 @@ async def api_admin_edit_user(
     return {
         "user_id": user_id, "display_name": display_name, "pbi_username": pbi_username,
         "department": department, "data_scope": data_scope, "email": email,
+        "company_code": company_code, "company_scope": company_scope,
     }
 
 
