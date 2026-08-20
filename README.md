@@ -25,7 +25,7 @@ Azure 앱 등록(서비스 주체) 1개가 모든 직원을 대신해 임베드 
 | Python | **3.11** | 3.12+ 미검증 |
 | PostgreSQL | **15** 권장 (13 이상) | 마이그레이션은 15에서 검증 |
 | Node.js | **20** | 프론트엔드 빌드에만 필요 |
-| 포트 | **8247** | 인바운드 허용 필요 |
+| 포트 | **8249** | 인바운드 허용 필요 |
 
 **네트워크 (아웃바운드 HTTPS 443)** — `login.microsoftonline.com`, `api.powerbi.com`, `api.fabric.microsoft.com`
 
@@ -54,7 +54,7 @@ createdb powerbi_gateway  # PostgreSQL DB 생성
 cd frontend && npm install && npm run build && cd ..
 
 bash scripts/server.sh start
-curl http://127.0.0.1:8247/health     # {"status":"ok", ...}
+curl http://127.0.0.1:8249/health     # {"status":"ok", ...}
 ```
 
 DB 스키마 확인/생성은 `server.sh`가 **기동 전 자동 실행**한다. 수동 실행은 `python3 scripts/init_schema.py`.
@@ -103,7 +103,7 @@ PYTHONUTF8=1
 **② 줄바꿈(CRLF)** — git이 `.sh`를 CRLF로 바꾸면 WSL/리눅스에서 실행되지 않는다.
 레포의 `.gitattributes`가 이를 고정하므로 **클론 전에 파일이 있는지 확인**한다.
 
-**③ 방화벽** — 8247 인바운드 허용. 다른 PC에서 접속하려면 필수.
+**③ 방화벽** — 8249 인바운드 허용. 다른 PC에서 접속하려면 필수.
 
 **④ `.env` 전달** — 레포에 포함되지 않으므로 PC를 새로 받을 때마다 별도로 넣어야 한다.
 Azure Key Vault 또는 사내 비밀번호 관리자에 보관하고, 평문 공유(메신저·메일)는 하지 않는다.

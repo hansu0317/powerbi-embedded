@@ -24,7 +24,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $PidFile     = Join-Path $ProjectRoot ".server.pid"
 $LogDir      = Join-Path $ProjectRoot "logs"
 $LogFile     = Join-Path $LogDir "server.log"
-$Port        = 8247
+$Port        = 8249
 
 # 콘솔 인코딩은 스크립트 전체에서 출력이 시작되기 전에 딱 한 번만 맞춘다. restart처럼
 # Stop-Server → Start-Server가 한 프로세스 안에서 이어질 때, 이미 이전 인코딩으로 그려진
