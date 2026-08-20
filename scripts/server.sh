@@ -50,7 +50,7 @@ start() {
     cd "$PROJECT_ROOT"
     nohup "$PYTHON" -m uvicorn main:app \
     	--host 0.0.0.0 \
-    	--port 8247 \
+    	--port 8249 \
     	--no-access-log \
     	</dev/null > "$LOG_FILE" 2>&1 &
 
@@ -63,7 +63,7 @@ start() {
     # 시작 시 복구 작업 때문에 포트 바인딩이 늦을 수 있어 최대 15초까지 재시도한다.
     HEALTHY=""
     for _ in $(seq 1 15); do
-        if curl -fsS --max-time 3 http://127.0.0.1:8247/health >/dev/null 2>&1; then
+        if curl -fsS --max-time 3 http://127.0.0.1:8249/health >/dev/null 2>&1; then
             HEALTHY=1
             break
         fi
