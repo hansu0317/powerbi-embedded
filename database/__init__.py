@@ -48,7 +48,7 @@ from database.activity import (
     db_cleanup_activity_log, db_get_popular_report_ids,
 )
 from database.folders import (
-    db_get_report_folders, db_get_folder, db_move_report_to_folder,
+    db_get_report_folders, db_get_writable_folders, db_get_folder, db_move_report_to_folder,
     db_can_write_folder, db_ensure_folder_path,
 )
 
@@ -76,6 +76,6 @@ __all__ = [
     "db_set_report_group_access",
     "db_log_activity", "db_get_activity_log", "db_get_user_activity_log", "db_get_audit_log",
     "db_cleanup_activity_log", "db_get_popular_report_ids",
-    "db_get_report_folders", "db_get_folder", "db_move_report_to_folder",
+    "db_get_report_folders", "db_get_writable_folders", "db_get_folder", "db_move_report_to_folder",
     "db_can_write_folder", "db_ensure_folder_path",
 ]

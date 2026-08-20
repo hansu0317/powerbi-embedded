@@ -50,18 +50,6 @@ export interface EmbedResponse {
   refresh_status?: string | null; // Completed | Failed | NotRefreshable | ...
   rls_enabled?: boolean; // true면 이 보고서는 역할별로 다른 행이 보일 수 있음
 
-  // GET 필터 (PoC) — reports.filter_table/column/key가 설정된 보고서 + 사용자
-  // (users.filter_key/filter_value)의 key가 일치할 때만 내려온다. 진짜 RLS(위
-  // rls_enabled)와는 별개로, 필터 창에서 사용자가 지울 수 있는 표시 편의 기능이다.
-  // key는 "관계사 코드"처럼 특정 개념에 고정하지 않기 위한 값(예: partner_code,
-  // factory_code — 고객사마다 다를 수 있음). 한 사용자 한 값만 지원한다.
-  get_filter?: {
-    key: string;
-    table: string;
-    column: string;
-    value: string;
-  };
-
   settings?: {
     tab_type?: string; // "dashboard" | "report" — 대시보드 임베드 분기용
   };
@@ -103,6 +91,10 @@ export async function uploadPbix(
 
 export interface ReportFolder { id:number; name:string; parent_id:number|null; owner_id:number|null; visibility:"personal"|"group"|"shared"; owner_username:string|null; report_count:number }
 export async function fetchReportFolders():Promise<ReportFolder[]> { const r=await authFetch("/api/report-folders"); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"폴더 조회 실패")); return j.folders; }
+// 업로드 대상 폴더 선택기 전용 — 위 fetchReportFolders(탐색 트리, 열람 가능 기준)와
+// 의도적으로 다른 엔드포인트다. 아직 보고서가 없는 빈 공용 폴더도 업로드 대상으로는
+// 보여야 해서 "쓸 수 있는가" 기준을 쓴다(2026-08-20, database/folders.py 참고).
+export async function fetchWritableFolders():Promise<ReportFolder[]> { const r=await authFetch("/api/report-folders/writable"); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"폴더 조회 실패")); return j.folders; }
 export async function moveReportToFolder(reportId:number,folderId:number,csrf:string){ const r=await authFetch(`/api/reports/${reportId}/folder`,{method:"POST",headers:{"X-CSRF-Token":csrf,"Content-Type":"application/json"},body:JSON.stringify({folder_id:folderId})}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"보고서 이동 실패")); return j; }
 
 export interface UploadStatus {

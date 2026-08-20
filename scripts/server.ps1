@@ -112,16 +112,9 @@ function Start-Server {
         exit 1
     }
 
-    # GET 필터(PoC) 컬럼 5개 — init_schema.py에 없어 새 DB에서는 로그인 즉시 깨진다
-    # (2026-08-12 발견, server.sh와 동일 이유로 여기서도 매 시작마다 같이 실행)
-    & $Python (Join-Path $ProjectRoot "scripts\add_get_filter_columns.py")
-    if ($LASTEXITCODE -ne 0) {
-        Write-Output "GET 필터 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
-        exit 1
-    }
-
-    # MS 계정 로그인(SSO)용 users.email 컬럼 — 위와 같은 이유로 매 시작마다 같이 실행
-    # (2026-08-20 도입, IF NOT EXISTS라 안전)
+    # MS 계정 로그인(SSO)용 users.email 컬럼 — init_schema.py에 없어 새 DB에서는 로그인
+    # 화면에 버튼이 안 뜨는 정도로 그치지만, 매 시작마다 같이 실행해 항상 최신 스키마를
+    # 보장한다(2026-08-20 도입, IF NOT EXISTS라 안전).
     & $Python (Join-Path $ProjectRoot "scripts\add_sso_email_column.py")
     if ($LASTEXITCODE -ne 0) {
         Write-Output "SSO 이메일 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."

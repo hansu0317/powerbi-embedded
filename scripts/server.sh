@@ -45,16 +45,9 @@ start() {
         echo "DB 스키마 초기화 실패. PostgreSQL과 .env 설정을 확인하세요."
         return 1
     fi
-    # GET 필터(PoC) 컬럼 5개 — init_schema.py에 없어 새 DB에서는 로그인 즉시
-    # "column filter_key does not exist"로 죽는다(2026-08-12 발견). init_schema.py는
-    # 고쳐 쓰지 않는 방침이라, 그 대신 여기서 매 시작마다 같이 실행한다(ALTER ... IF NOT
-    # EXISTS라 안전, 재실행 비용 무시할 수준).
-    if ! $PYTHON "$PROJECT_ROOT/scripts/add_get_filter_columns.py"; then
-        echo "GET 필터 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
-        return 1
-    fi
-    # MS 계정 로그인(SSO)용 users.email 컬럼 — 위와 같은 이유로 매 시작마다 같이 실행
-    # (2026-08-20 도입, IF NOT EXISTS라 안전)
+    # MS 계정 로그인(SSO)용 users.email 컬럼 — init_schema.py에 없어 새 DB에서는 로그인
+    # 화면에 버튼이 안 뜨는 정도로 그치지만, 매 시작마다 같이 실행해 항상 최신 스키마를
+    # 보장한다(2026-08-20 도입, IF NOT EXISTS라 안전).
     if ! $PYTHON "$PROJECT_ROOT/scripts/add_sso_email_column.py"; then
         echo "SSO 이메일 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
         return 1

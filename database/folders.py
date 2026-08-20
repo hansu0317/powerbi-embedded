@@ -1,10 +1,16 @@
 """포털 보고서 폴더 — 소유권과 화면 위치를 분리한다."""
 from database.pool import db_conn
+from database.reports import _CAN_VIEW_REPORT_SQL
 
 # 폴더를 "볼 수 있는가"와 "그 안에 보고서를 넣을 수 있는가"에 같은 규칙을 쓴다:
 # 관리자이거나 / 본인 소유이거나 / shared이거나 / 같은 그룹(owner 기준)이면 된다.
 # f는 대상 report_folders 행의 별칭 — 이 상수를 쓰는 쿼리는 항상 FROM report_folders f를 가져야 한다.
 # 자리표시자 순서: is_admin, user_id(owner_id 비교), user_id(그룹 비교) — 총 3개, 호출부마다 이 순서로 넘긴다.
+#
+# 주의 — 이건 "업로드 대상으로 고를 수 있는가"에만 쓴다(db_get_writable_folders). 폴더
+# 기본값이 visibility='shared'라서, 이 규칙을 탐색 트리에도 그대로 쓰면 보고서 열람
+# 권한이 하나도 없는 사용자한테도 폴더 이름(고객사명 등)이 전부 노출된다(2026-08-20
+# adcrm1 테스트 계정으로 발견). 탐색 트리는 아래 _CAN_VIEW_FOLDER_SQL을 쓴다.
 _CAN_WRITE_FOLDER_SQL = """(
     %s OR f.owner_id=%s OR f.visibility='shared'
     OR (f.visibility='group' AND EXISTS (
@@ -12,14 +18,46 @@ _CAN_WRITE_FOLDER_SQL = """(
         WHERE me.user_id=%s AND owner_group.user_id=f.owner_id))
 )"""
 
+# 탐색 트리(사이드바)용 — "그 안에 실제로 볼 수 있는 보고서가 있는가"로 판정한다.
+# 자식만 보이고 부모 폴더가 이 규칙에 안 걸리면(예: "공장" 자체엔 보고서가 없고
+# 안의 "생산"에만 있는 경우), frontend의 orderFoldersAsTree가 그 자식을 최상위로
+# 끌어올려 화면에서 사라지지 않게 처리한다(부모가 목록에 없으면 자동으로 그렇게 됨) —
+# 그래서 여기서 조상까지 따로 챙길 필요가 없다.
+# 자리표시자 순서: is_admin, user_id(owner_id 비교), user_id(_CAN_VIEW_REPORT_SQL의 u.id) — 총 3개.
+_CAN_VIEW_FOLDER_SQL = f"""(
+    %s OR f.owner_id=%s OR EXISTS (
+        SELECT 1 FROM reports r, users u
+        WHERE r.portal_folder_id=f.id AND r.status='active' AND u.id=%s
+          AND {_CAN_VIEW_REPORT_SQL}
+    )
+)"""
+
+_FOLDER_SELECT_COLUMNS = """f.id,f.name,f.parent_id,f.owner_id,f.visibility,f.fabric_folder_id,
+                                  ou.username AS owner_username,
+                                  (SELECT COUNT(*) FROM reports r WHERE r.portal_folder_id=f.id AND r.status='active') AS report_count"""
+
 
 def db_get_report_folders(user_id: int, is_admin: bool) -> list:
+    """탐색 트리(사이드바)용 — 안에 실제로 볼 수 있는 보고서가 있어야 폴더가 보인다.
+    업로드 대상 선택기는 db_get_writable_folders를 쓴다(빈 공용 폴더도 대상으로 보여야
+    해서 규칙이 다르다)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"""SELECT f.id,f.name,f.parent_id,f.owner_id,f.visibility,f.fabric_folder_id,
-                                  u.username AS owner_username,
-                                  (SELECT COUNT(*) FROM reports r WHERE r.portal_folder_id=f.id AND r.status='active') AS report_count
-                           FROM report_folders f LEFT JOIN users u ON u.id=f.owner_id
+            cur.execute(f"""SELECT {_FOLDER_SELECT_COLUMNS}
+                           FROM report_folders f LEFT JOIN users ou ON ou.id=f.owner_id
+                           WHERE {_CAN_VIEW_FOLDER_SQL}
+                           ORDER BY f.parent_id NULLS FIRST,f.name""", (is_admin,user_id,user_id))
+            return cur.fetchall()
+
+
+def db_get_writable_folders(user_id: int, is_admin: bool) -> list:
+    """업로드 대상 폴더 선택기용 — "쓸 수 있으면 보임"(옛 db_get_report_folders와 동일 규칙).
+    아직 보고서가 하나도 없는 빈 공용 폴더도 업로드 대상으로는 보여야 해서
+    db_get_report_folders(열람 기준)와 의도적으로 다르다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""SELECT {_FOLDER_SELECT_COLUMNS}
+                           FROM report_folders f LEFT JOIN users ou ON ou.id=f.owner_id
                            WHERE {_CAN_WRITE_FOLDER_SQL}
                            ORDER BY f.parent_id NULLS FIRST,f.name""", (is_admin,user_id,user_id))
             return cur.fetchall()

@@ -20,7 +20,7 @@ import type { ReportData, ReportItem, SessionUser } from "../lib/bootstrap";
 import {
   fetchEmbed, fetchUploadStatus, logout, uploadPbix,
   fetchMyActivity, MyActivityRow, startReportUpdate,
-  fetchReportFolders, ReportFolder,
+  fetchReportFolders, fetchWritableFolders, ReportFolder,
   adminSyncStatus, SyncStatus,
 } from "../lib/api";
 import { orderFoldersAsTree } from "../lib/folderTree";
@@ -38,24 +38,6 @@ const powerbi = new pbi.service.Service(
   pbi.factories.wpmpFactory,
   pbi.factories.routerFactory,
 );
-
-// GET 필터 (PoC) — JS SDK의 공식 filters 설정으로 적용한다. URL 문자열에
-// &filter=...를 붙이는 방식과 결과는 같지만, isLockedInViewMode로 필터 창의
-// 제거(X) 버튼을 숨길 수 있다는 점이 다르다 — 그래도 진짜 RLS는 아니다
-// (브라우저 devtools로 SDK를 직접 호출하면 여전히 우회 가능).
-//
-// 선택 UI(드롭다운) 없음, 한 사용자 한 값만 지원한다(users.filter_value 단일 컬럼).
-function buildGetFilter(table: string, column: string, value: string): pbi.models.IBasicFilter {
-  return {
-    $schema: "http://powerbi.com/product/schema#basic",
-    target: { table, column },
-    operator: "In",
-    values: [value],
-    filterType: pbi.models.FilterType.Basic,
-    // 필터 창에서 사용자가 제거(X)하지 못하게 잠근다 — 그래도 진짜 RLS는 아님(주석 위 참고).
-    displaySettings: { isLockedInViewMode: true },
-  };
-}
 
 type View = ReportView;
 interface OpenTab {
@@ -1030,15 +1012,6 @@ function ReportPanel({
         if (cancelled || !el) return;
         const s = d.settings || {};
         const isDashboard = s.tab_type === "dashboard";
-        // GET 필터 (PoC) — 대시보드는 지원 안 함(필터 개념 자체가 없음).
-        // 선택 UI 없이 배정된 values 전부를 IN 필터로 조용히 적용한다.
-        // 서버 로그(GET_FILTER APPLY)는 "우리가 브라우저에 뭘 내려보냈다"까지만 알 수 있고,
-        // 그 이후(브라우저가 실제로 적용했는지)는 서버가 볼 수 없다 — 그래서 여기 브라우저
-        // 콘솔에도 남긴다. F12 → Console 탭에서 확인.
-        const gf = !isDashboard && d.get_filter ? d.get_filter : null;
-        if (gf) {
-          console.info(`[get-filter] report ${id}: ${gf.key} ${gf.table}/${gf.column} eq`, gf.value);
-        }
         // 대시보드는 페이지·필터창 개념이 없어 report 전용 설정을 넣으면 SDK가
         // 무시하거나 오류를 낼 수 있다 — 타입별로 별도 config를 만든다 (v6).
         const config: pbi.IEmbedConfiguration = isDashboard
@@ -1055,7 +1028,6 @@ function ReportPanel({
               embedUrl: d.embed_url,
               accessToken: d.embed_token,
               tokenType: pbi.models.TokenType.Embed,
-              filters: gf ? [buildGetFilter(gf.table, gf.column, gf.value)] : undefined,
               // 보고서별 차등 설정이 필요 없어 상수로 고정한다 (예전 DB 컬럼은 v12에서 제거).
               //  · 필터창은 끈다. 페이지 탭은 상단 툴바의 커스텀 드롭다운을 없앤 대신
               //    네이티브 하단 탭(pageNavigation)을 다시 켜서 페이지 이동을 지원한다.
@@ -1472,7 +1444,9 @@ function UploadView({ csrf, isAdmin }: { csrf: string; isAdmin: boolean }) {
   );
   // 폴더 생성·이름변경·삭제는 이 앱에서 다루지 않는다(2026-08-12~) — 이미 있는 폴더
   // 중에서 고르기만 한다. 새 폴더가 필요하면 Power BI/Fabric 쪽 구조를 먼저 정리한다.
-  useEffect(()=>{fetchReportFolders().then((f)=>{setFolders(f);setFolderId(f[0]?.id??null)}).catch(()=>{})},[]);
+  // 업로드 대상은 "쓸 수 있는" 폴더 전부(빈 공용 폴더 포함) — 사이드바 탐색 트리(열람
+  // 가능 기준, fetchReportFolders)와 의도적으로 다른 엔드포인트를 쓴다.
+  useEffect(()=>{fetchWritableFolders().then((f)=>{setFolders(f);setFolderId(f[0]?.id??null)}).catch(()=>{})},[]);
 
   const submit = async () => {
     const file = fileRef.current?.files?.[0];

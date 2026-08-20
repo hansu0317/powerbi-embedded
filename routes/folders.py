@@ -15,7 +15,9 @@ from fastapi import APIRouter
 from fastapi.requests import Request
 
 import config
-from database import db_get_folder, db_get_report_folders, db_move_report_to_folder
+from database import (
+    db_get_folder, db_get_report_folders, db_get_writable_folders, db_move_report_to_folder,
+)
 from deps import json_body, require_user, require_user_csrf
 from errors import AppError
 from services.fabric_folders import move_item_to_folder
@@ -25,8 +27,18 @@ router = APIRouter(prefix="/api")
 
 @router.get("/report-folders")
 async def list_folders(request: Request):
+    """탐색 트리(사이드바)용 — 실제로 열람 가능한 보고서가 있는 폴더만 내려준다."""
     user = await require_user(request)
     folders = await asyncio.to_thread(db_get_report_folders, user["id"], user["is_admin"])
+    return {"folders": folders}
+
+
+@router.get("/report-folders/writable")
+async def list_writable_folders(request: Request):
+    """업로드 대상 폴더 선택기용 — 쓸 수 있는 폴더 전부(빈 공용 폴더 포함). 위
+    /report-folders와 의도적으로 다른 규칙(database/folders.py 상단 주석 참고)."""
+    user = await require_user(request)
+    folders = await asyncio.to_thread(db_get_writable_folders, user["id"], user["is_admin"])
     return {"folders": folders}
 
 

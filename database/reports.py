@@ -204,7 +204,7 @@ def db_get_report(report_id: int):
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id,
                           r.pbi_report_id, r.pbi_dataset_id, r.pbi_workspace_id,
-                          r.tab_type, r.filter_table, r.filter_column, r.filter_key
+                          r.tab_type
                    FROM reports r
                    WHERE r.id = %s""",
                 (report_id,),
@@ -213,15 +213,11 @@ def db_get_report(report_id: int):
 
 
 def db_find_report(owner_id: int, name: str):
-    """같은 이름의 '살아있는' 보고서 조회. deleted 상태는 재사용 가능.
-
-    filter_table도 같이 반환한다 — GET 필터(routes/report.py의 _build_get_filter)가
-    걸린 보고서는 일반 재업로드(전체 덮어쓰기)로 데이터셋이 통째로 바뀌면
-    filter_table/column이 더 이상 안 맞을 수 있어서, 호출부가 이 값으로 막는다."""
+    """같은 이름의 '살아있는' 보고서 조회. deleted 상태는 재사용 가능."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT id, name, owner_id, pbi_report_id, filter_table
+                """SELECT id, name, owner_id, pbi_report_id
                    FROM reports
                    WHERE owner_id = %s AND LOWER(name) = LOWER(%s) AND status <> 'deleted'""",
                 (owner_id, name),
