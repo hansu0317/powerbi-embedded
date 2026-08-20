@@ -40,6 +40,13 @@ if (Test-Path $EnvFile) {
 # 줄이 있는 상태에서 중간에 인코딩을 바꾸면 콘솔이 기존 줄의 폭(한글 2칸)을 다시 계산하며
 # 글자가 겹쳐 찍히는 현상(예: "실실행행 중중")이 생긴다. 그래서 Start-Server 안이 아니라
 # 여기서 가장 먼저 설정한다.
+# [Console]::OutputEncoding은 PowerShell 자신이 찍는 줄(Write-Output 등)만 바로잡는다 —
+# 콘솔에 그대로 상속돼 직접 쓰는 자식 프로세스(init_schema.py, add_get_filter_columns.py의
+# print())는 conhost의 실제 출력 코드페이지(chcp)를 봐서, 이게 안 맞으면 같은 겹침 현상이
+# 그쪽에서만 남는다(2026-08-20, "GET 필필터... 컬컬럼럼" 형태로 발견 — 로그 파일이 아니라
+# 화면 렌더링에서만 깨지고 서버 동작 자체엔 영향 없음). chcp로 Win32 콘솔 코드페이지
+# 자체를 먼저 맞춰 자식 프로세스까지 커버한다.
+try { & chcp.com 65001 | Out-Null } catch {}
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 $env:PYTHONUTF8 = "1"
 
@@ -110,6 +117,14 @@ function Start-Server {
     & $Python (Join-Path $ProjectRoot "scripts\add_get_filter_columns.py")
     if ($LASTEXITCODE -ne 0) {
         Write-Output "GET 필터 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
+        exit 1
+    }
+
+    # MS 계정 로그인(SSO)용 users.email 컬럼 — 위와 같은 이유로 매 시작마다 같이 실행
+    # (2026-08-20 도입, IF NOT EXISTS라 안전)
+    & $Python (Join-Path $ProjectRoot "scripts\add_sso_email_column.py")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output "SSO 이메일 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
         exit 1
     }
 

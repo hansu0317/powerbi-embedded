@@ -36,6 +36,7 @@ class AppError(Enum):
     UPLOAD_NAME_CONFLICT = (409, "UPLOAD_NAME_CONFLICT",  "'{name}' 보고서 등록 중 이름 충돌이 발생했습니다. 다른 이름으로 다시 올려주세요.")
     IMPORT_NAME_CONFLICT = (409, "IMPORT_NAME_CONFLICT",  "워크스페이스에 같은 이름의 항목이 있습니다. 기존 항목은 변경하지 않았습니다.")
     USER_ALREADY_EXISTS  = (409, "USER_EXISTS",           "'{username}' 아이디가 이미 존재합니다.")
+    EMAIL_ALREADY_EXISTS = (409, "EMAIL_EXISTS",          "'{email}' 이메일이 이미 다른 계정에 등록돼 있습니다.")
     GROUP_ALREADY_EXISTS = (409, "GROUP_EXISTS",          "'{name}' 그룹이 이미 존재합니다.")
     GROUP_NOT_FOUND      = (404, "GROUP_NOT_FOUND",       "그룹을 찾을 수 없습니다.")
     GROUP_NAME_INVALID   = (400, "GROUP_NAME_INVALID",    "그룹 이름은 1~50자여야 합니다.")

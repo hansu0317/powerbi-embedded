@@ -260,6 +260,7 @@ async def api_admin_add_user(
     group_ids: str = Form(""),
     department: str = Form(""),
     data_scope: str = Form("self"),
+    email: str = Form(""),
     csrf: str = Form(),
     user: dict = Depends(require_admin_user),
 ):
@@ -270,13 +271,16 @@ async def api_admin_add_user(
         raise AppError.DATA_SCOPE_INVALID.http()
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     group_id_list = [int(g) for g in group_ids.split(",") if g.strip()]
+    email_clean = email.strip() or None
     try:
         new_id = await asyncio.to_thread(
             db_admin_add_user, username, pw_hash, display_name,
             pbi_username or username, is_admin, can_upload, group_id_list,
-            department.strip() or None, data_scope,
+            department.strip() or None, data_scope, email_clean,
         )
-    except psycopg2.errors.UniqueViolation:
+    except psycopg2.errors.UniqueViolation as exc:
+        if "users_email_unique_idx" in str(exc):
+            raise AppError.EMAIL_ALREADY_EXISTS.http(email=email_clean)
         raise AppError.USER_ALREADY_EXISTS.http(username=username)
     logger.info(
         "ADMIN ADD USER | admin=%s | new=%s | id=%s | groups=%s",
@@ -294,24 +298,28 @@ async def api_admin_edit_user(
     비밀번호·아이디·관리자 권한·업로드 권한은 각각 별도 경로(add 시 지정, toggle-*)에서
     다룬다. RLS 역할 이름은 사용자별 값이 아니라 config.PBI_RLS_ROLE_NAME 고정값이라
     여기서 다룰 게 없다.
-    body: {display_name, pbi_username, department, data_scope}"""
+    body: {display_name, pbi_username, department, data_scope, email}"""
     body = await json_body(request)
     display_name = str(body.get("display_name", "")).strip()
     pbi_username = str(body.get("pbi_username", "")).strip()
     department = str(body.get("department", "")).strip() or None
     data_scope = str(body.get("data_scope", "self"))
+    email = str(body.get("email", "")).strip() or None
     if not display_name or not pbi_username or data_scope not in DATA_SCOPES:
         raise AppError.BODY_INVALID.http()
 
-    updated = await asyncio.to_thread(
-        db_admin_update_user, user_id, display_name, pbi_username, department, data_scope,
-    )
+    try:
+        updated = await asyncio.to_thread(
+            db_admin_update_user, user_id, display_name, pbi_username, department, data_scope, email,
+        )
+    except psycopg2.errors.UniqueViolation:
+        raise AppError.EMAIL_ALREADY_EXISTS.http(email=email)
     if not updated:
         raise AppError.USER_NOT_FOUND.http()
     logger.info("ADMIN EDIT USER | admin=%s | user_id=%s", user["username"], user_id)
     return {
         "user_id": user_id, "display_name": display_name, "pbi_username": pbi_username,
-        "department": department, "data_scope": data_scope,
+        "department": department, "data_scope": data_scope, "email": email,
     }
 
 

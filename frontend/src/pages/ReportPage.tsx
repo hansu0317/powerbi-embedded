@@ -74,6 +74,21 @@ function loadTabs(): OpenTab[] {
   }
 }
 
+// 페이지 맞춤 설정(맞춤/폭맞춤/실제크기) — "설정"/"관리"는 <a href> 전체 페이지 이동이라
+// 갔다 오면 이 SPA 전체가 새로 마운트된다. tabs/active와 마찬가지로 sessionStorage에
+// 남겨두지 않으면 리포트별로 골라둔 크기가 매번 기본값(FitToPage)으로 되돌아간다
+// (2026-08-20 리포트).
+type DisplayMode = "FitToPage" | "FitToWidth" | "ActualSize";
+const DISPLAY_MODES_KEY = "rp-display-modes";
+
+function loadDisplayModes(): Record<number, DisplayMode> {
+  try {
+    return JSON.parse(sessionStorage.getItem(DISPLAY_MODES_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
 type Mode = "home" | "reports";
 const MODE_KEY = "rp-mode";
 
@@ -765,8 +780,10 @@ function MyReportsView({
   // "Rendered more hooks than during the previous render"로 화면 전체가 하얗게 죽는다.
   // 조기 return보다 반드시 앞에 선언해야 한다.
   const [showUpdate, setShowUpdate] = useState(false);
-  type DisplayMode = "FitToPage" | "FitToWidth" | "ActualSize";
-  const [displayModes, setDisplayModes] = useState<Record<number, DisplayMode>>({});
+  const [displayModes, setDisplayModes] = useState<Record<number, DisplayMode>>(() => loadDisplayModes());
+  useEffect(() => {
+    sessionStorage.setItem(DISPLAY_MODES_KEY, JSON.stringify(displayModes));
+  }, [displayModes]);
 
   const activeTab = tabs.find((t) => t.id === active);
   const activeEntry = activeTab ? reportRefs.current[activeTab.id] : undefined;
@@ -836,6 +853,45 @@ function MyReportsView({
   }
   return (
     <div className="rp-workarea">
+      {/* 탭 바 — 상단, 파일탐색기 탭처럼 열린 보고서를 한눈에 전환. 세로 휠 스크롤을
+          가로로 돌려준다 — 트랙패드 없이 마우스 휠만 있는 환경에서도 탭이 많을 때
+          스크롤할 수 있게(발견하기 어려운 Shift+휠 대신). */}
+      <div
+        className="rp-tabsbar"
+        ref={tabsBarRef}
+        onWheel={(e) => {
+          if (e.deltaY === 0 || e.deltaX !== 0) return;
+          e.currentTarget.scrollLeft += e.deltaY;
+          e.preventDefault();
+        }}
+      >
+        {tabs.map((t) => (
+          <div
+            key={t.id}
+            data-tab-id={t.id}
+            className={`rp-tab${t.id === active ? " active" : ""}`}
+            title={t.name}
+            onClick={() => onActivate(t.id)}
+          >
+            <span className="rp-tab-label">{t.name}</span>
+            <button
+              className="rp-tab-close"
+              title="닫기"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose(t.id);
+              }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+        {tabs.length > 1 && (
+          <button className="rp-tabsbar-closeall" title="열린 탭 모두 닫기" onClick={onCloseAll}>
+            전체 닫기
+          </button>
+        )}
+      </div>
       {activeTab && (
         <div className="rp-report-toolbar">
           <span className="rp-report-toolbar-name">{activeTab.name}</span>
@@ -896,44 +952,6 @@ function MyReportsView({
             onReady={onReady}
           />
         ))}
-      </div>
-      {/* 탭 바 — 하단. 세로 휠 스크롤을 가로로 돌려준다 — 트랙패드 없이 마우스 휠만
-          있는 환경에서도 탭이 많을 때 스크롤할 수 있게(발견하기 어려운 Shift+휠 대신). */}
-      <div
-        className="rp-tabsbar"
-        ref={tabsBarRef}
-        onWheel={(e) => {
-          if (e.deltaY === 0 || e.deltaX !== 0) return;
-          e.currentTarget.scrollLeft += e.deltaY;
-          e.preventDefault();
-        }}
-      >
-        {tabs.map((t) => (
-          <div
-            key={t.id}
-            data-tab-id={t.id}
-            className={`rp-tab${t.id === active ? " active" : ""}`}
-            title={t.name}
-            onClick={() => onActivate(t.id)}
-          >
-            <span className="rp-tab-label">{t.name}</span>
-            <button
-              className="rp-tab-close"
-              title="닫기"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClose(t.id);
-              }}
-            >
-              <X size={14} />
-            </button>
-          </div>
-        ))}
-        {tabs.length > 1 && (
-          <button className="rp-tabsbar-closeall" title="열린 탭 모두 닫기" onClick={onCloseAll}>
-            전체 닫기
-          </button>
-        )}
       </div>
     </div>
   );
@@ -1046,7 +1064,9 @@ function ReportPanel({
                 filterPaneEnabled: false,
                 layoutType: pbi.models.LayoutType.Custom,
                 customLayout: {
-                  displayOption: pbi.models.DisplayOption.FitToPage,
+                  // 이 보고서에 대해 전에 골라둔 맞춤 모드가 있으면(설정/관리를 갔다 온
+                  // 뒤 재마운트되는 경우 포함) 그대로 이어서 연다 — 없으면 기본값.
+                  displayOption: pbi.models.DisplayOption[loadDisplayModes()[id] ?? "FitToPage"],
                 },
                 panes: {
                   // PBIX 내부의 '메인' 같은 페이지 탭은 숨기고 포털 탭만 노출한다.

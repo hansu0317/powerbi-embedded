@@ -47,6 +47,41 @@ def db_verify_password(row, password: str):
     return row
 
 
+def db_get_user_by_email(email: str):
+    """SSO 콜백에서 Microsoft가 돌려준 이메일로 계정을 찾는다.
+
+    대소문자 무시(LOWER 비교, 마이그레이션의 부분 유니크 인덱스와 동일 기준) —
+    Microsoft가 로그인 화면에 표시하는 이메일 대소문자가 매번 같다는 보장이 없다.
+    비활성 계정도 일단 반환한다(활성 여부는 호출자가 판단해 "계정 비활성화" 메시지를
+    따로 보여줄 수 있게 — db_check_and_get_user와 동일한 관례)."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, username, display_name, pbi_username, is_admin, is_active "
+                "FROM users WHERE email IS NOT NULL AND LOWER(email) = LOWER(%s)",
+                (email,),
+            )
+            return cur.fetchone()
+
+
+def db_sso_record_login(username: str, display_name: str, ip: str):
+    """SSO 로그인 성공 기록 — display_name을 Microsoft 쪽 최신 이름으로 동기화하고
+    last_login_at을 갱신한다. 비밀번호 로그인의 db_record_login과 달리 실패 기록(차단
+    카운트)은 여기서 다루지 않는다 — 로그인 실패 여부 자체를 Microsoft가 판단하므로
+    우리 쪽에서 무차별 대입을 걱정할 이유가 없다."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET display_name = %s, last_login_at = NOW() WHERE username = %s",
+                (display_name, username),
+            )
+            cur.execute(
+                "INSERT INTO event_log (log_type, username, ip, succeeded) VALUES ('login', %s, %s, TRUE)",
+                (username, ip),
+            )
+        conn.commit()
+
+
 def db_record_login(username: str, ip: str, succeeded: bool):
     """로그인 시도를 기록한다. 성공 시 실패 이력 초기화 + last_login_at 갱신."""
     with db_conn() as conn:

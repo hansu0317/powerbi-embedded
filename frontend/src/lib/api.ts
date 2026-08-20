@@ -245,6 +245,7 @@ export interface EditUserPayload {
   pbi_username: string;
   department?: string;
   data_scope?: "self" | "department" | "all";
+  email?: string;
 }
 
 export async function adminEditUser(userId: number, payload: EditUserPayload, csrf: string) {

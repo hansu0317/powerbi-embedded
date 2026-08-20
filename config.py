@@ -29,6 +29,12 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 # 네비게이션 허브 — 설정 시에만 상단바에 "마케팅 포털" 링크 노출(선택, 없으면 링크 없음)
 MARKETING_PORTAL_URL = os.getenv("MARKETING_PORTAL_URL")
 
+# MS 계정 로그인(SSO) — Azure AD 앱 등록(위 CLIENT_ID/TENANT_ID와 동일 앱 재사용)에
+# "웹" 플랫폼 리디렉션 URI를 등록해야 동작한다(2026-08-20 도입). 값이 없으면 로그인
+# 화면에서 "Microsoft 계정으로 로그인" 버튼 자체를 숨긴다 — 이 저장소를 다른 환경으로
+# 포팅했을 때 Azure Portal 설정 전에는 자동으로 기존 비밀번호 로그인만 보이게 하기 위함.
+SSO_REDIRECT_URI = os.getenv("SSO_REDIRECT_URI")
+
 if not SECRET_KEY or len(SECRET_KEY) < 32:
     raise RuntimeError("SECRET_KEY는 32자 이상의 랜덤 문자열로 설정해야 합니다.")
 

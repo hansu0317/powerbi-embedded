@@ -29,6 +29,8 @@ export interface PopularItem {
 export interface LoginData {
   error: string | null;
   csrf_token: string;
+  /** SSO_REDIRECT_URI가 설정된 경우에만 true — "Microsoft 계정으로 로그인" 버튼 노출 여부 */
+  sso_enabled: boolean;
 }
 
 export interface ReportData {
@@ -56,6 +58,8 @@ export interface AdminUser {
   username: string;
   display_name: string;
   pbi_username: string;
+  /** MS 계정 로그인(SSO) 매칭용 — 비어 있으면 그 계정은 SSO 로그인 대상이 아님 */
+  email: string | null;
   is_admin: boolean;
   is_active: boolean;
   can_upload: boolean;

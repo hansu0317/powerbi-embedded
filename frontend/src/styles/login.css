@@ -69,3 +69,47 @@
   font-size: 0.82rem;
   margin-bottom: 18px;
 }
+
+/* MS 계정 로그인(SSO) — 비밀번호 로그인과 탭으로 완전히 분리(2026-08-20).
+   위아래로 같이 늘어놓으면 "둘 다 입력해야 하나?"로 헷갈린다는 피드백 반영 —
+   한 번에 하나의 방법만 보이게 탭으로 전환한다. */
+.login-tabs {
+  display: flex;
+  margin-bottom: 22px;
+}
+.login-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 2px solid var(--line);
+  padding: 0 0 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.login-tab:hover { color: var(--ink-soft); }
+.login-tab.active {
+  color: var(--sage-deep);
+  border-bottom-color: var(--sage);
+}
+
+.login-sso-panel {
+  text-align: center;
+  padding: 8px 0 4px;
+}
+.login-sso-desc {
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+  margin: 0 0 18px;
+}
+
+.login-sso-btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 0.9rem;
+  text-align: center;
+  display: block;
+  box-sizing: border-box;
+}

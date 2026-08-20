@@ -440,6 +440,11 @@ function UsersSection({
                       관리자
                     </span>
                   )}
+                  {u.email && (
+                    <span className="pill" title={`MS 계정 로그인 연동: ${u.email}`} style={{ marginLeft: 4 }}>
+                      MS
+                    </span>
+                  )}
                 </td>
                 <td title={u.display_name}>{u.display_name}</td>
                 <td>
@@ -623,6 +628,9 @@ function AddUserModal({
               <Field label="표시 이름 *">
                 <input name="display_name" required placeholder="홍길동" />
               </Field>
+              <Field label="이메일 (MS 계정 로그인용, 선택)">
+                <input name="email" type="email" placeholder="user@qualisoft.co.kr" />
+              </Field>
               <Field label="관리자 권한">
                 <select name="is_admin" defaultValue="false">
                   <option value="false">일반 사용자</option>
@@ -703,6 +711,7 @@ function EditUserModal({
   const [displayName, setDisplayName] = useState(user.display_name);
   const [department, setDepartment] = useState(user.department || "");
   const [dataScope, setDataScope] = useState(user.data_scope || "self");
+  const [email, setEmail] = useState(user.email || "");
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -710,13 +719,13 @@ function EditUserModal({
     try {
       await adminEditUser(
         user.id,
-        { display_name: displayName, pbi_username: user.pbi_username, department, data_scope: dataScope },
+        { display_name: displayName, pbi_username: user.pbi_username, department, data_scope: dataScope, email },
         csrf,
       );
       onSaved({
         ...user,
         display_name: displayName,
-        department, data_scope: dataScope,
+        department, data_scope: dataScope, email: email || null,
       });
     } catch (err) {
       onError((err as Error).message);
@@ -735,6 +744,14 @@ function EditUserModal({
                 onChange={(e) => setDisplayName(e.target.value)}
                 required
                 autoFocus
+              />
+            </Field>
+            <Field label="이메일 (MS 계정 로그인용, 선택)">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="user@qualisoft.co.kr"
               />
             </Field>
             <Field label="부서 (RLS)">

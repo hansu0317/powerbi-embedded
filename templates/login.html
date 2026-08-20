@@ -12,7 +12,8 @@
       page: "login",
       data: {
         error: {{ error | tojson }},
-        csrf_token: {{ csrf_token | tojson }}
+        csrf_token: {{ csrf_token | tojson }},
+        sso_enabled: {{ sso_enabled | tojson }}
       }
     };
   </script>

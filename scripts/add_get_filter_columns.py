@@ -56,7 +56,13 @@ def run():
                 "ALTER TABLE reports ADD COLUMN IF NOT EXISTS filter_key VARCHAR(30)"
             )
         conn.commit()
-    print("GET 필터(PoC) 컬럼 5개 추가 완료 — 값은 비워둔 채로 생성됨(SECO는 미사용).")
+    # 한글은 일부러 안 쓴다 — 이 줄은 server.ps1/server.sh가 리다이렉트 없이 콘솔에
+    # 그대로 찍는 유일한 지점이라, 한글(2칸 폭 문자)을 쓰면 구형 콘솔 창(conhost)의
+    # 폭 재계산 버그로 "필필터터"처럼 글자가 겹쳐 찍힌다(2026-08-20, chcp 65001로도
+    # 못 고침 — 코드페이지가 아니라 conhost 렌더링 자체의 버그라서). 상세 로그가
+    # 필요하면 logs/server.log를 본다(이 스크립트 결과는 거기 안 남지만, 앱 자체
+    # 로그는 전부 파일로 감).
+    print("GET filter (PoC) columns: OK (5 columns added, left empty, SECO unused).")
 
 
 if __name__ == "__main__":

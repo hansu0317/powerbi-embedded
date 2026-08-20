@@ -53,6 +53,12 @@ start() {
         echo "GET 필터 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
         return 1
     fi
+    # MS 계정 로그인(SSO)용 users.email 컬럼 — 위와 같은 이유로 매 시작마다 같이 실행
+    # (2026-08-20 도입, IF NOT EXISTS라 안전)
+    if ! $PYTHON "$PROJECT_ROOT/scripts/add_sso_email_column.py"; then
+        echo "SSO 이메일 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
+        return 1
+    fi
     rotate_log
     cd "$PROJECT_ROOT"
     nohup "$PYTHON" -m uvicorn main:app \

@@ -207,15 +207,15 @@
   font-size: 0.88rem;
 }
 
-/* 탭 바 — 하단 고정. 보고서를 여러 개 열면 탭이 옆으로 계속 쌓이는데, 예전엔
-   overflow-x:hidden이라 넘치는 탭은 스크롤도 안 되고 아예 클릭할 방법이 없이
-   화면 밖으로 잘려나갔다(2026-08-14 버그 리포트) — auto로 바꿔 가로 스크롤 가능하게
-   하고, 얇은 스크롤바를 남겨 "더 있다"는 걸 시각적으로 알 수 있게 한다. */
+/* 탭 바 — 상단 고정(파일탐색기 탭처럼). 보고서를 여러 개 열면 탭이 옆으로 계속
+   쌓이는데, 예전엔 overflow-x:hidden이라 넘치는 탭은 스크롤도 안 되고 아예 클릭할
+   방법이 없이 화면 밖으로 잘려나갔다(2026-08-14 버그 리포트) — auto로 바꿔 가로
+   스크롤 가능하게 하고, 얇은 스크롤바를 남겨 "더 있다"는 걸 시각적으로 알 수 있게 한다. */
 .rp-tabsbar {
   display: flex;
   align-items: stretch;
   background: #fff;
-  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   overflow-x: auto;
   overflow-y: hidden;
   flex-shrink: 0;
@@ -259,7 +259,7 @@
 .rp-tab.active {
   color: var(--sage-deep);
   background: var(--sage-soft);
-  box-shadow: inset 0 2px 0 var(--sage);
+  box-shadow: inset 0 -2px 0 var(--sage);
   font-weight: 600;
 }
 .rp-tab-label { overflow: hidden; text-overflow: ellipsis; }

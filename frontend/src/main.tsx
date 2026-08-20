@@ -1,7 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { readBootstrap, type Bootstrap } from "./lib/bootstrap";
-import { getAuthToken, getAuthUser } from "./lib/api";
+import { getAuthToken, getAuthUser, setAuthToken } from "./lib/api";
 import LoginPage from "./pages/LoginPage";
 import ReportPage from "./pages/ReportPage";
 import AdminPage from "./pages/AdminPage";
@@ -25,7 +25,27 @@ import "./styles/admin.css";
 //   - 토큰이 있는데 SSR 결과와 안 맞으면(1·2번 모두 해당) 이 탭 토큰으로 다시 물어
 //     진짜 상태를 확인한다.
 //   - 토큰과 SSR 결과가 일치하면(대부분의 정상 상황) 추가 네트워크 왕복 없이 그대로 쓴다.
+// MS 계정 로그인(SSO) 콜백(/auth/callback)은 fetch가 아니라 브라우저 전체 리디렉션이라
+// 응답 바디를 JS가 가로챌 수 없다 — 그래서 서버가 탭 토큰을 "/?sso_token=...&sso_user=..."
+// 쿼리 파라미터로 실어 보낸다. 여기서 이 탭의 sessionStorage로 옮기고 주소에서 지운다
+// (지우지 않으면 새로고침마다 재적용되고, 토큰이 주소창·히스토리에 남는다).
+// resolveBootstrap()의 "sessionStorage에 토큰 없으면 무조건 /login" 체크보다 반드시
+// 먼저 실행해야 한다 — 안 그러면 로그인 성공하고 돌아온 첫 렌더에서 그 체크에 걸려
+// 도로 /login으로 튕긴다.
+function consumeSsoRedirect() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("sso_token");
+  const username = params.get("sso_user");
+  if (!token || !username) return;
+  setAuthToken(token, username);
+  params.delete("sso_token");
+  params.delete("sso_user");
+  const rest = params.toString();
+  window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : ""));
+}
+
 async function resolveBootstrap(): Promise<Bootstrap> {
+  consumeSsoRedirect();
   const boot = readBootstrap();
   const token = getAuthToken();
   const tokenUser = getAuthUser();

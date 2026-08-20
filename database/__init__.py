@@ -16,6 +16,7 @@ from database.pool import db_conn, db_health_check
 from database.auth import (
     db_check_and_get_user, db_verify_password, db_record_login,
     db_cleanup_login_attempts, db_get_user,
+    db_get_user_by_email, db_sso_record_login,
 )
 from database.reports import (
     db_get_reports, db_get_all_active_reports, db_get_user_favorites, db_set_favorite,
@@ -55,6 +56,7 @@ __all__ = [
     "db_conn", "db_health_check",
     "db_check_and_get_user", "db_verify_password", "db_record_login",
     "db_cleanup_login_attempts", "db_get_user",
+    "db_get_user_by_email", "db_sso_record_login",
     "db_get_reports", "db_get_all_active_reports", "db_get_user_favorites", "db_set_favorite",
     "db_get_user_recents", "db_add_recent", "db_get_pbi_report_map", "db_hard_delete_report",
     "db_can_view_report", "db_get_report", "db_find_report",

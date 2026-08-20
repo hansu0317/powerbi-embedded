@@ -42,7 +42,7 @@ def db_admin_get_users() -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"""SELECT u.id, u.username, u.display_name, u.pbi_username,
+                f"""SELECT u.id, u.username, u.display_name, u.pbi_username, u.email,
                           u.is_admin, u.is_active, u.can_upload, u.last_login_at, u.created_at,
                           u.department, u.data_scope,
                           (SELECT COUNT(*) FROM reports r
@@ -83,15 +83,16 @@ def db_get_user_report_list(user_id: int) -> list:
 def db_admin_add_user(username: str, pw_hash: str, display_name: str,
                       pbi_username: str, is_admin: bool,
                       can_upload: bool = True, group_ids: list[int] | None = None,
-                      department: str | None = None, data_scope: str = "self") -> int:
+                      department: str | None = None, data_scope: str = "self",
+                      email: str | None = None) -> int:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (username, password, display_name, pbi_username, is_admin, "
-                "can_upload, department, data_scope) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                "can_upload, department, data_scope, email) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (username, pw_hash, display_name, pbi_username, is_admin,
-                 can_upload, department, data_scope),
+                 can_upload, department, data_scope, email or None),
             )
             row = cur.fetchone()
             user_id = row["id"]
@@ -105,10 +106,14 @@ def db_admin_add_user(username: str, pw_hash: str, display_name: str,
 
 
 def db_admin_update_user(user_id: int, display_name: str, pbi_username: str,
-                         department: str | None, data_scope: str) -> bool:
+                         department: str | None, data_scope: str,
+                         email: str | None = None) -> bool:
     """사용자 표시정보·RLS 속성(pbi_username, department, data_scope) 수정.
     RLS 역할 이름 자체는 사용자별 컬럼이 아니라 config.PBI_RLS_ROLE_NAME 고정값이라
     여기서 다룰 게 없다.
+
+    email — MS 계정 로그인(SSO) 매칭용. 관리자가 이 계정을 어느 Microsoft 계정과
+    연결할지 여기서 채운다(비우면 SSO 로그인 대상에서 제외, 비밀번호 로그인은 그대로).
 
     admin 계정은 제외한다 — 실수로 관리자 계정을 건드리는 걸 막는다
     (toggle_active·toggle_upload와 동일한 보호 원칙)."""
@@ -116,9 +121,9 @@ def db_admin_update_user(user_id: int, display_name: str, pbi_username: str,
         with conn.cursor() as cur:
             cur.execute(
                 """UPDATE users SET display_name = %s, pbi_username = %s, department = %s,
-                          data_scope = %s, updated_at = NOW()
+                          data_scope = %s, email = %s, updated_at = NOW()
                    WHERE id = %s AND username != 'admin' RETURNING id""",
-                (display_name, pbi_username, department, data_scope, user_id),
+                (display_name, pbi_username, department, data_scope, email or None, user_id),
             )
             row = cur.fetchone()
         conn.commit()
