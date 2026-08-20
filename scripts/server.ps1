@@ -96,6 +96,14 @@ function Start-Server {
         exit 1
     }
 
+    # GET 필터(PoC) 컬럼 5개 — init_schema.py에 없어 새 DB에서는 로그인 즉시 깨진다
+    # (2026-08-12 발견, server.sh와 동일 이유로 여기서도 매 시작마다 같이 실행)
+    & $Python (Join-Path $ProjectRoot "scripts\add_get_filter_columns.py")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output "GET 필터 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
+        exit 1
+    }
+
     Invoke-LogRotate
     # 로그는 server.log 한 파일로만 모은다 — main.py가 모든 레벨을 표준출력 하나로만
     # 내보내므로 그게 곧 이 리다이렉트 대상이다. 표준에러는 NUL로 버린다: 우리 앱

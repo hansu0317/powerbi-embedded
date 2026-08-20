@@ -4,6 +4,7 @@ import psycopg2.errors
 import config
 from config import WORKSPACE_ID
 from database.pool import db_conn
+from database.folders import db_ensure_folder_path
 from database.reports import _CAN_VIEW_REPORT_SQL
 from errors import AppError
 
@@ -198,10 +199,15 @@ def db_import_pbi_item(
 
     이름이 '계정__보고서명' 형식이고 그 계정이 존재하면 개인 보고서로 복원한다
     (DB 재구축 후 가져오기에서 개인 보고서가 전부 공용이 되는 것을 막는다).
+
+    category(Fabric 폴더 경로)가 있으면 report_folders에 같은 트리를 미러링하고
+    portal_folder_id를 그 리프 폴더로 배정한다(db_ensure_folder_path) — 안 그러면
+    포털 화면엔 폴더 구분 없이 전부 평면으로 나열된다(2026-08-19 발견).
     """
     tab_type    = "dashboard" if is_dashboard else "report"
     dataset_id  = None if is_dashboard else pbi_dataset_id
     audit_event = "dashboard_imported" if is_dashboard else "managed_report_imported"
+    portal_folder_id = db_ensure_folder_path(category, folder_id, actor_id) if category else None
 
     # PBI 표시 이름이 '계정__보고서명' 규칙이면 원래 개인 보고서였다는 뜻이다.
     # DB를 새로 구축하고 가져오기를 하면 이 정보가 없어 전부 공용이 돼버리므로,
@@ -228,20 +234,21 @@ def db_import_pbi_item(
             if existing:
                 if category:
                     cur.execute(
-                        "UPDATE reports SET category = %s, updated_at = NOW() "
-                        "WHERE id = %s AND category IS DISTINCT FROM %s",
-                        (category, existing["id"], category),
+                        "UPDATE reports SET category = %s, portal_folder_id = %s, updated_at = NOW() "
+                        "WHERE id = %s AND (category IS DISTINCT FROM %s OR portal_folder_id IS DISTINCT FROM %s)",
+                        (category, portal_folder_id, existing["id"], category, portal_folder_id),
                     )
                     conn.commit()
                 return False
             cur.execute(
                 """INSERT INTO reports (
                        name, report_type, owner_id, status, category, created_by, updated_by,
-                       pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id, tab_type, visibility
-                   ) VALUES (%s, %s, %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s, 'personal')
+                       pbi_report_id, pbi_workspace_id, pbi_dataset_id, folder_id, tab_type, visibility,
+                       portal_folder_id
+                   ) VALUES (%s, %s, %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s, 'personal', %s)
                    RETURNING id""",
                 (display_name, report_type, owner_id, category, actor_id, actor_id,
-                 pbi_item_id, pbi_workspace_id, dataset_id, folder_id, tab_type),
+                 pbi_item_id, pbi_workspace_id, dataset_id, folder_id, tab_type, portal_folder_id),
             )
             report_id = cur.fetchone()["id"]
             if owner_id:

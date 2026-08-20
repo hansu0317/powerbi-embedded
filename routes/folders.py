@@ -1,9 +1,14 @@
 """포털 보고서 폴더 조회와 Fabric Item 이동 API.
 
-폴더 생성·이름변경·삭제는 이 앱에서 다루지 않는다(2026-08-12~) — 포털이 Fabric과
-별개로 자기만의 폴더 구조를 만들고 관리하는 부담을 지지 않기로 했다. 폴더 구조 자체는
-Power BI/Fabric에서 관리하고, 이 앱은 report_folders에 이미 있는 폴더를 조회해서
-보여주고, 기존 보고서를 그 안으로 옮기는 것까지만 한다."""
+임의 폴더 생성·이름변경·삭제는 이 앱(API/사용자)이 다루지 않는다(2026-08-12~) — 포털이
+Fabric과 별개로 자기만의 폴더 구조를 만들고 관리하는 부담을 지지 않기로 했다. 폴더 구조
+자체는 Power BI/Fabric에서 관리하고, 이 앱은 그걸 그대로 따라간다.
+
+단, "따라간다"가 2026-08-19부터는 자동이다 — 가져오기(database/admin.py::
+db_import_pbi_item → db_ensure_folder_path)가 매 항목의 Fabric 폴더 경로를 보고
+report_folders를 자동으로 미러링한다. 즉 report_folders는 여기서 API로 새로 만드는 게
+아니라 가져오기가 채워두고, 이 라우터는 그 결과를 조회해서 보여주고 기존 보고서를 그
+안으로 옮기는 것까지만 한다."""
 import asyncio
 
 from fastapi import APIRouter

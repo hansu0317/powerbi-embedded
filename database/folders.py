@@ -39,6 +39,40 @@ def db_get_folder(folder_id: int) -> dict | None:
             cur.execute("SELECT id,name,parent_id,owner_id,visibility,fabric_folder_id FROM report_folders WHERE id=%s",(folder_id,))
             return cur.fetchone()
 
+def db_ensure_folder_path(path: str, fabric_folder_id: str | None, actor_id: int) -> int:
+    """category 경로("본부/팀")를 report_folders 트리로 만들고 리프 폴더의 id를 반환한다.
+
+    database/admin.py::db_import_pbi_item(가져오기)이 매 항목마다 호출한다 — Fabric의
+    폴더 구조를 그대로 미러링하는 용도라 routes/folders.py의 "임의 폴더 생성은 이 앱이
+    다루지 않는다"는 방침과 배치되지 않는다(사용자가 직접 만드는 게 아니라 Fabric을 그대로
+    따라감). owner_id=NULL(회사 공용)로 만들고, 이미 같은 이름·부모의 폴더가 있으면
+    (report_folders_scope_name_uidx 기준) 재사용하며 fabric_folder_id만 최신화한다.
+    visibility는 기본 'personal'(관리자만 봄)로 시작 — 직원 공개는 관리자가 폴더 단위로
+    수동 전환한다(공개 즉시 그 폴더의 보고서 전체가 노출되므로 자동으로 열지 않는다)."""
+    parts = [p for p in path.split("/") if p]
+    parent_id = None
+    leaf_id = None
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            for i, name in enumerate(parts):
+                # 리프 세그먼트에만 이 항목의 fabric_folder_id를 붙인다 — 중간 조상 폴더의
+                # 실제 Fabric GUID는 이 호출만으로는 알 수 없어(그 폴더에 직접 항목이 없으면
+                # 영영 NULL로 남을 수 있음) None으로 둔다.
+                fid = fabric_folder_id if i == len(parts) - 1 else None
+                cur.execute(
+                    """INSERT INTO report_folders (name, parent_id, owner_id, visibility, fabric_folder_id, created_by)
+                       VALUES (%s, %s, NULL, 'personal', %s, %s)
+                       ON CONFLICT (COALESCE(parent_id,0), COALESCE(owner_id,0), LOWER(name))
+                       DO UPDATE SET fabric_folder_id = COALESCE(EXCLUDED.fabric_folder_id, report_folders.fabric_folder_id)
+                       RETURNING id""",
+                    (name, parent_id, fid, actor_id),
+                )
+                leaf_id = cur.fetchone()["id"]
+                parent_id = leaf_id
+        conn.commit()
+    return leaf_id
+
+
 def db_move_report_to_folder(report_id: int, folder_id: int, actor_id: int, is_admin: bool) -> dict | None:
     with db_conn() as conn:
         with conn.cursor() as cur:
