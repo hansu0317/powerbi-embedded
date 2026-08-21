@@ -29,34 +29,34 @@ rotate_log() {
         ARCHIVE_DIR="$LOG_DIR/$ARCHIVE_DATE"
         mkdir -p "$ARCHIVE_DIR"
         mv "$LOG_FILE" "$ARCHIVE_DIR/server-$ARCHIVE_TIME.log"
-        echo "이전 로그 → $ARCHIVE_DIR/server-$ARCHIVE_TIME.log"
+        echo "Archived old log -> $ARCHIVE_DIR/server-$ARCHIVE_TIME.log"
     fi
     find "$LOG_DIR" -mindepth 1 -type f -name 'server-*.log' -mtime +15 -delete 2>/dev/null
 }
 
 start() {
     if [ -f "$PID_FILE" ] && kill -0 "$(cat $PID_FILE)" 2>/dev/null; then
-        echo "이미 실행 중입니다. (PID: $(cat $PID_FILE))"
+        echo "Already running. (PID: $(cat $PID_FILE))"
         return
     fi
     mkdir -p "$LOG_DIR"
     # DB 스키마 확인/생성 (버전 이력 없는 단일 스크립트 — 매번 실행해도 안전)
     if ! $PYTHON "$PROJECT_ROOT/scripts/init_schema.py"; then
-        echo "DB 스키마 초기화 실패. PostgreSQL과 .env 설정을 확인하세요."
+        echo "DB schema init failed. Check PostgreSQL and .env settings."
         return 1
     fi
     # MS 계정 로그인(SSO)용 users.email 컬럼 — init_schema.py에 없어 새 DB에서는 로그인
     # 화면에 버튼이 안 뜨는 정도로 그치지만, 매 시작마다 같이 실행해 항상 최신 스키마를
     # 보장한다(2026-08-20 도입, IF NOT EXISTS라 안전).
     if ! $PYTHON "$PROJECT_ROOT/scripts/add_sso_email_column.py"; then
-        echo "SSO 이메일 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
+        echo "SSO email column migration failed. Check PostgreSQL and .env settings."
         return 1
     fi
     # 회사/도메인 축 RLS(users.company_code/company_scope) — init_schema.py가 만드는
     # 기본 v_rls_user_scope 뷰(department/data_scope 2컬럼)를 이 스크립트가 확장한다.
     # 반드시 init_schema.py 다음에 실행해야 한다(2026-08-20 도입, 재실행 안전).
     if ! $PYTHON "$PROJECT_ROOT/scripts/add_company_axis.py"; then
-        echo "회사 축 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
+        echo "Company axis column migration failed. Check PostgreSQL and .env settings."
         return 1
     fi
     rotate_log
@@ -69,7 +69,7 @@ start() {
 
     PID=$!
     if [ -z "$PID" ]; then
-        echo "서버 시작 실패. 로그를 확인하세요: $LOG_FILE"
+        echo "Server failed to start. Check the log: $LOG_FILE"
         return 1
     fi
     echo "$PID" > "$PID_FILE"
@@ -83,36 +83,36 @@ start() {
         sleep 1
     done
     if [ -z "$HEALTHY" ]; then
-        echo "서버 상태 확인 실패. 로그를 확인하세요: $LOG_FILE"
+        echo "Server health check failed. Check the log: $LOG_FILE"
         kill "$PID" 2>/dev/null
         rm -f "$PID_FILE"
         return 1
     fi
-    echo "서버 시작됨 (PID: $PID)"
-    echo "로그: $LOG_FILE"
+    echo "Server started (PID: $PID)"
+    echo "Log: $LOG_FILE"
 }
 
 stop() {
     if [ ! -f "$PID_FILE" ]; then
-        echo "실행 중인 서버가 없습니다."
+        echo "No server is running."
         return
     fi
     PID=$(cat "$PID_FILE")
     if kill -0 "$PID" 2>/dev/null; then
         kill "$PID"
         rm -f "$PID_FILE"
-        echo "서버 종료됨 (PID: $PID)"
+        echo "Server stopped (PID: $PID)"
     else
         rm -f "$PID_FILE"
-        echo "이미 종료된 상태입니다."
+        echo "Already stopped."
     fi
 }
 
 status() {
     if [ -f "$PID_FILE" ] && kill -0 "$(cat $PID_FILE)" 2>/dev/null; then
-        echo "실행 중 (PID: $(cat $PID_FILE))"
+        echo "Running (PID: $(cat $PID_FILE))"
     else
-        echo "중지됨"
+        echo "Stopped"
     fi
 }
 
@@ -121,5 +121,5 @@ case "$1" in
     stop)    stop ;;
     restart) stop; sleep 1; start ;;
     status)  status ;;
-    *)       echo "사용법: $0 {start|stop|restart|status}" ;;
+    *)       echo "Usage: $0 {start|stop|restart|status}" ;;
 esac

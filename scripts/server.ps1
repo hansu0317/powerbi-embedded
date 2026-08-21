@@ -35,17 +35,14 @@ if (Test-Path $EnvFile) {
     if ($envPortLine) { $Port = ($envPortLine -replace '^PORT=', '').Trim() }
 }
 
-# 콘솔 인코딩은 스크립트 전체에서 출력이 시작되기 전에 딱 한 번만 맞춘다. restart처럼
-# Stop-Server → Start-Server가 한 프로세스 안에서 이어질 때, 이미 이전 인코딩으로 그려진
-# 줄이 있는 상태에서 중간에 인코딩을 바꾸면 콘솔이 기존 줄의 폭(한글 2칸)을 다시 계산하며
-# 글자가 겹쳐 찍히는 현상(예: "실실행행 중중")이 생긴다. 그래서 Start-Server 안이 아니라
-# 여기서 가장 먼저 설정한다.
-# [Console]::OutputEncoding은 PowerShell 자신이 찍는 줄(Write-Output 등)만 바로잡는다 —
-# 콘솔에 그대로 상속돼 직접 쓰는 자식 프로세스(init_schema.py, add_get_filter_columns.py의
-# print())는 conhost의 실제 출력 코드페이지(chcp)를 봐서, 이게 안 맞으면 같은 겹침 현상이
-# 그쪽에서만 남는다(2026-08-20, "GET 필필터... 컬컬럼럼" 형태로 발견 — 로그 파일이 아니라
-# 화면 렌더링에서만 깨지고 서버 동작 자체엔 영향 없음). chcp로 Win32 콘솔 코드페이지
-# 자체를 먼저 맞춰 자식 프로세스까지 커버한다.
+# 이 스크립트가 콘솔에 직접 찍는 문구는 전부 영어(ASCII)로 통일한다. chcp 65001 +
+# [Console]::OutputEncoding = UTF8을 다 해봐도, 구형 콘솔 창(conhost)의 한글(2칸 폭)
+# 다시 그리기 버그가 PowerShell 자신의 Write-Output에서도 재현됐다(2026-08-20,
+# "실실행행 중중인인..." 형태 — restart 시 특히 잘 남). 코드페이지 설정으로 못 잡는
+# conhost 자체 렌더링 버그라 판단해, 원인을 없애는 대신 아예 한글을 안 쓰기로 했다
+# (scripts/add_get_filter_columns.py의 print() 두 줄에 썼던 것과 동일한 해법).
+# 로그 파일(logs/server.log)의 한글 내용엔 영향 없음 — 이건 화면에 바로 찍는
+# Write-Output 문구에만 해당.
 try { & chcp.com 65001 | Out-Null } catch {}
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 $env:PYTHONUTF8 = "1"
@@ -91,14 +88,14 @@ function Invoke-LogRotate {
 
 function Start-Server {
     if (Get-ServerProcess) {
-        Write-Output "이미 실행 중입니다. (PID: $(Get-Content $PidFile))"
+        Write-Output "Already running. (PID: $(Get-Content $PidFile))"
         return
     }
     $busy = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     if ($busy) {
         $busyPid = $busy[0].OwningProcess
-        Write-Output "포트 $Port 를 다른 프로세스(PID: $busyPid)가 쓰고 있습니다 — .server.pid로 추적되지 않는 프로세스입니다."
-        Write-Output "먼저 종료하세요:  Stop-Process -Id $busyPid -Force"
+        Write-Output "Port $Port is in use by another process (PID: $busyPid) - not tracked by .server.pid."
+        Write-Output "Stop it first:  Stop-Process -Id $busyPid -Force"
         exit 1
     }
     New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -108,7 +105,7 @@ function Start-Server {
     # 서버 시작 전 DB 스키마 확인/생성 (server.sh와 동일한 순서)
     & $Python (Join-Path $ProjectRoot "scripts\init_schema.py")
     if ($LASTEXITCODE -ne 0) {
-        Write-Output "DB 스키마 초기화 실패. PostgreSQL과 .env 설정을 확인하세요."
+        Write-Output "DB schema init failed. Check PostgreSQL and .env settings."
         exit 1
     }
 
@@ -117,7 +114,7 @@ function Start-Server {
     # 보장한다(2026-08-20 도입, IF NOT EXISTS라 안전).
     & $Python (Join-Path $ProjectRoot "scripts\add_sso_email_column.py")
     if ($LASTEXITCODE -ne 0) {
-        Write-Output "SSO 이메일 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
+        Write-Output "SSO email column migration failed. Check PostgreSQL and .env settings."
         exit 1
     }
 
@@ -126,7 +123,7 @@ function Start-Server {
     # 반드시 init_schema.py 다음에 실행해야 한다(2026-08-20 도입, 재실행 안전).
     & $Python (Join-Path $ProjectRoot "scripts\add_company_axis.py")
     if ($LASTEXITCODE -ne 0) {
-        Write-Output "회사 축 컬럼 추가 실패. PostgreSQL과 .env 설정을 확인하세요."
+        Write-Output "Company axis column migration failed. Check PostgreSQL and .env settings."
         exit 1
     }
 
@@ -151,33 +148,33 @@ function Start-Server {
         Start-Sleep -Seconds 1
     }
     if (-not $healthy) {
-        Write-Output "서버 상태 확인 실패. 로그를 확인하세요: $LogFile"
+        Write-Output "Server health check failed. Check the log: $LogFile"
         Stop-Process -Id $proc.Id -Force -Confirm:$false -ErrorAction SilentlyContinue
         Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
         Write-LogLine "ERROR" "SERVER START HEALTH CHECK FAILED (PID: $($proc.Id))"
         exit 1
     }
-    Write-Output "서버 시작됨 (PID: $($proc.Id)) → http://127.0.0.1:$Port"
-    Write-Output "로그: $LogFile"
+    Write-Output "Server started (PID: $($proc.Id)) -> http://127.0.0.1:$Port"
+    Write-Output "Log: $LogFile"
 }
 
 function Stop-Server {
     $proc = Get-ServerProcess
     if (-not $proc) {
         Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
-        Write-Output "실행 중인 서버가 없습니다."
+        Write-Output "No server is running."
         return
     }
     Stop-Process -Id $proc.Id -Force -Confirm:$false
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
     Write-LogLine "INFO" "SERVER STOP (PID: $($proc.Id))"
-    Write-Output "서버 종료됨 (PID: $($proc.Id))"
+    Write-Output "Server stopped (PID: $($proc.Id))"
 }
 
 function Show-Status {
     $proc = Get-ServerProcess
-    if ($proc) { Write-Output "실행 중 (PID: $($proc.Id))" }
-    else       { Write-Output "중지됨" }
+    if ($proc) { Write-Output "Running (PID: $($proc.Id))" }
+    else       { Write-Output "Stopped" }
 }
 
 switch ($Command) {
