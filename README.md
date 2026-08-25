@@ -204,7 +204,7 @@ Power BI REST 호출도 `routes/`가 직접 하지 않고 `services/`를 거친�
 
 | 테이블/뷰 | 내용 |
 |---|---|
-| `users` | 계정 (bcrypt 해시, 관리자·업로드 권한, `department`/`data_scope` RLS 매핑) |
+| `users` | 계정 (bcrypt 해시, 관리자·업로드 권한, `department` GET 필터 값) |
 | `reports` | 보고서 본체 + PBI 연결 정보, `owner_id`/`visibility`(personal/group/shared) |
 | `report_folders` | 계층형 포털 폴더 |
 | `user_reports` | 개인 열람 권한 (`can_view`: NULL=설정없음/TRUE=허용/FALSE=명시적 차단) |
@@ -213,7 +213,6 @@ Power BI REST 호출도 `routes/`가 직접 하지 않고 `services/`를 거친�
 | `user_report_marks` | 즐겨찾기 · 최근 본 |
 | `event_log` | 활동 · 관리 감사 · 로그인 시도 (`log_type`으로 구분) |
 | `app_config` | 런타임 설정 |
-| `v_rls_user_scope` (뷰) | Power BI RLS 보안 테이블 — `pbi_username/department/data_scope` 노출 |
 
 **열람 가능 판정** = (직접 부여(`user_reports`) **OR** 소속 그룹 부여(`group_reports`)) **AND NOT** 개별 명시 차단.
 관리자는 권한 확인을 건너뛴다. 이 판정 SQL은 `database/reports.py`의 `_CAN_VIEW_REPORT_SQL` **한 곳**에서만 관리한다.
@@ -278,23 +277,16 @@ Per User)는 이 목록에 없다** — 실제로 되는 건 확인된 사실이
 | 계층 | 통제 대상 | 담당 | 상태 |
 |---|---|---|---|
 | 1층 | 어떤 **보고서**가 보이는가 | 게이트웨이 DB | **동작 중** |
-| 2층 | 보고서 안에서 어떤 **행**이 보이는가 | Power BI RLS | 보고서별 수동 적용 |
+| 2층 | 보고서 안에서 어떤 **행**이 보이는가 | GET 필터 | 보고서별 수동 적용 |
 
 1층은 개인 부여(`user_reports`)와 그룹 부여(`group_reports`)의 OR 판정으로 이미 동작한다.
-2층(RLS)은 **보고서마다 선택**이다 — PBIX에 역할이 정의된 데이터셋에만 적용되고,
-없으면 Power BI가 identity를 요구하지 않아 그냥 열린다.
 
-**채택 방식은 동적 RLS다** — 역할 하나만 두고 DAX가 `USERNAME()`으로 사용자를 알아내
-`v_rls_user_scope` 뷰(PostgreSQL)에서 조회 범위를 찾는다. 사람이나 부서가 늘어도 PBIX를
-다시 게시할 필요가 없다. 이 뷰는 Power BI Desktop이 PostgreSQL 커넥터로 **직접 Import**
-한다 — 보고서마다 데이터 원천이 제각각이라(직원이 각자 PBIX를 올림) 고정 원천을 전제하는
-별도 내보내기 절차는 쓰지 않는다(`scripts/export_rls_security_table.py`는 데이터 원천이
-고정된 특수한 경우를 위해 남겨둔 legacy 경로이며 기본 절차가 아니다).
-
-관리자 포털에서 사용자별 `department`/`data_scope`를 입력하는 것부터 PBIX의 역할·DAX
-작성, 트러블슈팅까지 **전체 절차는 `docs/01_RLS_적용가이드.md`** 에 있다. 여러 법인/
-자회사 구분이 필요할 때도 새 컬럼을 만들지 않고 `department` 값 자체를 조직 이름으로
-쓴다(같은 문서의 "여러 조직(자회사) 구분이 필요할 때" 절 참고).
+**2층은 GET 필터다(2026-08-24 결정)** — Power BI의 RLS 역할·DAX는 안 쓴다. 서버가
+embed 시점에 사용자의 `users.department` 값을 그 보고서의 `reports.filter_table`/
+`filter_column`에 맞춰 화면 필터로 걸어준다(`routes/report.py::_build_get_filter`).
+PBIX에 역할을 아예 안 만들어도 되고, DAX·`USERNAME()`·보안 테이블 Import가 전혀
+필요 없다 — 다만 **브라우저 devtools로 우회 가능한 표시용 필터**라 진짜 보안 경계는
+아니다. 전체 절차·주의사항은 **`docs/01_RLS_적용가이드.md`** 에 있다.
 
 ---
 

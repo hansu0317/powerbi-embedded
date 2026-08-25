@@ -39,6 +39,21 @@ const powerbi = new pbi.service.Service(
   pbi.factories.routerFactory,
 );
 
+// GET 필터(부서, 2026-08-24) — JS SDK의 공식 filters 설정으로 적용한다. URL 문자열에
+// &filter=...를 붙이는 방식과 결과는 같지만, isLockedInViewMode로 필터 창의
+// 제거(X) 버튼을 숨길 수 있다는 점이 다르다 — 그래도 진짜 RLS는 아니다
+// (브라우저 devtools로 SDK를 직접 호출하면 여전히 우회 가능 — 보안 경계로 쓰지 말 것).
+function buildGetFilter(table: string, column: string, value: string): pbi.models.IBasicFilter {
+  return {
+    $schema: "http://powerbi.com/product/schema#basic",
+    target: { table, column },
+    operator: "In",
+    values: [value],
+    filterType: pbi.models.FilterType.Basic,
+    displaySettings: { isLockedInViewMode: true },
+  };
+}
+
 type View = ReportView;
 interface OpenTab {
   id: number;
@@ -1012,6 +1027,8 @@ function ReportPanel({
         if (cancelled || !el) return;
         const s = d.settings || {};
         const isDashboard = s.tab_type === "dashboard";
+        // GET 필터(부서) — 대시보드는 대상 아님, report_id 바뀔 때마다 새로 계산.
+        const gf = !isDashboard && d.get_filter ? d.get_filter : null;
         // 대시보드는 페이지·필터창 개념이 없어 report 전용 설정을 넣으면 SDK가
         // 무시하거나 오류를 낼 수 있다 — 타입별로 별도 config를 만든다 (v6).
         const config: pbi.IEmbedConfiguration = isDashboard
@@ -1028,6 +1045,8 @@ function ReportPanel({
               embedUrl: d.embed_url,
               accessToken: d.embed_token,
               tokenType: pbi.models.TokenType.Embed,
+              // GET 필터(부서, PoC — 진짜 RLS 아님) 적용 대상 보고서만 값이 들어간다.
+              filters: gf ? [buildGetFilter(gf.table, gf.column, gf.value)] : undefined,
               // 보고서별 차등 설정이 필요 없어 상수로 고정한다 (예전 DB 컬럼은 v12에서 제거).
               //  · 필터창은 끈다. 페이지 탭은 상단 툴바의 커스텀 드롭다운을 없앤 대신
               //    네이티브 하단 탭(pageNavigation)을 다시 켜서 페이지 이동을 지원한다.

@@ -120,7 +120,7 @@ def db_get_user(username: str):
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, username, display_name, pbi_username, is_admin, can_upload "
+                "SELECT id, username, display_name, pbi_username, is_admin, can_upload, department "
                 "FROM users WHERE username = %s AND is_active = TRUE",
                 (username,),
             )

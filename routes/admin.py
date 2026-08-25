@@ -245,10 +245,6 @@ async def api_admin_get_reports(user: dict = Depends(require_admin_user)):
     return {"reports": reports}
 
 
-DATA_SCOPES = ("self", "department", "all")
-COMPANY_SCOPES = ("own", "all")
-
-
 @router.post("/api/admin/users/add")
 async def api_admin_add_user(
     request: Request,
@@ -260,20 +256,13 @@ async def api_admin_add_user(
     can_upload: bool = Form(True),
     group_ids: str = Form(""),
     department: str = Form(""),
-    data_scope: str = Form("self"),
     email: str = Form(""),
-    company_code: str = Form(""),
-    company_scope: str = Form("own"),
     csrf: str = Form(),
     user: dict = Depends(require_admin_user),
 ):
     verify_csrf(request, csrf)
     if len(password) < config.PASSWORD_MIN_LEN:
         raise AppError.PASSWORD_TOO_SHORT.http(min=config.PASSWORD_MIN_LEN)
-    if data_scope not in DATA_SCOPES:
-        raise AppError.DATA_SCOPE_INVALID.http()
-    if company_scope not in COMPANY_SCOPES:
-        raise AppError.COMPANY_SCOPE_INVALID.http()
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     group_id_list = [int(g) for g in group_ids.split(",") if g.strip()]
     email_clean = email.strip() or None
@@ -281,8 +270,7 @@ async def api_admin_add_user(
         new_id = await asyncio.to_thread(
             db_admin_add_user, username, pw_hash, display_name,
             pbi_username or username, is_admin, can_upload, group_id_list,
-            department.strip() or None, data_scope, email_clean,
-            company_code.strip() or None, company_scope,
+            department.strip() or None, email_clean,
         )
     except psycopg2.errors.UniqueViolation as exc:
         if "users_email_unique_idx" in str(exc):
@@ -299,29 +287,22 @@ async def api_admin_add_user(
 async def api_admin_edit_user(
     request: Request, user_id: int, user: dict = Depends(require_admin_csrf),
 ):
-    """표시 이름·RLS 속성(pbi_username, department, data_scope) 수정.
+    """표시 이름·GET 필터 속성(pbi_username, department) 수정.
 
     비밀번호·아이디·관리자 권한·업로드 권한은 각각 별도 경로(add 시 지정, toggle-*)에서
-    다룬다. RLS 역할 이름은 사용자별 값이 아니라 config.PBI_RLS_ROLE_NAME 고정값이라
-    여기서 다룰 게 없다.
-    body: {display_name, pbi_username, department, data_scope, email, company_code, company_scope}"""
+    다룬다.
+    body: {display_name, pbi_username, department, email}"""
     body = await json_body(request)
     display_name = str(body.get("display_name", "")).strip()
     pbi_username = str(body.get("pbi_username", "")).strip()
     department = str(body.get("department", "")).strip() or None
-    data_scope = str(body.get("data_scope", "self"))
     email = str(body.get("email", "")).strip() or None
-    company_code = str(body.get("company_code", "")).strip() or None
-    company_scope = str(body.get("company_scope", "own"))
-    if not display_name or not pbi_username or data_scope not in DATA_SCOPES:
+    if not display_name or not pbi_username:
         raise AppError.BODY_INVALID.http()
-    if company_scope not in COMPANY_SCOPES:
-        raise AppError.COMPANY_SCOPE_INVALID.http()
 
     try:
         updated = await asyncio.to_thread(
-            db_admin_update_user, user_id, display_name, pbi_username, department, data_scope, email,
-            company_code, company_scope,
+            db_admin_update_user, user_id, display_name, pbi_username, department, email,
         )
     except psycopg2.errors.UniqueViolation:
         raise AppError.EMAIL_ALREADY_EXISTS.http(email=email)
@@ -330,8 +311,7 @@ async def api_admin_edit_user(
     logger.info("ADMIN EDIT USER | admin=%s | user_id=%s", user["username"], user_id)
     return {
         "user_id": user_id, "display_name": display_name, "pbi_username": pbi_username,
-        "department": department, "data_scope": data_scope, "email": email,
-        "company_code": company_code, "company_scope": company_scope,
+        "department": department, "email": email,
     }
 
 
@@ -369,16 +349,13 @@ def _bulk_add_one(row: dict, group_map: dict[str, int]) -> tuple[str, str | None
         return "error", str(exc)
     pbi_username = (row.get("pbi_username") or "").strip() or username
     department = (row.get("department") or "").strip() or None
-    data_scope = (row.get("data_scope") or "self").strip() or "self"
-    if data_scope not in DATA_SCOPES:
-        return "error", f"data_scope는 self/department/all 중 하나여야 합니다: '{data_scope}'"
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
     try:
         db_admin_add_user(
             username, pw_hash, display_name, pbi_username,
             is_admin, can_upload, group_id_list,
-            department, data_scope,
+            department,
         )
     except psycopg2.errors.UniqueViolation:
         return "error", f"'{username}' 아이디가 이미 존재합니다."
@@ -398,7 +375,7 @@ async def api_admin_bulk_add_users(
     """CSV로 사용자 여러 명을 한 번에 등록한다.
 
     헤더: username,password,display_name,pbi_username,groups,is_admin,can_upload,
-          department,data_scope
+          department
     groups는 세미콜론(;)으로 여러 값 구분하며 미리 존재하는 그룹 이름만 허용—
     그룹×보고서 권한은 그룹 쪽에서 한 번만 설정해두면, 이 경로로 늘어나는 인원은
     그룹 멤버십만으로 자동으로 동일한 열람 권한을 받는다.

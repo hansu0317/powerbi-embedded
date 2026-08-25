@@ -49,9 +49,7 @@ TABLES = [
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         last_login_at TIMESTAMPTZ,
         can_upload BOOLEAN NOT NULL DEFAULT TRUE,
-        department VARCHAR(60),
-        data_scope VARCHAR(16) NOT NULL DEFAULT 'self'
-            CHECK (data_scope IN ('self', 'department', 'all'))
+        department VARCHAR(60)
     )""",
     """CREATE TABLE IF NOT EXISTS groups (
         id SERIAL PRIMARY KEY,
@@ -209,22 +207,25 @@ MIGRATIONS = [
     # 실행할 필요가 없다 — 되살리려면 git 이력에서 이 커밋 이전 버전을 참고할 것.
     # 기존 owner 없는 관리 보고서는 종전의 직접/그룹 권한을 유지한다. 자동 전체공개 금지.
     "UPDATE reports SET visibility='personal' WHERE owner_id IS NULL AND visibility='shared'",
-]
 
-VIEWS = [
-    # RLS가 읽는 보안 테이블 — department/data_scope만 노출한다(docs/01 참고).
-    # CREATE OR REPLACE VIEW는 기존 컬럼을 빼거나 순서를 바꿀 수 없으므로(PostgreSQL 제약),
-    # 컬럼 구성이 바뀔 때는 DROP 후 다시 만든다. 정의는 항상 실제 뷰의 최신 형태와
-    # 일치시켜야 한다 — 안 맞으면 서버 시작 시 init_schema()가 에러로 죽는다.
-    #
-    # 2026-08 초에는 company_code/company_scope/company_parent(회사 계층 RLS)도 있었으나,
-    # department 하나로 흡수하고 제거했다(scripts/remove_company_hierarchy.py, 이력은 git
-    # 로그와 scripts/add_company_hierarchy.py 참고 — 계층이 다시 필요해지면 그 패턴을 복원).
-    """DROP VIEW IF EXISTS v_rls_user_scope""",
-    """CREATE VIEW v_rls_user_scope AS
-       SELECT u.pbi_username AS user_key, u.department, u.data_scope
-       FROM users u
-       WHERE u.is_active = TRUE""",
+    # GET 필터(부서, 2026-08-24) — PBIX에 역할을 아예 안 만든 보고서에서 최소한의
+    # 구분을 걸기 위한 임베드 필터. 두 컬럼 다 채워진 보고서만 대상이며, 값은
+    # users.department를 그대로 쓴다(docs/01_RLS_적용가이드.md 참고). 브라우저
+    # devtools로 우회 가능한 표시용 필터라 보안 경계로 쓰면 안 된다.
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS filter_table VARCHAR(128)",
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS filter_column VARCHAR(128)",
+
+    # 2026-08-24: 동적 RLS(역할·DAX 기반) 완전 폐기, GET 필터로만 운영하기로 결정.
+    # v_rls_user_scope 뷰와 data_scope/company_code/company_scope 컬럼은 그 방식
+    # 전용이라 다 같이 제거한다(department만 GET 필터에 재사용되므로 남김). 기존
+    # PBIX에 남아있는 "도메인" 역할은 Desktop에서 지우지 않기로 했지만, 그 역할이
+    # 죽은 채로 있어도 GET 필터와 무관하게 동작하므로 문제 없다 — 다만 그 PBIX들의
+    # 예약 새로고침은 이 뷰가 없어지는 순간부터 실패한다(의도된 트레이드오프, 화면
+    # 표시엔 영향 없음).
+    "DROP VIEW IF EXISTS v_rls_user_scope",
+    "ALTER TABLE users DROP COLUMN IF EXISTS data_scope",
+    "ALTER TABLE users DROP COLUMN IF EXISTS company_code",
+    "ALTER TABLE users DROP COLUMN IF EXISTS company_scope",
 ]
 
 # app_config 기본값 — 없는 키만 채운다 (이미 있으면 관리자가 바꾼 값을 보존)
@@ -256,8 +257,6 @@ def init_schema():
             for stmt in MIGRATIONS:
                 cur.execute(stmt)
             for stmt in INDEXES:
-                cur.execute(stmt)
-            for stmt in VIEWS:
                 cur.execute(stmt)
             for key, value, desc in APP_CONFIG_DEFAULTS:
                 cur.execute(

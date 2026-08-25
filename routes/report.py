@@ -41,6 +41,10 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 logger = logging.getLogger("powerbi-gateway")
 
+# GET 필터(_build_get_filter)에서 "이 부서는 전체를 다 본다"는 의미로 예약해 둔 department
+# 값 — 실제 PBIX 컬럼에 있을 리 없는 값이라 부서명과 절대 안 겹친다는 전제.
+GET_FILTER_ALL_VALUE = "ALL"
+
 
 async def _build_report_context(user: dict) -> dict:
     """report.html(SSR)과 /api/bootstrap(탭 토큰 재조회)이 공유하는 데이터 조립.
@@ -175,12 +179,63 @@ async def api_embed(request: Request, report_id: int):
         raise
     logger.info("EMBED OK   | user=%-12s | ip=%s | report_id=%s", user["username"], ip, report_id)
     result = await get_embed_token(report_id, user["pbi_username"])
+    get_filter = await _build_get_filter(user, report_id)
+    if get_filter:
+        result["get_filter"] = get_filter
+        logger.info(
+            "GET_FILTER APPLY | user=%-12s | report_id=%s | %s/%s eq %s",
+            user["username"], report_id, get_filter["table"], get_filter["column"], get_filter["value"],
+        )
     # 30분 dedupe: 토큰 자동 재발급·새로고침 탭 복원이 조회수를 부풀리지 않게 한다
     await asyncio.to_thread(
         db_log_activity, user["id"], user["username"], "report_view",
         report_id, result.get("report_name"), ip, 30,
     )
     return result
+
+
+async def _build_get_filter(user: dict, report_id: int) -> dict | None:
+    """GET 필터(부서, 2026-08-24) 조립 — 진짜 RLS 아님, config.PBI_RLS_ROLE_NAME 기반
+    동적 RLS와 별개의 표시용 필터. reports.filter_table/filter_column이 둘 다 설정된
+    보고서에서만, 사용자의 users.department 값을 그대로 embed 필터로 건다.
+
+    PBIX에 역할(Role)을 아예 안 만든 보고서용 — 역할이 있는 데이터셋은 이미
+    get_embed_token이 identity/roles를 붙여 진짜 RLS로 처리하므로, 이 함수는 둘 다
+    적용해도 서로 충돌하지 않는다(그냥 화면 필터 하나가 얹히는 것뿐).
+
+    브라우저 devtools로 SDK를 직접 호출하면 우회 가능 — 보안 경계로 쓰지 말 것
+    (docs/01_RLS_적용가이드.md "GET 필터" 절 참고).
+
+    ── 값 채우는 방법 (스크립트 없음 — SQL 직접 실행) ──────────────────────────
+        UPDATE reports SET filter_table = 'DimOrg', filter_column = '부서'
+                            WHERE name = '영업정보 시장현황';
+    filter_table/filter_column은 그 PBIX를 만든 사람만 아는 실제 데이터 모델
+    값이라 관리자 포털에 입력창을 안 둔다 — 잘못 넣으면 조용히 "조회 결과 0건"이
+    될 뿐이라(안전한 실패) 매 보고서 등록 시 값을 넣은 사람이 직접 화면으로
+    확인할 것.
+
+    관리자는 건너뛴다 — is_admin 계정도 department가 '관리자' 등 실제 필터 값과
+    무관한 문자열을 갖고 있어서, 그대로 걸면 관리자가 자기 보고서에서 빈 화면을
+    보게 된다(2026-08-24 발견). 1층 보고서 열람 권한(_require_viewable_report)과
+    같은 원칙 — 관리자는 이 판정 전체를 우회한다.
+
+    department가 GET_FILTER_ALL_VALUE("ALL", 대소문자 무관)이면 전체를 다 보는
+    "부서"로 취급해 필터를 안 건다 — 관리자가 아니어도 전사 데이터를 봐야 하는
+    직책(임원 등)을 위한 값(2026-08-24 추가). department가 아예 비어있는 것과
+    결과는 같지만("미배정"과 "의도적으로 전체" 둘 다 필터 없음), 의미가 다르므로
+    분리해 둔다 — "ALL"은 실제 부서값으로 명시적으로 입력한 것."""
+    if user.get("is_admin") or not user.get("department"):
+        return None
+    if user["department"].strip().upper() == GET_FILTER_ALL_VALUE:
+        return None
+    report_row = await asyncio.to_thread(db_get_report, report_id)
+    if not report_row or not report_row["filter_table"] or not report_row["filter_column"]:
+        return None
+    return {
+        "table":  report_row["filter_table"],
+        "column": report_row["filter_column"],
+        "value":  user["department"],
+    }
 
 
 async def _report_pbi_ids(user: dict, report_id: int) -> tuple[str, str]:

@@ -17,18 +17,7 @@
           is_admin: {{ (user.is_admin or False) | tojson }},
           can_upload: {{ (user.can_upload or False) | tojson }}
         },
-        reports: [
-          {%- for r in reports %}
-          {
-            "id": {{ r['id'] | tojson }},
-            "name": {{ r['name'] | tojson }},
-            "category": {{ r['category'] | tojson }},
-            "owner_username": {{ r['owner_username'] | tojson }},
-            "report_type": {{ r['report_type'] | tojson }},
-            "description": {{ r['description'] | tojson }}
-          }{{ "," if not loop.last else "" }}
-          {%- endfor %}
-        ],
+        reports: {{ reports | tojson }},
         favorites: {{ favorites | tojson }},
         recents: {{ recents | tojson }},
         popular: {{ popular | tojson }},

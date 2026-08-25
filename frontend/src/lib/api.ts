@@ -46,9 +46,15 @@ export interface EmbedResponse {
   embed_url: string;
   embed_token: string;
   expires_at: number; // 토큰 만료 (Unix 초) — 프론트가 만료 전 재발급에 사용
-  data_as_of?: string | null; // 데이터 기준 시각 (마지막 refresh 성공, ISO)
-  refresh_status?: string | null; // Completed | Failed | NotRefreshable | ...
-  rls_enabled?: boolean; // true면 이 보고서는 역할별로 다른 행이 보일 수 있음
+
+  // GET 필터(부서, 2026-08-24) — reports.filter_table/filter_column이 설정된
+  // 보고서 + 로그인 사용자의 users.department가 있을 때만 내려온다. 진짜 보안 경계가
+  // 아니라, 필터 창에서 사용자가 지울 수 있는 표시 편의 기능이다.
+  get_filter?: {
+    table: string;
+    column: string;
+    value: string;
+  };
 
   settings?: {
     tab_type?: string; // "dashboard" | "report" — 대시보드 임베드 분기용
@@ -236,10 +242,7 @@ export interface EditUserPayload {
   display_name: string;
   pbi_username: string;
   department?: string;
-  data_scope?: "self" | "department" | "all";
   email?: string;
-  company_code?: string;
-  company_scope?: "own" | "all";
 }
 
 export async function adminEditUser(userId: number, payload: EditUserPayload, csrf: string) {

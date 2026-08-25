@@ -586,7 +586,6 @@ function AddUserModal({
   const [groups, setGroups] = useState<AdminGroup[] | null>(null);
   const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
   const [department, setDepartment] = useState("");
-  const [dataScope, setDataScope] = useState("self");
 
   useEffect(() => {
     adminGetGroups().then(setGroups).catch(() => setGroups([]));
@@ -604,7 +603,7 @@ function AddUserModal({
     try {
       const fd = new FormData(e.currentTarget);
       fd.set("group_ids", selectedGroups.join(","));
-      fd.set("department", department); fd.set("data_scope", dataScope);
+      fd.set("department", department);
       await adminAddUser(fd);
       onAdded();
     } catch (err) {
@@ -673,19 +672,9 @@ function AddUserModal({
                 </div>
               )}
             </Field>
-            <Field label="부서 (RLS)">
-              <input value={department} onChange={e=>setDepartment(e.target.value)} list="department-options" placeholder="예: 영업팀" />
+            <Field label="부서 (GET 필터)">
+              <input value={department} onChange={e=>setDepartment(e.target.value)} list="department-options" placeholder="예: AMT" />
               <datalist id="department-options">{departments.map((d) => <option key={d} value={d} />)}</datalist>
-            </Field>
-            <Field label="데이터 범위 (RLS)"><select value={dataScope} onChange={e=>setDataScope(e.target.value)}><option value="self">본인</option><option value="department">부서</option><option value="all">전체</option></select></Field>
-            <Field label="회사/도메인 (RLS, 선택)">
-              <input name="company_code" placeholder="예: AMT — 비우면 이 축 미적용" />
-            </Field>
-            <Field label="회사 조회범위 (RLS)">
-              <select name="company_scope" defaultValue="own">
-                <option value="own">본인 회사만</option>
-                <option value="all">전체 회사</option>
-              </select>
             </Field>
           </div>
           <div className="ad-modal-footer">
@@ -719,10 +708,7 @@ function EditUserModal({
   const [busy, setBusy] = useState(false);
   const [displayName, setDisplayName] = useState(user.display_name);
   const [department, setDepartment] = useState(user.department || "");
-  const [dataScope, setDataScope] = useState(user.data_scope || "self");
   const [email, setEmail] = useState(user.email || "");
-  const [companyCode, setCompanyCode] = useState(user.company_code || "");
-  const [companyScope, setCompanyScope] = useState(user.company_scope || "own");
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -731,16 +717,14 @@ function EditUserModal({
       await adminEditUser(
         user.id,
         {
-          display_name: displayName, pbi_username: user.pbi_username, department, data_scope: dataScope,
-          email, company_code: companyCode, company_scope: companyScope,
+          display_name: displayName, pbi_username: user.pbi_username, department, email,
         },
         csrf,
       );
       onSaved({
         ...user,
         display_name: displayName,
-        department, data_scope: dataScope, email: email || null,
-        company_code: companyCode || null, company_scope: companyScope,
+        department, email: email || null,
       });
     } catch (err) {
       onError((err as Error).message);
@@ -769,19 +753,9 @@ function EditUserModal({
                 placeholder="user@qualisoft.co.kr"
               />
             </Field>
-            <Field label="부서 (RLS)">
-              <input value={department} onChange={e=>setDepartment(e.target.value)} list="department-options" placeholder="예: 영업팀" />
+            <Field label="부서 (GET 필터)">
+              <input value={department} onChange={e=>setDepartment(e.target.value)} list="department-options" placeholder="예: AMT" />
               <datalist id="department-options">{departments.map((d) => <option key={d} value={d} />)}</datalist>
-            </Field>
-            <Field label="데이터 범위 (RLS)"><select value={dataScope} onChange={e=>setDataScope(e.target.value as any)}><option value="self">본인</option><option value="department">부서</option><option value="all">전체</option></select></Field>
-            <Field label="회사/도메인 (RLS, 선택)">
-              <input value={companyCode} onChange={e=>setCompanyCode(e.target.value)} placeholder="예: AMT — 비우면 이 축 미적용" />
-            </Field>
-            <Field label="회사 조회범위 (RLS)">
-              <select value={companyScope} onChange={e=>setCompanyScope(e.target.value as any)}>
-                <option value="own">본인 회사만</option>
-                <option value="all">전체 회사</option>
-              </select>
             </Field>
           </div>
         </div>
@@ -841,7 +815,7 @@ function BulkAddUsersModal({
               <div className="ad-bulk-body">
                 <div className="ad-bulk-title">템플릿을 받아 작성합니다</div>
                 <div className="ad-bulk-code">
-                  username,password,display_name,pbi_username,groups,is_admin,can_upload,department,data_scope
+                  username,password,display_name,pbi_username,groups,is_admin,can_upload,department
                 </div>
                 <table className="ad-bulk-cols">
                   <tbody>
@@ -852,7 +826,7 @@ function BulkAddUsersModal({
                     <tr><th>groups</th><td>선택</td><td>소속 그룹 — <b>미리 만들어져 있어야</b> 하며, 그 그룹의 보고서 열람 권한을 그대로 상속</td></tr>
                     <tr><th>is_admin</th><td>선택</td><td>관리자 여부 — 비우면 <code>false</code></td></tr>
                     <tr><th>can_upload</th><td>선택</td><td>업로드 허용 — 비우면 <code>true</code></td></tr>
-                    <tr><th>department / data_scope</th><td>선택</td><td>부서 RLS — 범위는 <code>self</code>, <code>department</code>, <code>all</code></td></tr>
+                    <tr><th>department</th><td>선택</td><td>GET 필터 값 — 그 보고서의 필터 컬럼과 정확히 일치해야 함(예: <code>AMT</code>)</td></tr>
                   </tbody>
                 </table>
                 <button
@@ -860,8 +834,8 @@ function BulkAddUsersModal({
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
                     const csv =
-                      "username,password,display_name,pbi_username,groups,is_admin,can_upload,department,data_scope\n" +
-                      "user01,TempPass123!,홍길동,user01@customer.com,영업팀,false,true,영업팀,self\n";
+                      "username,password,display_name,pbi_username,groups,is_admin,can_upload,department\n" +
+                      "user01,TempPass123!,홍길동,user01@customer.com,영업팀,false,true,AMT\n";
                     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");

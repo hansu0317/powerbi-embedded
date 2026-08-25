@@ -52,13 +52,6 @@ start() {
         echo "SSO email column migration failed. Check PostgreSQL and .env settings."
         return 1
     fi
-    # 회사/도메인 축 RLS(users.company_code/company_scope) — init_schema.py가 만드는
-    # 기본 v_rls_user_scope 뷰(department/data_scope 2컬럼)를 이 스크립트가 확장한다.
-    # 반드시 init_schema.py 다음에 실행해야 한다(2026-08-20 도입, 재실행 안전).
-    if ! $PYTHON "$PROJECT_ROOT/scripts/add_company_axis.py"; then
-        echo "Company axis column migration failed. Check PostgreSQL and .env settings."
-        return 1
-    fi
     rotate_log
     cd "$PROJECT_ROOT"
     nohup "$PYTHON" -m uvicorn main:app \

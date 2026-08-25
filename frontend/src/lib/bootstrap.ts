@@ -65,11 +65,8 @@ export interface AdminUser {
   can_upload: boolean;
   report_count: number;
   last_login_at: string | null;
+  /** GET 필터 값 — reports.filter_table/filter_column과 매칭되는 문자열(예: "AMT") */
   department: string | null;
-  data_scope: "self" | "department" | "all";
-  /** department/data_scope와 독립적인 두 번째 RLS 축 — 회사/도메인 단위(2026-08-20) */
-  company_code: string | null;
-  company_scope: "own" | "all";
 }
 
 export interface AdminReport {

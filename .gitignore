@@ -53,6 +53,9 @@ env/
 # 디자인 목업 이미지 (커밋 제외)
 images/
 
+# scripts/check_rls_render.py 출력 — embed token/스크린샷, 매 실행마다 재생성됨
+scripts/.rls_render_out/
+
 # 프론트엔드 (Vite + React + TS) — 소스는 커밋, 빌드 의존성·산출물은 제외
 frontend/node_modules/
 frontend/dist/

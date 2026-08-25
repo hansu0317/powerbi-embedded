@@ -478,8 +478,7 @@
         <div class="db-row"><span class="db-col-name">password</span><span class="db-col-type">VARCHAR(255) bcrypt</span></div>
         <div class="db-row"><span class="db-col-name">display_name</span><span class="db-col-type">VARCHAR(100)</span></div>
         <div class="db-row"><span class="db-col-name">pbi_username</span><span class="db-col-type">VARCHAR(255)</span></div>
-        <div class="db-row"><span class="db-col-name">department / data_scope</span><span class="db-col-type">RLS 매핑</span></div>
-        <div class="db-row"><span class="db-col-name">company_code / company_scope</span><span class="db-col-type">회사 계층 RLS 매핑</span></div>
+        <div class="db-row"><span class="db-col-name">department</span><span class="db-col-type">GET 필터 값</span></div>
       </div>
 
       <!-- user_reports 테이블 -->
@@ -812,36 +811,39 @@ openTabs[name].panelEl.remove();
         </div>
       </div>
       <div>
-        <h3>레이어 2 — Power BI 데이터 RLS (동적)</h3>
+        <h3>레이어 2 — GET 필터 (2026-08-24부터 채택)</h3>
         <div class="warn-box">
-          <strong>보고서 안에서 어떤 데이터 행이 보이는지</strong> 제어<br><br>
-          • 전 직원이 <code>config.PBI_RLS_ROLE_NAME</code>(기본 "도메인") 역할 하나만 공유<br>
-          • DAX가 <code>USERNAME()</code>으로 <code>v_rls_user_scope</code> 뷰를 조회해 부서/조회범위·회사코드로 필터<br>
-          • 보고서마다 PBIX에 역할·DAX를 넣어야 실제로 켜짐(자동 아님)
+          <strong>보고서 안에서 어떤 데이터 행이 보이는지</strong> 제어(표시용, 보안 경계 아님)<br><br>
+          • Power BI RLS 역할·DAX 안 씀 — 서버가 embed 시점에 화면 필터 하나를 얹는다<br>
+          • <code>reports.filter_table</code>/<code>filter_column</code> + <code>users.department</code> 값을 그대로 매칭<br>
+          • 브라우저 devtools로 SDK를 직접 호출하면 우회 가능
         </div>
       </div>
     </div>
 
     <div class="info-box">
-      2026-08부터 사람마다 다른 역할명을 주는 방식(<code>users.roles</code>)은 제거했다 — 전 직원이 항상 동일 값이었던 게
-      확인돼 상수(<code>config.PBI_RLS_ROLE_NAME</code>) 하나로 대체. 지금은 <strong>"누가 무슨 역할이냐"가 아니라
-      "역할 하나가 각자의 부서/회사코드를 조회해서 다르게 필터링"</strong>하는 구조다.
-      자세한 절차·DAX 템플릿·트러블슈팅은 <code>docs/01_RLS_적용가이드.md</code>에 있다 (이 페이지엔 요약만).
+      2026-08-24: 동적 RLS(역할 하나 + DAX가 <code>USERNAME()</code>으로 보안 뷰를 조회하던 방식)를 완전히
+      폐기하고 <strong>GET 필터만 쓰기로 결정</strong>했다 — PBIX마다 역할·DAX를 정확히 맞춰 넣어야 하는
+      authoring 실수가 반복돼서다. 기존에 역할이 이미 걸려있던 PBIX(관계사·생산현황 등)는 Desktop에서
+      그 역할을 지우지 않고 그대로 방치한다 — 죽어있어도 GET 필터와 무관하게 동작하므로 문제 없다.
+      자세한 절차·주의사항은 <code>docs/01_RLS_적용가이드.md</code>에 있다 (이 페이지엔 요약만).
     </div>
 
     <table class="info-table" style="margin-top:10px;">
       <thead><tr><th>컬럼</th><th>의미</th></tr></thead>
       <tbody>
-        <tr><td><code>users.pbi_username</code></td><td>GenerateToken identity의 username — <code>USERNAME()</code>이 돌려받는 값. 실제 이메일 권장</td></tr>
-        <tr><td><code>users.department</code> / <code>data_scope</code></td><td>self(본인만)/department(부서전체)/all(전사)</td></tr>
-        <tr><td><code>users.company_code</code> / <code>company_scope</code></td><td>회사 계층 RLS용(다중 고객사 확장) — own(자기 회사만)/group(산하 전체)</td></tr>
+        <tr><td><code>users.pbi_username</code></td><td>GenerateToken identity의 username — 옛 역할이 아직 남아있는 PBIX에서만 쓰임(자동)</td></tr>
+        <tr><td><code>users.department</code></td><td>GET 필터 값 — 그 보고서의 <code>filter_column</code> 값과 정확히 일치해야 함(예: <code>AMT</code>)</td></tr>
+        <tr><td><code>reports.filter_table</code> / <code>filter_column</code></td><td>이 보고서에서 department를 매칭할 PBIX 내부 테이블/컬럼명</td></tr>
       </tbody>
     </table>
 
-    <h3>자주 보는 오류 — "Failed to open the MSOLAP connection"</h3>
+    <h3>자주 보는 오류 — 화면이 필터 없이 전체 다 보임 / 조용히 빈 화면</h3>
     <div class="warn-box">
-      PBIX에 <code>config.PBI_RLS_ROLE_NAME</code>과 이름이 다른 역할만 있거나 역할 자체가 없으면 이 오류가 난다.
-      토큰 발급 자체는 성공하므로(서버 로그에 에러 안 남음) <strong>실제 화면 렌더링까지 확인해야</strong> RLS가 맞게 걸렸는지 알 수 있다.
+      <code>filter_table</code>/<code>filter_column</code>이 비어있으면 GET 필터가 아예 안 걸리고(전체 다 보임),
+      <code>department</code> 값이 PBIX 컬럼값과 안 맞으면 에러 없이 조용히 빈 화면이 된다(안전한 실패).
+      관리자 계정은 이 필터를 항상 건너뛴다(<code>is_admin</code>). <strong>계정 바꿔가며 실제 화면까지
+      확인해야</strong> 제대로 걸렸는지 알 수 있다 — <code>scripts/check_rls_render.py</code> 참고.
     </div>
   </div>
 

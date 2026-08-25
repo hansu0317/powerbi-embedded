@@ -204,7 +204,7 @@ def db_get_report(report_id: int):
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id,
                           r.pbi_report_id, r.pbi_dataset_id, r.pbi_workspace_id,
-                          r.tab_type
+                          r.tab_type, r.filter_table, r.filter_column
                    FROM reports r
                    WHERE r.id = %s""",
                 (report_id,),

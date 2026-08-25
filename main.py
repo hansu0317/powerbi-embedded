@@ -60,6 +60,11 @@ _stdout_handler.setFormatter(_log_formatter)
 logging.basicConfig(level=logging.INFO, handlers=[_stdout_handler])
 logger = logging.getLogger("powerbi-gateway")
 
+# httpx가 API 호출마다 "HTTP Request: GET ... 200 OK" 한 줄씩 INFO로 찍어서, 정작
+# 의미 있는 우리 로그(EMBED OK, LOGIN 등)가 그 사이에 묻힌다 — httpx 자체 로거만
+# WARNING 이상으로 올려서 조용히 시킨다(2026-08-25, 로그 정리하며 발견).
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 # 앱 임포트 전체를 감싼다 — 여기서 나는 예외(설정값 누락 등 모듈 로드 중 실패)를
 # 로그에 남기고 재발생시킨다. 위에서 로깅을 먼저 구성해둔 이유가 이것 — 감싸지
 # 않으면 포맷 없는 원본 트레이스백이 콘솔에만 찍히고 로그 파일엔 안 남는다.
