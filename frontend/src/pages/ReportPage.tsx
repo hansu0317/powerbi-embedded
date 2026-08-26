@@ -7,7 +7,6 @@ import {
   History,
   Info,
   LayoutDashboard,
-  Layers,
   LogOut,
   Maximize,
   Search,
@@ -293,7 +292,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
             <nav className="ad-admin-menu-list">
               <AdminMenuLink section="overview" label="현황" icon={<LayoutDashboard size={17}/>}/>
               <AdminMenuLink section="users" label="사용자" icon={<Users size={17}/>}/>
-              <AdminMenuLink section="groups" label="그룹" icon={<Layers size={17}/>}/>
               <AdminMenuLink section="reports" label="보고서" icon={<BarChart3 size={17}/>}/>
               <AdminMenuLink section="logs" label="로그" icon={<History size={17}/>}/>
             </nav>
@@ -1563,7 +1561,7 @@ function UploadView({ csrf, isAdmin }: { csrf: string; isAdmin: boolean }) {
 
         <div className="rp-upload-policy">
           <strong>신규 보고서는 비공개로 등록됩니다.</strong>
-          <span>{isAdmin ? "등록 후 관리자 보고서 권한에서 그룹 또는 공용으로 공개할 수 있습니다." : "공유가 필요하면 관리자에게 그룹 또는 공용 공개를 요청하세요."}</span>
+          <span>{isAdmin ? "등록 후 관리자 보고서 권한에서 부서 또는 공용으로 공개할 수 있습니다." : "공유가 필요하면 관리자에게 부서 또는 공용 공개를 요청하세요."}</span>
         </div>
 
         <div className="rp-field">

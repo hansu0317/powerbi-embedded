@@ -32,7 +32,9 @@
             "is_active": {{ (u.is_active or False) | tojson }},
             "can_upload": {{ (u.can_upload or False) | tojson }},
             "report_count": {{ u.report_count | tojson }},
-            "last_login_at": {{ (u.last_login_at.strftime('%Y-%m-%d %H:%M:%S') if u.last_login_at else None) | tojson }}
+            "last_login_at": {{ (u.last_login_at.strftime('%Y-%m-%d %H:%M:%S') if u.last_login_at else None) | tojson }},
+            "department": {{ u.department | tojson }},
+            "email": {{ u.email | tojson }}
           }{{ "," if not loop.last else "" }}
           {%- endfor %}
         ],
@@ -47,7 +49,7 @@
             "category": {{ r.category | tojson }},
             "description": {{ r.description | tojson }},
             "viewer_count": {{ r.viewer_count | tojson }},
-            "group_count": {{ r.group_count | tojson }},
+            "dept_count": {{ r.dept_count | tojson }},
             "pbi_dataset_id": {{ r.pbi_dataset_id | tojson }},
             "created_at": {{ (r.created_at.strftime('%Y-%m-%d') if r.created_at else None) | tojson }}
           }{{ "," if not loop.last else "" }}

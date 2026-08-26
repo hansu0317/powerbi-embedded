@@ -7,10 +7,12 @@ from database.pool import db_conn
 
 # ── 보고서 ────────────────────────────────────────────────────────────────────
 
-# 열람 가능 판정: (직접 부여 OR 그룹 부여) AND NOT 개별 명시 차단.
-# user_reports 행의 의미: 행 없음=개별 설정 없음(그룹 결과를 그대로 따름), TRUE=직접 허용,
-# FALSE=명시적 차단 — 그룹으로 부여됐어도 이 차단이 최우선으로 이긴다(그룹 멤버 중 특정
-# 1명만 제외하고 싶을 때 이 행 하나만 FALSE로 넣으면 됨. db_set_report_access 참고).
+# 열람 가능 판정: (직접 부여 OR 부서 부여) AND NOT 개별 명시 차단.
+# user_reports 행의 의미: 행 없음=개별 설정 없음(부서 부여 결과를 그대로 따름), TRUE=직접
+# 허용, FALSE=명시적 차단 — 부서로 부여됐어도 이 차단이 최우선으로 이긴다(부서 소속 중
+# 특정 1명만 제외하고 싶을 때 이 행 하나만 FALSE로 넣으면 됨. db_set_report_access 참고).
+# 부서 부여(department_report_access)는 u.department와 리터럴 일치로만 비교한다 —
+# GET 필터와 같은 원칙(대소문자·별칭 정규화 없음, docs/01_RLS_적용가이드.md 참고).
 # 아래 3곳(db_get_reports, db_can_view_report, db_admin_get_users)에서 동일하게 쓰이며,
 # 모두 사용자 별칭 u, 보고서 별칭 r을 전제로 한다.
 _CAN_VIEW_REPORT_SQL = """(
@@ -19,28 +21,22 @@ _CAN_VIEW_REPORT_SQL = """(
                 AND (
                        r.owner_id = u.id
                     OR r.visibility = 'shared'
-                    OR (r.visibility = 'group' AND EXISTS (
-                         SELECT 1 FROM user_groups me
-                         JOIN user_groups owner_group ON owner_group.group_id = me.group_id
-                         WHERE me.user_id = u.id AND owner_group.user_id = r.owner_id))
                     OR
                        EXISTS (SELECT 1 FROM user_reports ur
                                WHERE ur.user_id = u.id AND ur.report_id = r.id AND ur.can_view)
-                    OR EXISTS (SELECT 1 FROM user_groups ug
-                               JOIN group_reports gr ON gr.group_id = ug.group_id
-                               WHERE ug.user_id = u.id AND gr.report_id = r.id AND gr.can_view)
+                    OR (u.department IS NOT NULL AND EXISTS (
+                         SELECT 1 FROM department_report_access dra
+                         WHERE dra.report_id = r.id AND dra.can_view AND dra.department = u.department))
                     ))"""
 
 
 def db_get_reports(username: str) -> list:
-    """사용자가 열람 가능한 보고서 목록 — 직접 부여 + 그룹 부여 합집합."""
+    """사용자가 열람 가능한 보고서 목록 — 직접 부여 + 부서 부여 합집합."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"""SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
-                          owner.username AS owner_username, r.tab_type, r.portal_folder_id, r.visibility,
-                          EXISTS (SELECT 1 FROM group_reports gr
-                                  WHERE gr.report_id=r.id AND gr.can_view) AS has_group_access
+                          owner.username AS owner_username, r.tab_type, r.portal_folder_id, r.visibility
                    FROM reports r
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    JOIN users u ON u.username = %s
@@ -57,9 +53,7 @@ def db_get_all_active_reports() -> list:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id, r.category, r.description,
-                          owner.username AS owner_username, r.tab_type, r.portal_folder_id, r.visibility,
-                          EXISTS (SELECT 1 FROM group_reports gr
-                                  WHERE gr.report_id=r.id AND gr.can_view) AS has_group_access
+                          owner.username AS owner_username, r.tab_type, r.portal_folder_id, r.visibility
                    FROM reports r
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    WHERE r.status = 'active'
@@ -186,7 +180,7 @@ def db_hard_delete_report(report_id: int) -> bool:
 def db_can_view_report(username: str, report_id: int) -> bool:
     """사용자가 해당 보고서를 열람할 수 있는지 단건 조회.
 
-    열람 가능 = 직접 부여(user_reports) OR 소속 그룹에 부여(group_reports)."""
+    열람 가능 = 직접 부여(user_reports) OR 소속 부서에 부여(department_report_access)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(

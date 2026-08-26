@@ -9,7 +9,7 @@
     reports.py   보고서 열람 목록·즐겨찾기·최근본 (+ _CAN_VIEW_REPORT_SQL 단일 소스)
     uploads.py   업로드 잡 상태 머신 + Fabric 동기화 보조
     admin.py     관리자 포털 전용 (사용자·보고서 관리, PBI 가져오기, 런타임 설정)
-    groups.py    그룹(팀/부서 단위 권한)
+    department_access.py  부서 단위 보고서 접근(1층 열람권한)
     activity.py  활동 로그 · 감사 로그 · 인기 보고서 집계
 """
 from database.pool import db_conn, db_health_check
@@ -38,10 +38,8 @@ from database.admin import (
     db_admin_get_upload_jobs, db_get_report_access, db_set_report_access,
     db_get_app_config, db_update_app_config,
 )
-from database.groups import (
-    db_admin_get_groups, db_admin_create_group, db_admin_delete_group,
-    db_get_group_members, db_set_group_member, db_get_report_group_access,
-    db_set_report_group_access,
+from database.department_access import (
+    db_list_departments, db_get_report_department_access, db_set_report_department_access,
 )
 from database.activity import (
     db_log_activity, db_get_activity_log, db_get_user_activity_log, db_get_audit_log,
@@ -71,9 +69,7 @@ __all__ = [
     "db_admin_set_report_visibility",
     "db_admin_get_upload_jobs", "db_get_report_access", "db_set_report_access",
     "db_get_app_config", "db_update_app_config",
-    "db_admin_get_groups", "db_admin_create_group", "db_admin_delete_group",
-    "db_get_group_members", "db_set_group_member", "db_get_report_group_access",
-    "db_set_report_group_access",
+    "db_list_departments", "db_get_report_department_access", "db_set_report_department_access",
     "db_log_activity", "db_get_activity_log", "db_get_user_activity_log", "db_get_audit_log",
     "db_cleanup_activity_log", "db_get_popular_report_ids",
     "db_get_report_folders", "db_get_writable_folders", "db_get_folder", "db_move_report_to_folder",

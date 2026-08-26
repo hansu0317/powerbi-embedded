@@ -19,6 +19,30 @@ export function ReportFoldersSection({ showToast }: Props) {
 
   // 하위 폴더가 있는 id 집합 — 화살표는 이 집합에 있는 행에만 그린다.
   const parentIds = useMemo(() => new Set(folders.map((f) => f.parent_id).filter((id): id is number => id != null)), [folders]);
+
+  // report_count는 그 폴더에 "직접" 배정된 보고서만 센다(DB 쿼리 기준) — 상위 폴더
+  // 자체엔 보고서가 없고 하위 폴더에만 있는 경우(예: "공장" 밑에 "생산"/"품질") 상위가
+  // 0으로 보여서 실제보다 적어 보인다. 화면에서는 하위까지 합산한 값을 보여준다.
+  const rollupCounts = useMemo(() => {
+    const childrenOf = new Map<number, ReportFolder[]>();
+    for (const f of folders) {
+      if (f.parent_id == null) continue;
+      const list = childrenOf.get(f.parent_id) ?? [];
+      list.push(f);
+      childrenOf.set(f.parent_id, list);
+    }
+    const totals = new Map<number, number>();
+    const compute = (f: ReportFolder): number => {
+      const cached = totals.get(f.id);
+      if (cached != null) return cached;
+      const childTotal = (childrenOf.get(f.id) ?? []).reduce((sum, c) => sum + compute(c), 0);
+      const total = f.report_count + childTotal;
+      totals.set(f.id, total);
+      return total;
+    };
+    folders.forEach(compute);
+    return totals;
+  }, [folders]);
   const toggle = (id: number) => setCollapsed((previous) => {
     const next = { ...previous, [id]: !(previous[id] ?? true) };
     sessionStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
@@ -65,7 +89,7 @@ export function ReportFoldersSection({ showToast }: Props) {
           </span>
           <span className="ad-folder-node-scope">{visibilityLabel(folder.visibility)}</span>
           <span className="ad-folder-node-owner">{folder.owner_username || "포털"}</span>
-          <span className="ad-folder-node-count">{folder.report_count}</span>
+          <span className="ad-folder-node-count">{rollupCounts.get(folder.id) ?? folder.report_count}</span>
         </div>
       ))}
       {folders.length === 0 && <div className="ad-folder-node-empty">폴더가 없습니다.</div>}
@@ -77,4 +101,4 @@ function loadCollapsed(): Record<number, boolean> {
   try { return JSON.parse(sessionStorage.getItem(COLLAPSED_KEY) || "{}"); } catch { return {}; }
 }
 
-function visibilityLabel(value: ReportFolder["visibility"]) { return value === "shared" ? "공용" : value === "group" ? "그룹" : "개인"; }
+function visibilityLabel(value: ReportFolder["visibility"]) { return value === "shared" ? "공용" : "개인"; }

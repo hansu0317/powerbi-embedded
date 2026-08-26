@@ -3,9 +3,9 @@ from database.pool import db_conn
 from database.reports import _CAN_VIEW_REPORT_SQL
 
 # 폴더를 "볼 수 있는가"와 "그 안에 보고서를 넣을 수 있는가"에 같은 규칙을 쓴다:
-# 관리자이거나 / 본인 소유이거나 / shared이거나 / 같은 그룹(owner 기준)이면 된다.
+# 관리자이거나 / 본인 소유이거나 / shared이면 된다.
 # f는 대상 report_folders 행의 별칭 — 이 상수를 쓰는 쿼리는 항상 FROM report_folders f를 가져야 한다.
-# 자리표시자 순서: is_admin, user_id(owner_id 비교), user_id(그룹 비교) — 총 3개, 호출부마다 이 순서로 넘긴다.
+# 자리표시자 순서: is_admin, user_id(owner_id 비교) — 총 2개, 호출부마다 이 순서로 넘긴다.
 #
 # 주의 — 이건 "업로드 대상으로 고를 수 있는가"에만 쓴다(db_get_writable_folders). 폴더
 # 기본값이 visibility='shared'라서, 이 규칙을 탐색 트리에도 그대로 쓰면 보고서 열람
@@ -13,9 +13,6 @@ from database.reports import _CAN_VIEW_REPORT_SQL
 # adcrm1 테스트 계정으로 발견). 탐색 트리는 아래 _CAN_VIEW_FOLDER_SQL을 쓴다.
 _CAN_WRITE_FOLDER_SQL = """(
     %s OR f.owner_id=%s OR f.visibility='shared'
-    OR (f.visibility='group' AND EXISTS (
-        SELECT 1 FROM user_groups me JOIN user_groups owner_group USING(group_id)
-        WHERE me.user_id=%s AND owner_group.user_id=f.owner_id))
 )"""
 
 # 탐색 트리(사이드바)용 — "그 안에 실제로 볼 수 있는 보고서가 있는가"로 판정한다.
@@ -59,7 +56,7 @@ def db_get_writable_folders(user_id: int, is_admin: bool) -> list:
             cur.execute(f"""SELECT {_FOLDER_SELECT_COLUMNS}
                            FROM report_folders f LEFT JOIN users ou ON ou.id=f.owner_id
                            WHERE {_CAN_WRITE_FOLDER_SQL}
-                           ORDER BY f.parent_id NULLS FIRST,f.name""", (is_admin,user_id,user_id))
+                           ORDER BY f.parent_id NULLS FIRST,f.name""", (is_admin,user_id))
             return cur.fetchall()
 
 
@@ -68,7 +65,7 @@ def db_can_write_folder(folder_id: int, user_id: int, is_admin: bool) -> bool:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(f"SELECT 1 FROM report_folders f WHERE f.id=%s AND {_CAN_WRITE_FOLDER_SQL}",
-                        (folder_id, is_admin, user_id, user_id))
+                        (folder_id, is_admin, user_id))
             return cur.fetchone() is not None
 
 def db_get_folder(folder_id: int) -> dict | None:
@@ -115,7 +112,7 @@ def db_move_report_to_folder(report_id: int, folder_id: int, actor_id: int, is_a
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(f"SELECT id,name,visibility FROM report_folders f WHERE id=%s AND {_CAN_WRITE_FOLDER_SQL}",
-                        (folder_id,is_admin,actor_id,actor_id))
+                        (folder_id,is_admin,actor_id))
             folder=cur.fetchone()
             if not folder: return None
             cur.execute("""UPDATE reports SET portal_folder_id=%s,category=%s,visibility=%s,updated_by=%s,updated_at=NOW()

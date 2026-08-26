@@ -17,8 +17,7 @@ export interface ReportItem {
   report_type: string;
   description?: string | null;
   portal_folder_id?: number | null;
-  visibility?: "personal" | "group" | "shared";
-  has_group_access?: boolean;
+  visibility?: "personal" | "shared";
 }
 
 export interface PopularItem {
@@ -77,9 +76,9 @@ export interface AdminReport {
   owner_username: string | null;
   category: string | null;
   description?: string | null;
-  visibility: "personal" | "group" | "shared";
+  visibility: "personal" | "shared";
   viewer_count: number;
-  group_count: number;
+  dept_count: number;
   pbi_dataset_id: string | null;
   created_at: string | null;
 }

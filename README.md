@@ -170,7 +170,7 @@ database/          커넥션 풀(pool.py) + 도메인별 SQL (db_* 함수)
   reports.py         보고서 조회·권한·즐겨찾기
   uploads.py         업로드 작업, 보고서 등록
   folders.py         포털 보고서 폴더
-  groups.py          그룹, 회사 계층(RLS)
+  department_access.py  부서 단위 보고서 접근(1층 열람권한)
   activity.py        활동·감사 로그
   admin.py           관리자 통계·설정·사용자 관리
 
@@ -200,21 +200,21 @@ Power BI REST 호출도 `routes/`가 직접 하지 않고 `services/`를 거친�
 
 ## 데이터베이스
 
-테이블 12개 + 뷰 1개. `scripts/init_schema.py` 하나가 전체 스키마를 정의한다 (버전 이력 없음 — 자세한 배경은 아래 "스키마 변경 규칙" 참고). 전체 목록·비고는 `docs/02_백엔드_DB_API_흐름.md` 참고.
+테이블 9개, 뷰 없음. `scripts/init_schema.py` 하나가 전체 스키마를 정의한다 (버전 이력 없음 — 자세한 배경은 아래 "스키마 변경 규칙" 참고). 전체 목록·비고는 `docs/02_백엔드_DB_API_흐름.md` 참고.
 
-| 테이블/뷰 | 내용 |
+| 테이블 | 내용 |
 |---|---|
-| `users` | 계정 (bcrypt 해시, 관리자·업로드 권한, `department` GET 필터 값) |
-| `reports` | 보고서 본체 + PBI 연결 정보, `owner_id`/`visibility`(personal/group/shared) |
+| `users` | 계정 (bcrypt 해시, 관리자·업로드 권한, `department` — 1층 부서 권한 + 2층 GET 필터 값을 겸함) |
+| `reports` | 보고서 본체 + PBI 연결 정보, `owner_id`/`visibility`(personal/shared) |
 | `report_folders` | 계층형 포털 폴더 |
 | `user_reports` | 개인 열람 권한 (`can_view`: NULL=설정없음/TRUE=허용/FALSE=명시적 차단) |
-| `groups` / `user_groups` / `group_reports` | 그룹 단위 권한 |
+| `department_report_access` | 부서 단위 열람 권한 (`department`가 `users.department`와 리터럴 일치) |
 | `upload_jobs` | 업로드 상태 머신 (재시작 복구용) |
 | `user_report_marks` | 즐겨찾기 · 최근 본 |
 | `event_log` | 활동 · 관리 감사 · 로그인 시도 (`log_type`으로 구분) |
 | `app_config` | 런타임 설정 |
 
-**열람 가능 판정** = (직접 부여(`user_reports`) **OR** 소속 그룹 부여(`group_reports`)) **AND NOT** 개별 명시 차단.
+**열람 가능 판정** = (직접 부여(`user_reports`) **OR** 소속 부서 부여(`department_report_access`)) **AND NOT** 개별 명시 차단.
 관리자는 권한 확인을 건너뛴다. 이 판정 SQL은 `database/reports.py`의 `_CAN_VIEW_REPORT_SQL` **한 곳**에서만 관리한다.
 
 ### 스키마 변경 규칙 (중요)
@@ -279,7 +279,8 @@ Per User)는 이 목록에 없다** — 실제로 되는 건 확인된 사실이
 | 1층 | 어떤 **보고서**가 보이는가 | 게이트웨이 DB | **동작 중** |
 | 2층 | 보고서 안에서 어떤 **행**이 보이는가 | GET 필터 | 보고서별 수동 적용 |
 
-1층은 개인 부여(`user_reports`)와 그룹 부여(`group_reports`)의 OR 판정으로 이미 동작한다.
+1층은 개인 부여(`user_reports`)와 부서 부여(`department_report_access`)의 OR 판정으로 이미 동작한다
+(부서 소속이어도 개인만 예외로 차단하거나, 비소속이어도 개인만 예외로 허용할 수 있다 — 개인 부여가 항상 최우선).
 
 **2층은 GET 필터다(2026-08-24 결정)** — Power BI의 RLS 역할·DAX는 안 쓴다. 서버가
 embed 시점에 사용자의 `users.department` 값을 그 보고서의 `reports.filter_table`/

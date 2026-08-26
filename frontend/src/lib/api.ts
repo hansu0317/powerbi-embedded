@@ -78,7 +78,7 @@ export interface UploadAccepted {
 
 export async function uploadPbix(
   file: File, csrf: string, description?: string, folderId?: number | null,
-  visibility: "personal" | "group" | "shared" = "personal",
+  visibility: "personal" | "shared" = "personal",
 ): Promise<UploadAccepted> {
   const fd = new FormData();
   fd.append("file", file);
@@ -95,7 +95,7 @@ export async function uploadPbix(
   return data;
 }
 
-export interface ReportFolder { id:number; name:string; parent_id:number|null; owner_id:number|null; visibility:"personal"|"group"|"shared"; owner_username:string|null; report_count:number }
+export interface ReportFolder { id:number; name:string; parent_id:number|null; owner_id:number|null; visibility:"personal"|"shared"; owner_username:string|null; report_count:number }
 export async function fetchReportFolders():Promise<ReportFolder[]> { const r=await authFetch("/api/report-folders"); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"폴더 조회 실패")); return j.folders; }
 // 업로드 대상 폴더 선택기 전용 — 위 fetchReportFolders(탐색 트리, 열람 가능 기준)와
 // 의도적으로 다른 엔드포인트다. 아직 보고서가 없는 빈 공용 폴더도 업로드 대상으로는
@@ -281,17 +281,17 @@ export interface AccessUser {
   username: string;
   display_name: string;
   is_admin: boolean;
-  direct: boolean | null;  // true=직접 허용, false=명시적 차단, null=개별 설정 없음
-  via_group: boolean;      // 소속 그룹으로 부여된 권한이 있는지
-  can_view: boolean;       // 최종 열람 가능 여부 (차단이 그룹 권한보다 우선)
+  direct: boolean | null;    // true=직접 허용, false=명시적 차단, null=개별 설정 없음
+  via_department: boolean;   // 소속 부서로 부여된 권한이 있는지
+  can_view: boolean;         // 최종 열람 가능 여부 (차단이 부서 권한보다 우선)
 }
 
 export interface UserReportRow {
   id: number;
   name: string;
   category: string | null;
-  direct: boolean;        // 직접 부여 여부
-  via_groups: string[];   // 경유 그룹명들
+  direct: boolean;          // 직접 부여 여부
+  via_department: boolean;  // 소속 부서 경유 부여 여부
 }
 
 export async function adminGetUserReports(userId: number): Promise<UserReportRow[]> {
@@ -301,97 +301,39 @@ export async function adminGetUserReports(userId: number): Promise<UserReportRow
   return j.reports as UserReportRow[];
 }
 
-// ── 그룹 (팀/부서 단위 권한) ─────────────────────────────────────────────────
+// ── 부서 단위 보고서 접근(1층 열람권한) ──────────────────────────────────────
+// 그룹처럼 별도로 만들거나 삭제하지 않는다 — users.department에 이미 쓰이고 있는
+// 값이 곧 부서 목록이다(2026-08-26, 옛 그룹 기능 대체).
 
-export interface AdminGroup {
-  id: number;
-  name: string;
-  description: string | null;
+export interface DepartmentAccess {
+  department: string;
   member_count: number;
-  report_count: number;
-  created_at: string | null;
 }
 
-export interface GroupMember {
-  id: number;
-  username: string;
-  display_name: string;
-  is_admin: boolean;
-  is_member: boolean;
-}
-
-export interface GroupAccess {
-  id: number;
-  name: string;
-  member_count: number;
-  can_view: boolean;
-}
-
-export async function adminGetGroups(): Promise<AdminGroup[]> {
-  const res = await authFetch("/api/admin/groups");
+export async function adminListDepartments(): Promise<string[]> {
+  const res = await authFetch("/api/admin/departments");
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "그룹 목록 조회 실패"));
-  return j.groups as AdminGroup[];
+  if (!res.ok) throw new Error(extractDetail(j, "부서 목록 조회 실패"));
+  return j.departments as string[];
 }
 
-export async function adminCreateGroup(name: string, description: string, csrf: string) {
-  const res = await authFetch("/api/admin/groups", {
-    method: "POST",
-    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-    body: JSON.stringify({ name, description }),
-  });
+export async function adminGetDepartmentAccess(reportId: number): Promise<DepartmentAccess[]> {
+  const res = await authFetch(`/api/admin/reports/${reportId}/department-access`);
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "그룹 생성 실패"));
-  return j as { id: number; name: string };
+  if (!res.ok) throw new Error(extractDetail(j, "부서 권한 조회 실패"));
+  return j.departments as DepartmentAccess[];
 }
 
-export async function adminDeleteGroup(groupId: number, csrf: string) {
-  const res = await authFetch(`/api/admin/groups/${groupId}/delete`, {
-    method: "POST",
-    headers: { "X-CSRF-Token": csrf },
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "그룹 삭제 실패"));
-  return j;
-}
-
-export async function adminGetGroupMembers(groupId: number): Promise<GroupMember[]> {
-  const res = await authFetch(`/api/admin/groups/${groupId}/members`);
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "멤버 목록 조회 실패"));
-  return j.members as GroupMember[];
-}
-
-export async function adminSetGroupMember(
-  groupId: number, userId: number, member: boolean, csrf: string,
+export async function adminSetDepartmentAccess(
+  reportId: number, department: string, canView: boolean, csrf: string,
 ) {
-  const res = await authFetch(`/api/admin/groups/${groupId}/members/${userId}`, {
+  const res = await authFetch(`/api/admin/reports/${reportId}/department-access`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-    body: JSON.stringify({ member }),
+    body: JSON.stringify({ department, can_view: canView }),
   });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "멤버 변경 실패"));
-  return j;
-}
-
-export async function adminGetGroupAccess(reportId: number): Promise<GroupAccess[]> {
-  const res = await authFetch(`/api/admin/reports/${reportId}/group-access`);
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "그룹 권한 조회 실패"));
-  return j.groups as GroupAccess[];
-}
-
-export async function adminSetGroupAccess(
-  reportId: number, groupId: number, canView: boolean, csrf: string,
-) {
-  const res = await authFetch(`/api/admin/reports/${reportId}/group-access/${groupId}`, {
-    method: "POST",
-    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-    body: JSON.stringify({ can_view: canView }),
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "그룹 권한 변경 실패"));
+  if (!res.ok) throw new Error(extractDetail(j, "부서 권한 변경 실패"));
   return j;
 }
 
@@ -479,12 +421,7 @@ export async function adminGetLogs(
   return { rows: j.rows as LogRow[], limit: typeof j.limit === "number" ? j.limit : 1000 };
 }
 
-/* ── v4: RLS 설정 ─────────────────────────────────────── */
-
-export interface RlsConfig {
-  enabled: boolean;
-  role_names: string[];
-}
+/* ── v4: 자가진단 ─────────────────────────────────────── */
 
 export interface SystemStatus {
   db_latency_ms: number;

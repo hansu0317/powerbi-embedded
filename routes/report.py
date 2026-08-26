@@ -335,12 +335,12 @@ async def api_upload(
         logger.warning("UPLOAD DENY | user=%-12s | 업로드 권한 없음", user["username"])
         raise AppError.FORBIDDEN_UPLOAD.http()
 
-    if visibility not in ("personal", "group", "shared"):
+    if visibility not in ("personal", "shared"):
         raise AppError.BODY_INVALID.http()
     folder = await asyncio.to_thread(db_get_folder, folder_id) if folder_id else None
     if folder_id and not await asyncio.to_thread(db_can_write_folder, folder_id, user["id"], user["is_admin"]):
         raise AppError.FORBIDDEN_UPLOAD.http()
-    # 신규 업로드는 항상 비공개로 시작한다. 그룹·공용 공개는 업로드 이후
+    # 신규 업로드는 항상 비공개로 시작한다. 부서·공용 공개는 업로드 이후
     # 관리자 포털의 권한 관리에서만 명시적으로 수행한다.
     visibility = "personal"
     name, pbix_bytes, file_size = await _read_and_validate_pbix(file, user["id"])

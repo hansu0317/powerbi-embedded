@@ -23,32 +23,25 @@ import type {
 } from "../lib/bootstrap";
 import {
   AccessUser,
-  AdminGroup,
   AppConfigRow,
   BulkAddResult,
-  GroupAccess,
-  GroupMember,
+  DepartmentAccess,
   SyncStatus,
   UserReportRow,
   adminGetUserReports,
   adminAddUser,
   adminEditUser,
   adminBulkAddUsers,
-  adminCreateGroup,
-  adminDeleteGroup,
   adminDeleteReport,
   adminFetchReports,
   adminGetAccess,
   adminGetConfig,
-  adminGetGroupAccess,
-  adminGetGroupMembers,
-  adminGetGroups,
+  adminGetDepartmentAccess,
   adminImportPbi,
   adminSetAccess,
   adminSetConfig,
-  adminSetGroupAccess,
+  adminSetDepartmentAccess,
   adminSetReportVisibility,
-  adminSetGroupMember,
   adminSyncStatus,
   adminToggleUser,
   adminToggleUpload,
@@ -64,7 +57,7 @@ import { AdminOverview } from "../components/admin/AdminOverview";
 import { ReportFoldersSection } from "../components/admin/StructureSections";
 
 type SectionKey =
-  | "overview" | "users" | "groups" | "folders" | "reports" | "logs";
+  | "overview" | "users" | "folders" | "reports" | "logs";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
 
 const SECTIONS: {
@@ -74,7 +67,6 @@ const SECTIONS: {
 }[] = [
   { key: "overview", Icon: LayoutDashboard, label: "현황" },
   { key: "users", Icon: UsersIcon, label: "사용자" },
-  { key: "groups", Icon: Layers, label: "그룹" },
   { key: "folders", Icon: Layers, label: "보고서 폴더" },
   { key: "reports", Icon: BarChart3, label: "보고서" },
   { key: "logs", Icon: History, label: "로그" },
@@ -279,9 +271,6 @@ export default function AdminPage({ data }: { data: AdminData }) {
               />
             )}
             {section === "logs" && <LogsSection />}
-            {section === "groups" && (
-              <GroupsSection csrf={csrf_token} showToast={showToast} />
-            )}
             {section === "folders" && <ReportFoldersSection csrf={csrf_token} showToast={showToast} />}
           </div>
         </main>
@@ -322,6 +311,7 @@ export default function AdminPage({ data }: { data: AdminData }) {
         <AccessModal
           report={accessReport}
           csrf={csrf_token}
+          departments={departmentOptions(users)}
           onClose={() => {
             setAccessReport(null);
             refreshReports(); // 방금 부여·해제한 결과를 '열람권한' 수에 반영
@@ -583,26 +573,13 @@ function AddUserModal({
   onError: (msg: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [groups, setGroups] = useState<AdminGroup[] | null>(null);
-  const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
   const [department, setDepartment] = useState("");
-
-  useEffect(() => {
-    adminGetGroups().then(setGroups).catch(() => setGroups([]));
-  }, []);
-
-  const toggleGroup = (id: number) => {
-    setSelectedGroups((prev) =>
-      prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id],
-    );
-  };
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setBusy(true);
     try {
       const fd = new FormData(e.currentTarget);
-      fd.set("group_ids", selectedGroups.join(","));
       fd.set("department", department);
       await adminAddUser(fd);
       onAdded();
@@ -643,38 +620,12 @@ function AddUserModal({
                 </select>
               </Field>
             </div>
-            <Field label="그룹 (선택한 그룹의 보고서 열람 권한을 그대로 받습니다)">
-              {!groups && <span className="muted">불러오는 중...</span>}
-              {groups && groups.length === 0 && (
-                <span className="muted">등록된 그룹이 없습니다.</span>
-              )}
-              {groups && groups.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px" }}>
-                  {groups.map((g) => (
-                    <label
-                      key={g.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 5,
-                        fontWeight: 400,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedGroups.includes(g.id)}
-                        onChange={() => toggleGroup(g.id)}
-                      />
-                      {g.name}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </Field>
-            <Field label="부서 (GET 필터)">
+            <Field label="부서 (GET 필터 + 보고서 열람권한)">
               <input value={department} onChange={e=>setDepartment(e.target.value)} list="department-options" placeholder="예: AMT" />
               <datalist id="department-options">{departments.map((d) => <option key={d} value={d} />)}</datalist>
+              <span className="muted" style={{ display: "block", marginTop: 4 }}>
+                이 부서에 이미 부여된 보고서 열람권한을 그대로 받습니다(보고서 탭 → 권한 → 부서에서 부여).
+              </span>
             </Field>
           </div>
           <div className="ad-modal-footer">
@@ -815,7 +766,7 @@ function BulkAddUsersModal({
               <div className="ad-bulk-body">
                 <div className="ad-bulk-title">템플릿을 받아 작성합니다</div>
                 <div className="ad-bulk-code">
-                  username,password,display_name,pbi_username,groups,is_admin,can_upload,department
+                  username,password,display_name,pbi_username,is_admin,can_upload,department
                 </div>
                 <table className="ad-bulk-cols">
                   <tbody>
@@ -823,10 +774,9 @@ function BulkAddUsersModal({
                     <tr><th>password</th><td className="req">필수</td><td>초기 비밀번호 (8자 이상)</td></tr>
                     <tr><th>display_name</th><td className="req">필수</td><td>화면에 표시할 이름</td></tr>
                     <tr><th>pbi_username</th><td>선택</td><td>RLS Effective Identity에 쓰이는 내부 키 — 비우면 username을 그대로 씀(대부분 이대로 두면 됨)</td></tr>
-                    <tr><th>groups</th><td>선택</td><td>소속 그룹 — <b>미리 만들어져 있어야</b> 하며, 그 그룹의 보고서 열람 권한을 그대로 상속</td></tr>
                     <tr><th>is_admin</th><td>선택</td><td>관리자 여부 — 비우면 <code>false</code></td></tr>
                     <tr><th>can_upload</th><td>선택</td><td>업로드 허용 — 비우면 <code>true</code></td></tr>
-                    <tr><th>department</th><td>선택</td><td>GET 필터 값 — 그 보고서의 필터 컬럼과 정확히 일치해야 함(예: <code>AMT</code>)</td></tr>
+                    <tr><th>department</th><td>선택</td><td>GET 필터 값이자 보고서 열람권한 축 — 그 부서에 이미 부여된 보고서 열람권한을 그대로 받음(예: <code>AMT</code>)</td></tr>
                   </tbody>
                 </table>
                 <button
@@ -834,8 +784,8 @@ function BulkAddUsersModal({
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
                     const csv =
-                      "username,password,display_name,pbi_username,groups,is_admin,can_upload,department\n" +
-                      "user01,TempPass123!,홍길동,user01@customer.com,영업팀,false,true,AMT\n";
+                      "username,password,display_name,pbi_username,is_admin,can_upload,department\n" +
+                      "user01,TempPass123!,홍길동,user01@customer.com,false,true,AMT\n";
                     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
@@ -1053,8 +1003,8 @@ function ReportsSection({
                   <td>
                     {r.visibility === "shared" ? (
                       <span className="pill active">공용</span>
-                    ) : r.group_count > 0 ? (
-                      <span className="pill pending">그룹 공유</span>
+                    ) : r.dept_count > 0 ? (
+                      <span className="pill pending">부서 공유</span>
                     ) : (
                       <span className="pill inactive">비공개{r.owner_username ? ` · ${r.owner_username}` : ""}</span>
                     )}
@@ -1068,13 +1018,13 @@ function ReportsSection({
                     </span>
                   </td>
                   <td>
-                    {r.viewer_count === 0 && r.group_count === 0 ? (
+                    {r.viewer_count === 0 && r.dept_count === 0 ? (
                       <span className="pill inactive">비공개</span>
                     ) : (
                       <span className="pill active">
                         공개
                         {r.viewer_count > 0 && ` · ${r.viewer_count}명`}
-                        {r.group_count > 0 && ` · ${r.group_count}그룹`}
+                        {r.dept_count > 0 && ` · ${r.dept_count}부서`}
                       </span>
                     )}
                   </td>
@@ -1120,7 +1070,7 @@ function ReportsSection({
               열람 인원<b>{detail.viewer_count}명</b>
             </div>
             <div className="crm-detail-row">
-              권한 그룹<b>{detail.group_count}개</b>
+              권한 부서<b>{detail.dept_count}개</b>
             </div>
             <div className="crm-detail-row">
               등록일<b>{detail.created_at ? detail.created_at.slice(0, 10) : "-"}</b>
@@ -1299,17 +1249,20 @@ export function ConfigSection({
 function AccessModal({
   report,
   csrf,
+  departments,
   onClose,
   showToast,
 }: {
   report: AdminReport;
   csrf: string;
+  departments: string[];
   onClose: () => void;
   showToast: (msg: string, tone?: "ok" | "err" | "") => void;
 }) {
-  const [tab, setTab] = useState<"users" | "groups">("users");
+  const [tab, setTab] = useState<"users" | "departments">("users");
   const [users, setUsers] = useState<AccessUser[] | null>(null);
-  const [groups, setGroups] = useState<GroupAccess[] | null>(null);
+  const [deptAccess, setDeptAccess] = useState<DepartmentAccess[] | null>(null);
+  const [newDept, setNewDept] = useState("");
   const [visibility, setVisibility] = useState<"personal" | "shared">(
     report.visibility === "shared" ? "shared" : "personal",
   );
@@ -1317,12 +1270,12 @@ function AccessModal({
 
   const load = useCallback(async () => {
     try {
-      const [u, g] = await Promise.all([
+      const [u, d] = await Promise.all([
         adminGetAccess(report.id),
-        adminGetGroupAccess(report.id),
+        adminGetDepartmentAccess(report.id),
       ]);
       setUsers(u);
-      setGroups(g);
+      setDeptAccess(d);
     } catch {
       setError("권한 목록 조회 실패");
     }
@@ -1342,10 +1295,11 @@ function AccessModal({
     }
   };
 
-  const setGroupAccess = async (groupId: number, canView: boolean) => {
+  const setDeptAccessFor = async (department: string, canView: boolean) => {
     try {
-      await adminSetGroupAccess(report.id, groupId, canView, csrf);
-      showToast(canView ? "그룹에 열람 권한이 부여됐습니다." : "그룹 열람 권한이 해제됐습니다.", "ok");
+      await adminSetDepartmentAccess(report.id, department, canView, csrf);
+      showToast(canView ? "부서에 열람 권한이 부여됐습니다." : "부서 열람 권한이 해제됐습니다.", "ok");
+      setNewDept("");
       await load();
     } catch (err) {
       showToast((err as Error).message, "err");
@@ -1378,11 +1332,11 @@ function AccessModal({
             사용자 {users ? `(${users.filter((u) => !u.is_admin && u.can_view).length})` : ""}
           </button>
           <button
-            className={`btn btn-sm ${tab === "groups" ? "btn-primary" : ""}`}
-            onClick={() => setTab("groups")}
+            className={`btn btn-sm ${tab === "departments" ? "btn-primary" : ""}`}
+            onClick={() => setTab("departments")}
             style={{ marginLeft: 6 }}
           >
-            그룹 {groups ? `(${groups.filter((g) => g.can_view).length})` : ""}
+            부서 {deptAccess ? `(${deptAccess.length})` : ""}
           </button>
         </div>
         <div className="ad-modal-body">
@@ -1397,12 +1351,12 @@ function AccessModal({
                   <span className="ad-access-name">{u.display_name}</span>
                   <span className="ad-access-id">{u.username}</span>
                   {u.is_admin && <span className="pill admin">관리자</span>}
-                  {!u.is_admin && u.via_group && (
+                  {!u.is_admin && u.via_department && (
                     <span
                       className={`pill ${u.direct === false ? "inactive" : "active"}`}
-                      title="소속 그룹으로도 이 보고서 열람 권한이 있습니다"
+                      title="소속 부서로도 이 보고서 열람 권한이 있습니다"
                     >
-                      그룹경유{u.direct === false ? " · 차단됨" : ""}
+                      부서경유{u.direct === false ? " · 차단됨" : ""}
                     </span>
                   )}
                 </div>
@@ -1414,8 +1368,8 @@ function AccessModal({
                   <button
                     className={`btn btn-sm ${u.can_view ? "btn-danger" : "btn-primary"}`}
                     title={
-                      u.can_view && u.via_group
-                        ? "그룹으로 부여된 권한이 있어도 이 사람만 예외로 차단합니다"
+                      u.can_view && u.via_department
+                        ? "부서로 부여된 권한이 있어도 이 사람만 예외로 차단합니다"
                         : undefined
                     }
                     onClick={() => setAccess(u.id, !u.can_view)}
@@ -1425,26 +1379,45 @@ function AccessModal({
                 )}
               </div>
             ))}
-          {tab === "groups" && !error && !groups && (
+          {tab === "departments" && !error && !deptAccess && (
             <div className="ad-modal-loading">불러오는 중...</div>
           )}
-          {tab === "groups" && groups && groups.length === 0 && (
-            <div className="ad-modal-loading">
-              그룹이 없습니다. 관리자 포털 '그룹' 탭에서 먼저 만드세요.
+          {tab === "departments" && (
+            <div className="ad-access-row">
+              <input
+                value={newDept}
+                onChange={(e) => setNewDept(e.target.value)}
+                list="department-options"
+                placeholder="부서 선택 또는 입력 (예: AMT)"
+                style={{ flex: 1 }}
+              />
+              <datalist id="department-options">
+                {departments.map((d) => <option key={d} value={d} />)}
+              </datalist>
+              <button
+                className="btn btn-sm btn-primary"
+                disabled={!newDept.trim()}
+                onClick={() => setDeptAccessFor(newDept.trim(), true)}
+              >
+                부여
+              </button>
             </div>
           )}
-          {tab === "groups" &&
-            groups?.map((g) => (
-              <div key={g.id} className="ad-access-row">
+          {tab === "departments" && deptAccess && deptAccess.length === 0 && (
+            <div className="ad-modal-loading">부여된 부서가 없습니다.</div>
+          )}
+          {tab === "departments" &&
+            deptAccess?.map((d) => (
+              <div key={d.department} className="ad-access-row">
                 <div className="ad-access-info">
-                  <span className="ad-access-name">{g.name}</span>
-                  <span className="ad-access-id">멤버 {g.member_count}명</span>
+                  <span className="ad-access-name">{d.department}</span>
+                  <span className="ad-access-id">인원 {d.member_count}명</span>
                 </div>
                 <button
-                  className={`btn btn-sm ${g.can_view ? "btn-danger" : "btn-primary"}`}
-                  onClick={() => setGroupAccess(g.id, !g.can_view)}
+                  className="btn btn-sm btn-danger"
+                  onClick={() => setDeptAccessFor(d.department, false)}
                 >
-                  {g.can_view ? "해제" : "부여"}
+                  해제
                 </button>
               </div>
             ))}
@@ -1493,11 +1466,11 @@ function UserReportsModal({
               </div>
               <div>
                 {r.direct && <span className="pill active">직접</span>}
-                {r.via_groups.map((g) => (
-                  <span key={g} className="pill admin" style={{ marginLeft: 4 }}>
-                    {g}
+                {r.via_department && (
+                  <span className="pill admin" style={{ marginLeft: 4 }}>
+                    부서
                   </span>
-                ))}
+                )}
               </div>
             </div>
           ))}
@@ -1506,211 +1479,7 @@ function UserReportsModal({
   );
 }
 
-/* ── 그룹 관리 ─────────────────────────────────────────── */
-
-function GroupsSection({
-  csrf,
-  showToast,
-}: {
-  csrf: string;
-  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
-}) {
-  const [groups, setGroups] = useState<AdminGroup[] | null>(null);
-  const [name, setName] = useState("");
-  const [desc, setDesc] = useState("");
-  const [memberGroup, setMemberGroup] = useState<AdminGroup | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setGroups(await adminGetGroups());
-    } catch {
-      showToast("그룹 목록 조회 실패", "err");
-    }
-  }, [showToast]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const create = async () => {
-    if (!name.trim()) return;
-    try {
-      await adminCreateGroup(name.trim(), desc.trim(), csrf);
-      showToast(`'${name.trim()}' 그룹이 생성됐습니다.`, "ok");
-      setName("");
-      setDesc("");
-      await load();
-    } catch (e) {
-      showToast("오류: " + (e as Error).message, "err");
-    }
-  };
-
-  const remove = async (g: AdminGroup) => {
-    if (!confirm(`'${g.name}' 그룹을 삭제할까요?\n멤버·보고서 부여도 함께 해제됩니다 (개별 부여는 유지).`)) return;
-    try {
-      await adminDeleteGroup(g.id, csrf);
-      showToast(`'${g.name}' 그룹이 삭제됐습니다.`, "ok");
-      await load();
-    } catch (e) {
-      showToast("오류: " + (e as Error).message, "err");
-    }
-  };
-
-  return (
-    <section>
-      <div className="ad-section-head">
-        <h2 style={{ marginBottom: 0 }}>그룹 관리</h2>
-        <span className="ad-import-result">
-          팀·부서 단위로 묶어 보고서 권한을 한 번에 부여합니다 (부여는 보고서 탭 → 권한 → 그룹).
-        </span>
-      </div>
-      <div className="ad-section-head" style={{ gap: 8 }}>
-        <input
-          placeholder="그룹 이름 (예: 영업팀)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && create()}
-        />
-        <input
-          placeholder="설명 (선택)"
-          value={desc}
-          onChange={(e) => setDesc(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && create()}
-          style={{ flex: 1 }}
-        />
-        <button className="btn btn-primary" onClick={create} disabled={!name.trim()}>
-          <Plus size={15} className="icn" /> 그룹 추가
-        </button>
-      </div>
-      <div className="card-table">
-        <table>
-          <colgroup>
-            <col style={{ width: "20%" }} />
-            <col style={{ width: "34%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "22%" }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>그룹명</th>
-              <th>설명</th>
-              <th>멤버</th>
-              <th title="이 그룹에 열람 권한이 부여된 보고서 수">보고서</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {!groups && (
-              <tr>
-                <td colSpan={5}>불러오는 중...</td>
-              </tr>
-            )}
-            {groups && groups.length === 0 && (
-              <tr>
-                <td colSpan={5}>그룹이 없습니다. 위에서 첫 그룹을 만들어 보세요.</td>
-              </tr>
-            )}
-            {groups?.map((g) => (
-              <tr key={g.id}>
-                <td title={g.name}>{g.name}</td>
-                <td title={g.description || ""}>{g.description || "-"}</td>
-                <td>{g.member_count}</td>
-                <td>{g.report_count}</td>
-                <td>
-                  <button className="btn btn-sm" onClick={() => setMemberGroup(g)}>
-                    멤버 관리
-                  </button>
-                  <button
-                    className="btn btn-sm btn-danger"
-                    style={{ marginLeft: 6 }}
-                    onClick={() => remove(g)}
-                  >
-                    삭제
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {memberGroup && (
-        <GroupMembersModal
-          group={memberGroup}
-          csrf={csrf}
-          showToast={showToast}
-          onClose={() => {
-            setMemberGroup(null);
-            load(); // 멤버 수 갱신
-          }}
-        />
-      )}
-    </section>
-  );
-}
-
-function GroupMembersModal({
-  group,
-  csrf,
-  onClose,
-  showToast,
-}: {
-  group: AdminGroup;
-  csrf: string;
-  onClose: () => void;
-  showToast: (msg: string, tone?: "ok" | "err" | "") => void;
-}) {
-  const [members, setMembers] = useState<GroupMember[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setMembers(await adminGetGroupMembers(group.id));
-    } catch {
-      setError("멤버 목록 조회 실패");
-    }
-  }, [group.id]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const setMember = async (userId: number, member: boolean) => {
-    try {
-      await adminSetGroupMember(group.id, userId, member, csrf);
-      showToast(member ? "멤버로 추가됐습니다." : "멤버에서 제외됐습니다.", "ok");
-      await load();
-    } catch {
-      showToast("오류가 발생했습니다.", "err");
-    }
-  };
-
-  return (
-    <Modal title={<>멤버 관리 — {group.name}</>} onClose={onClose}>
-        <div className="ad-modal-body">
-          {error && <div className="ad-modal-err">{error}</div>}
-          {!error && !members && <div className="ad-modal-loading">불러오는 중...</div>}
-          {members?.map((u) => (
-            <div key={u.id} className="ad-access-row">
-              <div className="ad-access-info">
-                <span className="ad-access-name">{u.display_name}</span>
-                <span className="ad-access-id">{u.username}</span>
-                {u.is_admin && <span className="pill admin">관리자</span>}
-              </div>
-              <button
-                className={`btn btn-sm ${u.is_member ? "btn-danger" : "btn-primary"}`}
-                onClick={() => setMember(u.id, !u.is_member)}
-              >
-                {u.is_member ? "제외" : "추가"}
-              </button>
-            </div>
-          ))}
-        </div>
-    </Modal>
-  );
-}
-
-/* ── 권한 매트릭스 (그룹 × 보고서 한눈에 보기/토글) ────── */
+/* ── 권한 매트릭스 (부서 × 보고서 한눈에 보기/토글) ────── */
 
 const EVENT_LABELS: Record<string, string> = {
   report_view: "보고서 열람",

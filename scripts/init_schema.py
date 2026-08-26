@@ -51,21 +51,13 @@ TABLES = [
         can_upload BOOLEAN NOT NULL DEFAULT TRUE,
         department VARCHAR(60)
     )""",
-    """CREATE TABLE IF NOT EXISTS groups (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(50) NOT NULL UNIQUE,
-        description TEXT,
-        entra_group_id VARCHAR(36),
-        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )""",
     """CREATE TABLE IF NOT EXISTS report_folders (
         id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         parent_id INTEGER REFERENCES report_folders(id) ON DELETE CASCADE,
         owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         visibility VARCHAR(16) NOT NULL DEFAULT 'personal'
-            CHECK (visibility IN ('personal', 'group', 'shared')),
+            CHECK (visibility IN ('personal', 'shared')),
         fabric_folder_id VARCHAR(36),
         created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -93,21 +85,6 @@ TABLES = [
         folder_id VARCHAR(36),
         tab_type VARCHAR(32) NOT NULL DEFAULT 'report'
     )""",
-    """CREATE TABLE IF NOT EXISTS user_groups (
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-        added_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        PRIMARY KEY (user_id, group_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS group_reports (
-        group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-        report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
-        can_view BOOLEAN NOT NULL DEFAULT TRUE,
-        granted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        PRIMARY KEY (group_id, report_id)
-    )""",
     """CREATE TABLE IF NOT EXISTS user_reports (
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
@@ -115,6 +92,20 @@ TABLES = [
         granted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
         granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (user_id, report_id)
+    )""",
+    # 부서 단위 열람권한(1층) — 개인별 예외는 위 user_reports가 최우선으로 이긴다
+    # (database/reports.py::_CAN_VIEW_REPORT_SQL 참고). department 값은 users.department와
+    # 리터럴 일치로 비교하며(대소문자·별칭 정규화 없음, GET 필터와 동일 원칙), 그룹처럼
+    # 별도로 "부서를 만들고 소속을 관리"하지 않는다 — users.department 자체가 이미
+    # 단일 진실 소스라 이중 관리를 만들지 않는다(2026-08-26, 옛 groups/user_groups/
+    # group_reports를 대체).
+    """CREATE TABLE IF NOT EXISTS department_report_access (
+        department VARCHAR(60) NOT NULL,
+        report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+        can_view BOOLEAN NOT NULL DEFAULT TRUE,
+        granted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (department, report_id)
     )""",
     """CREATE TABLE IF NOT EXISTS upload_jobs (
         id BIGSERIAL PRIMARY KEY,
@@ -174,9 +165,8 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS reports_owner_idx ON reports (owner_id) WHERE owner_id IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS reports_status_idx ON reports (status)",
     "CREATE INDEX IF NOT EXISTS reports_category_name_idx ON reports (category NULLS LAST, name) WHERE status = 'active'",
-    "CREATE INDEX IF NOT EXISTS user_groups_group_idx ON user_groups (group_id)",
-    "CREATE INDEX IF NOT EXISTS group_reports_report_idx ON group_reports (report_id)",
     "CREATE INDEX IF NOT EXISTS user_reports_report_idx ON user_reports (report_id)",
+    "CREATE INDEX IF NOT EXISTS department_report_access_report_idx ON department_report_access (report_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS upload_jobs_inflight_name_uidx ON upload_jobs (user_id, LOWER(report_name)) "
         "WHERE status IN ('publishing', 'accepted', 'unknown', 'pbi_succeeded', 'db_failed')",
     "CREATE INDEX IF NOT EXISTS upload_jobs_user_day_idx ON upload_jobs (user_id, created_at)",
@@ -226,6 +216,19 @@ MIGRATIONS = [
     "ALTER TABLE users DROP COLUMN IF EXISTS data_scope",
     "ALTER TABLE users DROP COLUMN IF EXISTS company_code",
     "ALTER TABLE users DROP COLUMN IF EXISTS company_scope",
+
+    # 2026-08-26: 그룹(팀 단위 열람권한) 기능 폐기 — 실사용 0건이었다(소속 인원 0명,
+    # group_reports 1건도 소속자가 없어 아무한테도 권한을 못 주던 죽은 행). department가
+    # 이미 모든 사용자에 채워진 단일 진실 소스라, 그룹을 따로 만들고 소속을 관리하는
+    # 이중 구조 대신 department_report_access(위)로 대체한다. group_reports/user_groups는
+    # groups를 참조하므로 자식부터 지운다.
+    "DROP TABLE IF EXISTS group_reports",
+    "DROP TABLE IF EXISTS user_groups",
+    "DROP TABLE IF EXISTS groups",
+    "ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_visibility_check",
+    "ALTER TABLE reports ADD CONSTRAINT reports_visibility_check CHECK (visibility IN ('personal', 'shared'))",
+    "ALTER TABLE report_folders DROP CONSTRAINT IF EXISTS report_folders_visibility_check",
+    "ALTER TABLE report_folders ADD CONSTRAINT report_folders_visibility_check CHECK (visibility IN ('personal', 'shared'))",
 ]
 
 # app_config 기본값 — 없는 키만 채운다 (이미 있으면 관리자가 바꾼 값을 보존)

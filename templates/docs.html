@@ -805,7 +805,7 @@ openTabs[name].panelEl.remove();
         <h3>레이어 1 — 게이트웨이 접근 제어 ✅ 적용</h3>
         <div class="success-box">
           <strong>누가 어떤 보고서 탭을 볼 수 있는지</strong> 제어<br><br>
-          • PostgreSQL <code>user_reports</code>/<code>group_reports</code> 기반<br>
+          • PostgreSQL <code>user_reports</code>(개인)/<code>department_report_access</code>(부서) 기반<br>
           • 권한 없는 보고서는 사이드바에 아예 안 보임, AJAX도 403<br>
           • 현재 완전히 작동 중
         </div>

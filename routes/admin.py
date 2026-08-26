@@ -21,9 +21,7 @@ from database import (
     db_get_report, db_get_report_access, db_set_report_access,
     db_get_synced_reports, db_hard_delete_report, db_get_pbi_report_map,
     db_count_other_reports_using_dataset, db_get_app_config, db_update_app_config,
-    db_admin_get_groups, db_admin_create_group, db_admin_delete_group,
-    db_get_group_members, db_set_group_member,
-    db_get_report_group_access, db_set_report_group_access,
+    db_list_departments, db_get_report_department_access, db_set_report_department_access,
     db_admin_set_report_visibility,
     db_get_user_report_list,
     db_get_activity_log, db_get_audit_log,
@@ -79,88 +77,44 @@ async def api_admin_bootstrap(request: Request, user: dict = Depends(require_adm
 
 @router.get("/api/admin/users/{user_id}/reports")
 async def api_admin_get_user_reports(user_id: int, user: dict = Depends(require_admin_user)):
-    """사용자가 열람 가능한 보고서 목록 (직접/그룹 경로 포함) — '보고서 N' 클릭 팝업."""
+    """사용자가 열람 가능한 보고서 목록 (직접/부서 경로 포함) — '보고서 N' 클릭 팝업."""
     reports = await asyncio.to_thread(db_get_user_report_list, user_id)
     return {"reports": reports}
 
 
-# ── 그룹 (팀/부서 단위 권한) ─────────────────────────────────────────────────
+# ── 부서 단위 보고서 접근(1층 열람권한) ──────────────────────────────────────
 
-@router.get("/api/admin/groups")
-async def api_admin_get_groups(user: dict = Depends(require_admin_user)):
-    """그룹 목록 (멤버 수·부여 보고서 수 포함)."""
-    return {"groups": await asyncio.to_thread(db_admin_get_groups)}
-
-
-@router.post("/api/admin/groups")
-async def api_admin_create_group(request: Request, user: dict = Depends(require_admin_csrf)):
-    """그룹 생성. body: {name, description?}"""
-    body = await json_body(request)
-    name = str(body.get("name", "")).strip()
-    if not name or len(name) > 50:
-        raise AppError.GROUP_NAME_INVALID.http()
-    try:
-        group_id = await asyncio.to_thread(
-            db_admin_create_group, name, str(body.get("description", "")).strip(), user["id"],
-        )
-    except psycopg2.errors.UniqueViolation:
-        raise AppError.GROUP_ALREADY_EXISTS.http(name=name)
-    logger.info("ADMIN ADD GROUP | admin=%s | group=%s | id=%s", user["username"], name, group_id)
-    return {"id": group_id, "name": name}
+@router.get("/api/admin/departments")
+async def api_admin_list_departments(user: dict = Depends(require_admin_user)):
+    """현재 사용자들에게 실제로 쓰이고 있는 department 값 목록 (부여 UI 선택지)."""
+    return {"departments": await asyncio.to_thread(db_list_departments)}
 
 
-@router.post("/api/admin/groups/{group_id}/delete")
-async def api_admin_delete_group(group_id: int, user: dict = Depends(require_admin_csrf)):
-    """그룹 삭제 — 멤버·보고서 부여도 함께 제거(개별 부여는 영향 없음)."""
-    deleted = await asyncio.to_thread(db_admin_delete_group, group_id)
-    if not deleted:
-        raise AppError.GROUP_NOT_FOUND.http()
-    logger.info("ADMIN DEL GROUP | admin=%s | group_id=%s", user["username"], group_id)
-    return {"deleted": True}
+@router.get("/api/admin/reports/{report_id}/department-access")
+async def api_admin_get_department_access(report_id: int, user: dict = Depends(require_admin_user)):
+    """보고서에 부여된 부서 현황 (권한 모달 '부서' 탭)."""
+    return {"departments": await asyncio.to_thread(db_get_report_department_access, report_id)}
 
 
-@router.get("/api/admin/groups/{group_id}/members")
-async def api_admin_get_group_members(group_id: int, user: dict = Depends(require_admin_user)):
-    """활성 사용자 전체 + 소속 여부 (멤버 편집 모달)."""
-    return {"members": await asyncio.to_thread(db_get_group_members, group_id)}
-
-
-@router.post("/api/admin/groups/{group_id}/members/{user_id}")
-async def api_admin_set_group_member(
-    request: Request, group_id: int, user_id: int, user: dict = Depends(require_admin_csrf),
+@router.post("/api/admin/reports/{report_id}/department-access")
+async def api_admin_set_department_access(
+    request: Request, report_id: int, user: dict = Depends(require_admin_csrf),
 ):
-    """그룹 멤버 추가/제거. body: {member: bool}"""
+    """보고서×부서 열람 권한 부여/해제. body: {department: str, can_view: bool}"""
     body = await json_body(request)
-    member = bool(body.get("member", False))
-    try:
-        await asyncio.to_thread(db_set_group_member, group_id, user_id, member, user["id"])
-    except psycopg2.errors.ForeignKeyViolation:
-        raise AppError.GROUP_NOT_FOUND.http()
-    return {"group_id": group_id, "user_id": user_id, "member": member}
-
-
-@router.get("/api/admin/reports/{report_id}/group-access")
-async def api_admin_get_group_access(report_id: int, user: dict = Depends(require_admin_user)):
-    """보고서에 부여된 그룹 현황 (권한 모달 '그룹' 탭)."""
-    return {"groups": await asyncio.to_thread(db_get_report_group_access, report_id)}
-
-
-@router.post("/api/admin/reports/{report_id}/group-access/{group_id}")
-async def api_admin_set_group_access(
-    request: Request, report_id: int, group_id: int, user: dict = Depends(require_admin_csrf),
-):
-    """보고서×그룹 열람 권한 부여/해제. body: {can_view: bool}"""
-    body = await json_body(request)
+    department = str(body.get("department", "")).strip()
     can_view = bool(body.get("can_view", False))
+    if not department:
+        raise AppError.BODY_INVALID.http()
     try:
-        await asyncio.to_thread(db_set_report_group_access, report_id, group_id, can_view, user["id"])
+        await asyncio.to_thread(db_set_report_department_access, report_id, department, can_view, user["id"])
     except psycopg2.errors.ForeignKeyViolation:
-        raise AppError.GROUP_NOT_FOUND.http()
+        raise AppError.REPORT_NOT_FOUND.http()
     logger.info(
-        "ADMIN GROUP ACCESS | admin=%s | report_id=%s | group_id=%s | can_view=%s",
-        user["username"], report_id, group_id, can_view,
+        "ADMIN DEPARTMENT ACCESS | admin=%s | report_id=%s | department=%s | can_view=%s",
+        user["username"], report_id, department, can_view,
     )
-    return {"report_id": report_id, "group_id": group_id, "can_view": can_view}
+    return {"report_id": report_id, "department": department, "can_view": can_view}
 
 
 @router.post("/api/admin/reports/{report_id}/visibility")
@@ -254,7 +208,6 @@ async def api_admin_add_user(
     pbi_username: str = Form(""),
     is_admin: bool = Form(False),
     can_upload: bool = Form(True),
-    group_ids: str = Form(""),
     department: str = Form(""),
     email: str = Form(""),
     csrf: str = Form(),
@@ -264,12 +217,11 @@ async def api_admin_add_user(
     if len(password) < config.PASSWORD_MIN_LEN:
         raise AppError.PASSWORD_TOO_SHORT.http(min=config.PASSWORD_MIN_LEN)
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    group_id_list = [int(g) for g in group_ids.split(",") if g.strip()]
     email_clean = email.strip() or None
     try:
         new_id = await asyncio.to_thread(
             db_admin_add_user, username, pw_hash, display_name,
-            pbi_username or username, is_admin, can_upload, group_id_list,
+            pbi_username or username, is_admin, can_upload,
             department.strip() or None, email_clean,
         )
     except psycopg2.errors.UniqueViolation as exc:
@@ -277,8 +229,8 @@ async def api_admin_add_user(
             raise AppError.EMAIL_ALREADY_EXISTS.http(email=email_clean)
         raise AppError.USER_ALREADY_EXISTS.http(username=username)
     logger.info(
-        "ADMIN ADD USER | admin=%s | new=%s | id=%s | groups=%s",
-        user["username"], username, new_id, group_id_list,
+        "ADMIN ADD USER | admin=%s | new=%s | id=%s | department=%s",
+        user["username"], username, new_id, department.strip() or None,
     )
     return {"id": new_id, "username": username}
 
@@ -326,7 +278,7 @@ def _parse_csv_bool(value: str, default: bool) -> bool:
     raise ValueError(f"불리언 값은 true/false만 허용합니다: '{value}'")
 
 
-def _bulk_add_one(row: dict, group_map: dict[str, int]) -> tuple[str, str | None]:
+def _bulk_add_one(row: dict) -> tuple[str, str | None]:
     """CSV 한 행을 사용자 1명으로 등록. 반환: (상태, 오류메시지|None)."""
     username = (row.get("username") or "").strip()
     password = row.get("password") or ""
@@ -335,12 +287,6 @@ def _bulk_add_one(row: dict, group_map: dict[str, int]) -> tuple[str, str | None
         return "error", "username/password/display_name은 필수입니다."
     if len(password) < config.PASSWORD_MIN_LEN:
         return "error", f"비밀번호는 {config.PASSWORD_MIN_LEN}자 이상이어야 합니다."
-
-    group_names = [g.strip() for g in (row.get("groups") or "").split(";") if g.strip()]
-    missing = [g for g in group_names if g not in group_map]
-    if missing:
-        return "error", f"존재하지 않는 그룹: {', '.join(missing)}"
-    group_id_list = [group_map[g] for g in group_names]
 
     try:
         is_admin = _parse_csv_bool(row.get("is_admin") or "", False)
@@ -354,7 +300,7 @@ def _bulk_add_one(row: dict, group_map: dict[str, int]) -> tuple[str, str | None
     try:
         db_admin_add_user(
             username, pw_hash, display_name, pbi_username,
-            is_admin, can_upload, group_id_list,
+            is_admin, can_upload,
             department,
         )
     except psycopg2.errors.UniqueViolation:
@@ -374,11 +320,10 @@ async def api_admin_bulk_add_users(
 ):
     """CSV로 사용자 여러 명을 한 번에 등록한다.
 
-    헤더: username,password,display_name,pbi_username,groups,is_admin,can_upload,
-          department
-    groups는 세미콜론(;)으로 여러 값 구분하며 미리 존재하는 그룹 이름만 허용—
-    그룹×보고서 권한은 그룹 쪽에서 한 번만 설정해두면, 이 경로로 늘어나는 인원은
-    그룹 멤버십만으로 자동으로 동일한 열람 권한을 받는다.
+    헤더: username,password,display_name,pbi_username,is_admin,can_upload,department
+    department를 채우면 그 부서에 이미 부여된 보고서 열람권한과 GET 필터가 즉시
+    적용된다 — 별도로 소속을 추가할 필요가 없다(관리자 포털 '보고서' 탭 → 권한 →
+    부서에서 미리 부여해두면 됨).
     """
     verify_csrf(request, csrf)
     raw = await file.read(2 * 1024 * 1024 + 1)
@@ -394,13 +339,10 @@ async def api_admin_bulk_add_users(
     if len(rows) > MAX_BULK_USER_ROWS:
         raise AppError.CSV_TOO_MANY_ROWS.http(max=MAX_BULK_USER_ROWS)
 
-    groups = await asyncio.to_thread(db_admin_get_groups)
-    group_map = {g["name"]: g["id"] for g in groups}
-
     results = []
     created = 0
     for i, row in enumerate(rows, start=2):  # 헤더가 1행이니 데이터는 2행부터
-        status, message = await asyncio.to_thread(_bulk_add_one, row, group_map)
+        status, message = await asyncio.to_thread(_bulk_add_one, row)
         if status == "ok":
             created += 1
         results.append({"row": i, "username": row.get("username", ""), "status": status, "message": message})

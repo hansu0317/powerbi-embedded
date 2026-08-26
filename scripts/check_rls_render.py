@@ -11,7 +11,7 @@
 사용법:
     python scripts/check_rls_render.py <report_id> <username1> [username2] [username3] ...
 
-    예: python scripts/check_rls_render.py 25 adcrm1 test_company test_company_eco
+    예: python scripts/check_rls_render.py 4 user_amt user_eco
 
 출력: scripts/.rls_render_out/<report_id>/shot_<username>.png (여러 장 나오면
       직접 눈으로 비교 — 값이 다른 계정끼리 화면이 실제로 달라야 정상).

@@ -35,10 +35,12 @@ def db_admin_get_stats() -> dict:
 
 
 def db_admin_get_users() -> list:
-    """사용자 목록 + 열람 가능 보고서 수 (직접 부여 + 그룹 경유, active만).
+    """사용자 목록 + 열람 가능 보고서 수 (직접 부여 + 부서 경유, active만).
 
-    department는 권한(위 report_count)과 완전히 별개인 GET 필터(2층·표시 필터) 속성이다
-    — docs/01_RLS_적용가이드.md 참고."""
+    department는 두 층에서 각기 다른 목적으로 쓰인다 — 여기 report_count(1층 열람권한)의
+    한 축이면서, 동시에 GET 필터(2층·화면 표시 필터)의 값이기도 하다. 우연이 아니라
+    의도된 설계다(2026-08-26, 옛 groups 폐기 이후 department 하나로 통일) —
+    docs/01_RLS_적용가이드.md 참고."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -54,7 +56,7 @@ def db_admin_get_users() -> list:
 
 
 def db_get_user_report_list(user_id: int) -> list:
-    """사용자가 열람 가능한 보고서 목록 + 경로(직접 부여 여부, 경유 그룹명들).
+    """사용자가 열람 가능한 보고서 목록 + 경로(직접 부여 여부, 부서 경유 여부).
 
     관리자 포털 사용자 화면의 '보고서 N' 클릭 팝업용."""
     with db_conn() as conn:
@@ -62,18 +64,16 @@ def db_get_user_report_list(user_id: int) -> list:
             cur.execute(
                 """SELECT r.id, r.name, r.category,
                           (ur.user_id IS NOT NULL) AS direct,
-                          COALESCE(ARRAY_AGG(DISTINCT g.name)
-                                   FILTER (WHERE g.name IS NOT NULL), '{}') AS via_groups
+                          (dra.report_id IS NOT NULL) AS via_department
                    FROM reports r
                    LEFT JOIN user_reports ur
                           ON ur.report_id = r.id AND ur.user_id = %s AND ur.can_view
-                   LEFT JOIN user_groups ug ON ug.user_id = %s
-                   LEFT JOIN group_reports gr
-                          ON gr.group_id = ug.group_id AND gr.report_id = r.id AND gr.can_view
-                   LEFT JOIN groups g ON g.id = gr.group_id
+                   LEFT JOIN users u ON u.id = %s
+                   LEFT JOIN department_report_access dra
+                          ON dra.report_id = r.id AND dra.can_view
+                         AND dra.department = u.department AND u.department IS NOT NULL
                    WHERE r.status = 'active'
-                     AND (ur.user_id IS NOT NULL OR gr.group_id IS NOT NULL)
-                   GROUP BY r.id, r.name, r.category, ur.user_id
+                     AND (ur.user_id IS NOT NULL OR dra.report_id IS NOT NULL)
                    ORDER BY r.category NULLS LAST, r.name""",
                 (user_id, user_id),
             )
@@ -82,9 +82,11 @@ def db_get_user_report_list(user_id: int) -> list:
 
 def db_admin_add_user(username: str, pw_hash: str, display_name: str,
                       pbi_username: str, is_admin: bool,
-                      can_upload: bool = True, group_ids: list[int] | None = None,
+                      can_upload: bool = True,
                       department: str | None = None,
                       email: str | None = None) -> int:
+    """department를 채우면 그 즉시 department_report_access로 부여된 보고서들의
+    열람권한도, GET 필터도 함께 적용된다 — 그룹처럼 별도로 소속을 추가할 필요가 없다."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -96,11 +98,6 @@ def db_admin_add_user(username: str, pw_hash: str, display_name: str,
             )
             row = cur.fetchone()
             user_id = row["id"]
-            if group_ids:
-                cur.executemany(
-                    "INSERT INTO user_groups (user_id, group_id) VALUES (%s, %s)",
-                    [(user_id, gid) for gid in group_ids],
-                )
         conn.commit()
     return user_id
 
@@ -169,8 +166,8 @@ def db_admin_get_reports() -> list:
                           r.pbi_report_id, r.pbi_display_name, r.pbi_dataset_id,
                           COALESCE(r.pbi_workspace_id, %s) AS pbi_workspace_id,
                           COUNT(ur.user_id) FILTER (WHERE NOT vu.is_admin) AS viewer_count,
-                          (SELECT COUNT(*) FROM group_reports gr
-                           WHERE gr.report_id = r.id AND gr.can_view) AS group_count
+                          (SELECT COUNT(*) FROM department_report_access dra
+                           WHERE dra.report_id = r.id AND dra.can_view) AS dept_count
                    FROM reports r
                    LEFT JOIN users u ON u.id = r.owner_id
                    LEFT JOIN user_reports ur ON ur.report_id = r.id AND ur.can_view = TRUE
@@ -277,8 +274,8 @@ def db_import_pbi_item(
 def db_admin_set_report_visibility(report_id: int, visibility: str, actor_id: int) -> bool:
     """관리자가 보고서를 비공개(personal) 또는 포털 공용(shared)으로 전환한다.
 
-    특정 그룹 공유는 visibility='group' 같은 암묵적 소유자 그룹 규칙을 쓰지 않고
-    group_reports에서 명시적으로 관리한다.
+    특정 부서에만 공유하는 건 이 visibility가 아니라 department_report_access에서
+    명시적으로 관리한다(db_set_report_department_access).
     """
     with db_conn() as conn:
         with conn.cursor() as cur:
@@ -334,27 +331,23 @@ def db_get_report_access(report_id: int) -> list:
     """보고서에 대한 모든 활성 사용자의 열람 권한 현황을 반환한다.
 
     direct: 개별 user_reports 행의 값 — true(직접 허용) / false(명시적 차단) / null(개별 설정 없음).
-    via_group: 소속 그룹 중 하나라도 이 보고서에 권한이 있는지.
-    can_view: 최종 열람 가능 여부(_CAN_VIEW_REPORT_SQL과 동일 규칙 — 차단이 그룹 권한보다 우선)."""
+    via_department: 소속 부서에 이 보고서 권한이 부여돼 있는지.
+    can_view: 최종 열람 가능 여부(_CAN_VIEW_REPORT_SQL과 동일 규칙 — 차단이 부서 권한보다 우선)."""
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT u.id, u.username, u.display_name, u.is_admin,
                           ur.can_view AS direct,
-                          COALESCE(vg.via_group, FALSE) AS via_group,
+                          COALESCE(dra.report_id IS NOT NULL, FALSE) AS via_department,
                           CASE
                               WHEN ur.can_view = FALSE THEN FALSE
-                              ELSE COALESCE(ur.can_view, FALSE) OR COALESCE(vg.via_group, FALSE)
+                              ELSE COALESCE(ur.can_view, FALSE) OR COALESCE(dra.report_id IS NOT NULL, FALSE)
                           END AS can_view
                    FROM users u
                    LEFT JOIN user_reports ur ON ur.user_id = u.id AND ur.report_id = %s
-                   LEFT JOIN LATERAL (
-                       SELECT TRUE AS via_group
-                       FROM user_groups ug
-                       JOIN group_reports gr ON gr.group_id = ug.group_id
-                       WHERE ug.user_id = u.id AND gr.report_id = %s AND gr.can_view
-                       LIMIT 1
-                   ) vg ON TRUE
+                   LEFT JOIN department_report_access dra
+                          ON dra.report_id = %s AND dra.can_view
+                         AND dra.department = u.department AND u.department IS NOT NULL
                    WHERE u.is_active = TRUE
                    ORDER BY u.is_admin DESC, u.username""",
                 (report_id, report_id),
@@ -366,8 +359,8 @@ def db_set_report_access(report_id: int, user_id: int, can_view: bool, granted_b
     """보고서에 대한 특정 사용자의 열람 권한을 설정한다.
 
     can_view=False는 단순히 "부여 안 함"이 아니라 명시적 차단이다 — 이 행이 있으면
-    소속 그룹으로 부여된 권한이 있어도 이 사용자만 못 보게 우선 적용된다
-    (_CAN_VIEW_REPORT_SQL 참고). 그래서 그룹으로만 권한이 있던(개별 행이 아예 없던)
+    소속 부서로 부여된 권한이 있어도 이 사용자만 못 보게 우선 적용된다
+    (_CAN_VIEW_REPORT_SQL 참고). 그래서 부서로만 권한이 있던(개별 행이 아예 없던)
     사용자를 차단할 때도 UPSERT로 새 행을 만들어야 한다 — UPDATE만 하면 기존 행이
     없을 때 아무 효과가 없다.
 
