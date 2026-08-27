@@ -13,17 +13,6 @@ from errors import AppError
 
 # ── 부서 단위 보고서 접근 ────────────────────────────────────────────────────
 
-def db_list_departments() -> list[str]:
-    """현재 사용자들에게 실제로 쓰이고 있는 department 값 목록 (부여 UI 선택지용)."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT DISTINCT department FROM users "
-                "WHERE department IS NOT NULL AND department <> '' ORDER BY department"
-            )
-            return [row["department"] for row in cur.fetchall()]
-
-
 def db_get_report_department_access(report_id: int) -> list:
     """이 보고서에 부여된 부서 목록 + 각 부서 현재 인원 수 (권한 모달 '부서' 탭용)."""
     with db_conn() as conn:

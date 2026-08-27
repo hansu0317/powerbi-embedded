@@ -39,14 +39,14 @@ from database.admin import (
     db_get_app_config, db_update_app_config,
 )
 from database.department_access import (
-    db_list_departments, db_get_report_department_access, db_set_report_department_access,
+    db_get_report_department_access, db_set_report_department_access,
 )
 from database.activity import (
     db_log_activity, db_get_activity_log, db_get_user_activity_log, db_get_audit_log,
     db_cleanup_activity_log, db_get_popular_report_ids,
 )
 from database.folders import (
-    db_get_report_folders, db_get_writable_folders, db_get_folder, db_move_report_to_folder,
+    db_get_report_folders, db_get_writable_folders, db_get_folder,
     db_can_write_folder, db_ensure_folder_path,
 )
 
@@ -69,9 +69,9 @@ __all__ = [
     "db_admin_set_report_visibility",
     "db_admin_get_upload_jobs", "db_get_report_access", "db_set_report_access",
     "db_get_app_config", "db_update_app_config",
-    "db_list_departments", "db_get_report_department_access", "db_set_report_department_access",
+    "db_get_report_department_access", "db_set_report_department_access",
     "db_log_activity", "db_get_activity_log", "db_get_user_activity_log", "db_get_audit_log",
     "db_cleanup_activity_log", "db_get_popular_report_ids",
-    "db_get_report_folders", "db_get_writable_folders", "db_get_folder", "db_move_report_to_folder",
+    "db_get_report_folders", "db_get_writable_folders", "db_get_folder",
     "db_can_write_folder", "db_ensure_folder_path",
 ]

@@ -83,7 +83,10 @@ try:
     from errors import AppError, extract_code_message
     from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
     from services.backup import backup_loop
-    from routes import auth, report, admin, folders
+    from routes import (
+        auth, report, report_upload, report_update, report_export,
+        admin, admin_users, admin_reports, admin_config, admin_logs, folders,
+    )
 except Exception:
     logger.exception("STARTUP IMPORT FAILURE")
     raise
@@ -160,8 +163,15 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(report.router)
+app.include_router(report_upload.router)
+app.include_router(report_update.router)
+app.include_router(report_export.router)
 app.include_router(folders.router)
 app.include_router(admin.router)
+app.include_router(admin_users.router)
+app.include_router(admin_reports.router)
+app.include_router(admin_config.router)
+app.include_router(admin_logs.router)
 
 
 @app.exception_handler(HTTPException)

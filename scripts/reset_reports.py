@@ -1,6 +1,6 @@
 """보고서 관련 테이블 초기화.
 
-users / groups / app_config 와 로그인·활동 로그는 유지한다.
+users / department_report_access / app_config 와 로그인·활동 로그는 유지한다.
 Power BI 워크스페이스의 실제 파일은 영향받지 않는다.
 
 사용법:
@@ -38,7 +38,7 @@ def reset():
             cur.execute("TRUNCATE user_reports RESTART IDENTITY CASCADE")
             cur.execute("TRUNCATE reports RESTART IDENTITY CASCADE")
         conn.commit()
-    print("초기화 완료 (users / groups / app_config / 로그인·활동 로그 유지)")
+    print("초기화 완료 (users / department_report_access / app_config / 로그인·활동 로그 유지)")
 
 
 if __name__ == "__main__":

@@ -22,11 +22,6 @@ export function setAuthToken(token: string, username: string) {
   sessionStorage.setItem(AUTH_USER_KEY, username);
 }
 
-export function clearAuthToken() {
-  sessionStorage.removeItem(AUTH_TOKEN_KEY);
-  sessionStorage.removeItem(AUTH_USER_KEY);
-}
-
 function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const token = getAuthToken();
   if (!token) return fetch(input, init);
@@ -101,7 +96,8 @@ export async function fetchReportFolders():Promise<ReportFolder[]> { const r=awa
 // 의도적으로 다른 엔드포인트다. 아직 보고서가 없는 빈 공용 폴더도 업로드 대상으로는
 // 보여야 해서 "쓸 수 있는가" 기준을 쓴다(2026-08-20, database/folders.py 참고).
 export async function fetchWritableFolders():Promise<ReportFolder[]> { const r=await authFetch("/api/report-folders/writable"); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"폴더 조회 실패")); return j.folders; }
-export async function moveReportToFolder(reportId:number,folderId:number,csrf:string){ const r=await authFetch(`/api/reports/${reportId}/folder`,{method:"POST",headers:{"X-CSRF-Token":csrf,"Content-Type":"application/json"},body:JSON.stringify({folder_id:folderId})}); const j=await r.json(); if(!r.ok) throw new Error(extractDetail(j,"보고서 이동 실패")); return j; }
+// 보고서를 다른 폴더로 옮기는 API는 없다 — 폴더 구조는 Fabric에서만 바꾸고 이 앱은
+// 가져오기 때 그대로 미러링만 한다(routes/folders.py 상단 주석 참고, 2026-08-27).
 
 export interface UploadStatus {
   job_id: number;
@@ -310,12 +306,8 @@ export interface DepartmentAccess {
   member_count: number;
 }
 
-export async function adminListDepartments(): Promise<string[]> {
-  const res = await authFetch("/api/admin/departments");
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "부서 목록 조회 실패"));
-  return j.departments as string[];
-}
+// 부서 선택지 목록은 별도 API 없이 이미 로드된 사용자 목록에서 뽑아 쓴다
+// (AdminPage.tsx::departmentOptions) — 전용 엔드포인트가 unused라 2026-08-27 정리.
 
 export async function adminGetDepartmentAccess(reportId: number): Promise<DepartmentAccess[]> {
   const res = await authFetch(`/api/admin/reports/${reportId}/department-access`);

@@ -106,18 +106,3 @@ def db_ensure_folder_path(path: str, fabric_folder_id: str | None, actor_id: int
                 parent_id = leaf_id
         conn.commit()
     return leaf_id
-
-
-def db_move_report_to_folder(report_id: int, folder_id: int, actor_id: int, is_admin: bool) -> dict | None:
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT id,name,visibility FROM report_folders f WHERE id=%s AND {_CAN_WRITE_FOLDER_SQL}",
-                        (folder_id,is_admin,actor_id))
-            folder=cur.fetchone()
-            if not folder: return None
-            cur.execute("""UPDATE reports SET portal_folder_id=%s,category=%s,visibility=%s,updated_by=%s,updated_at=NOW()
-                           WHERE id=%s AND (%s OR owner_id=%s) RETURNING id,pbi_report_id,pbi_workspace_id""",
-                        (folder_id,folder['name'],folder['visibility'],actor_id,report_id,is_admin,actor_id))
-            row=cur.fetchone()
-        conn.commit()
-    return row
