@@ -249,7 +249,14 @@ export default function ReportPage({ data }: { data: ReportData }) {
         </div>}
         {settingsToast && <div className={`ad-toast show ${settingsToast.tone}`}>{settingsToast.msg}</div>}
 
-        {mode === "home" ? (
+        {/* mode/view는 그냥 화면을 숨기고 보여주는 용도일 뿐 — 예전엔 {cond ? A : B}로 안 쓰는
+            쪽을 언마운트했는데, 그러면 MyReportsView 안의 ReportPanel(Power BI iframe)도 같이
+            사라졌다가 새로 만들어져서 사용자가 클릭해둔 슬라이서·크로스필터 선택이 홈 갔다
+            오면 다 풀렸다(2026-08-27 리포트: "시화공장 눌러서 그래프 봤는데 홈 갔다 오면
+            사라짐"). 그래서 둘 다 항상 마운트해두고 display만 토글한다 — display:contents는
+            래퍼 자체가 레이아웃에 안 끼어서(자식이 곧바로 부모의 flex 아이템이 됨) 기존
+            .home/.app-body flex 레이아웃을 그대로 유지한다. */}
+        <div style={{ display: mode === "home" ? "contents" : "none" }}>
           <Home
             reports={reports}
             isAdmin={Boolean(user.is_admin)}
@@ -266,7 +273,8 @@ export default function ReportPage({ data }: { data: ReportData }) {
               goMode("reports");
             }}
           />
-        ) : (
+        </div>
+        <div style={{ display: mode === "reports" ? "contents" : "none" }}>
           <div className="app-body rp-body-shell">
           <ReportSidebar
               reports={reports}
@@ -282,7 +290,9 @@ export default function ReportPage({ data }: { data: ReportData }) {
               onOpen={openReport}
             />
             <main className="app-main">
-              {view === "my" && (
+              {/* view 전환도 같은 이유로 언마운트 대신 display 토글 — "전체 보고서"나
+                  "보고서 등록"을 갔다 와도 열려있던 보고서 탭의 선택 상태가 유지된다. */}
+              <div style={{ display: view === "my" ? "contents" : "none" }}>
                 <MyReportsView
                   reports={myReports}
                   tabs={tabs}
@@ -300,7 +310,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
                   browserMode={browserMode}
                   onBrowserMode={changeBrowserMode}
                 />
-              )}
+              </div>
               {view === "all" && (
                 <AllReportsView
                   reports={reports}
@@ -316,7 +326,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
               {view === "upload" && canUpload && <UploadView csrf={csrf_token} isAdmin={Boolean(user.is_admin)} />}
             </main>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
