@@ -208,7 +208,6 @@ def db_import_pbi_item(
     """
     tab_type    = "dashboard" if is_dashboard else "report"
     dataset_id  = None if is_dashboard else pbi_dataset_id
-    audit_event = "dashboard_imported" if is_dashboard else "managed_report_imported"
     portal_folder_id = db_ensure_folder_path(category, folder_id, actor_id) if category else None
 
     # PBI 표시 이름이 '계정__보고서명' 규칙이면 원래 개인 보고서였다는 뜻이다.
@@ -226,8 +225,6 @@ def db_import_pbi_item(
                 owner_id, display_name = row["id"], rest
 
     report_type = "dashboard" if is_dashboard else ("personal" if owner_id else "managed")
-    if owner_id:
-        audit_event = "personal_report_restored"
 
     with db_conn() as conn:
         with conn.cursor() as cur:
@@ -261,12 +258,6 @@ def db_import_pbi_item(
                        ON CONFLICT (user_id, report_id) DO UPDATE SET can_view = TRUE""",
                     (owner_id, report_id, actor_id),
                 )
-            cur.execute(
-                """INSERT INTO event_log (log_type, report_id, user_id, event, details)
-                   VALUES ('audit', %s, %s, %s,
-                           jsonb_build_object('pbi_item_id', %s, 'name', %s, 'category', %s))""",
-                (report_id, actor_id, audit_event, pbi_item_id, display_name, category),
-            )
         conn.commit()
     return True
 
@@ -298,12 +289,6 @@ def db_admin_soft_delete_report(report_id: int, admin_user_id: int) -> bool:
                 (admin_user_id, report_id),
             )
             row = cur.fetchone()
-            if row:
-                cur.execute(
-                    "INSERT INTO event_log (log_type, report_id, user_id, event, details) "
-                    "VALUES ('audit', %s, %s, 'admin_deleted', '{}'::jsonb)",
-                    (report_id, admin_user_id),
-                )
         conn.commit()
     return bool(row)
 

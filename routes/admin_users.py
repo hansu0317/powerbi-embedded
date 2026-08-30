@@ -4,14 +4,12 @@ routes/admin.py에서 2026-08-27에 분리했다 — 원래 파일이 admin 도�
 사용자·보고서권한·설정·로그)를 한 파일에 담아 600줄대 후반까지 커졌고, database/
 패키지가 이미 도메인별로 나뉜 것과 결이 안 맞았다. 라우트 등록은 main.py에서
 routes.admin_users.router를 별도로 include한다."""
-import csv
-import io
 import asyncio
 import logging
 
 import bcrypt
 import psycopg2.errors
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, Form
 from fastapi.requests import Request
 
 import config
@@ -99,93 +97,6 @@ async def api_admin_edit_user(
         "user_id": user_id, "display_name": display_name, "pbi_username": pbi_username,
         "department": department, "email": email,
     }
-
-
-def _parse_csv_bool(value: str, default: bool) -> bool:
-    v = value.strip().lower()
-    if not v:
-        return default
-    if v in ("true", "1", "y", "yes"):
-        return True
-    if v in ("false", "0", "n", "no"):
-        return False
-    raise ValueError(f"불리언 값은 true/false만 허용합니다: '{value}'")
-
-
-def _bulk_add_one(row: dict) -> tuple[str, str | None]:
-    """CSV 한 행을 사용자 1명으로 등록. 반환: (상태, 오류메시지|None)."""
-    username = (row.get("username") or "").strip()
-    password = row.get("password") or ""
-    display_name = (row.get("display_name") or "").strip()
-    if not username or not password or not display_name:
-        return "error", "username/password/display_name은 필수입니다."
-    if len(password) < config.PASSWORD_MIN_LEN:
-        return "error", f"비밀번호는 {config.PASSWORD_MIN_LEN}자 이상이어야 합니다."
-
-    try:
-        is_admin = _parse_csv_bool(row.get("is_admin") or "", False)
-        can_upload = _parse_csv_bool(row.get("can_upload") or "", True)
-    except ValueError as exc:
-        return "error", str(exc)
-    pbi_username = (row.get("pbi_username") or "").strip() or username
-    department = (row.get("department") or "").strip() or None
-    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-    try:
-        db_admin_add_user(
-            username, pw_hash, display_name, pbi_username,
-            is_admin, can_upload,
-            department,
-        )
-    except psycopg2.errors.UniqueViolation:
-        return "error", f"'{username}' 아이디가 이미 존재합니다."
-    return "ok", None
-
-
-MAX_BULK_USER_ROWS = 500
-
-
-@router.post("/api/admin/users/bulk-import")
-async def api_admin_bulk_add_users(
-    request: Request,
-    file: UploadFile = File(...),
-    csrf: str = Form(),
-    user: dict = Depends(require_admin_user),
-):
-    """CSV로 사용자 여러 명을 한 번에 등록한다.
-
-    헤더: username,password,display_name,pbi_username,is_admin,can_upload,department
-    department를 채우면 그 부서에 이미 부여된 보고서 열람권한과 GET 필터가 즉시
-    적용된다 — 별도로 소속을 추가할 필요가 없다(관리자 포털 '보고서' 탭 → 권한 →
-    부서에서 미리 부여해두면 됨).
-    """
-    verify_csrf(request, csrf)
-    raw = await file.read(2 * 1024 * 1024 + 1)
-    if not raw:
-        raise AppError.CSV_EMPTY.http()
-    if len(raw) > 2 * 1024 * 1024:
-        raise AppError.CSV_TOO_LARGE.http(max_mb=2)
-    text = raw.decode("utf-8-sig", errors="replace")
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames or not {"username", "password", "display_name"} <= set(reader.fieldnames):
-        raise AppError.CSV_HEADER_INVALID.http()
-    rows = list(reader)
-    if len(rows) > MAX_BULK_USER_ROWS:
-        raise AppError.CSV_TOO_MANY_ROWS.http(max=MAX_BULK_USER_ROWS)
-
-    results = []
-    created = 0
-    for i, row in enumerate(rows, start=2):  # 헤더가 1행이니 데이터는 2행부터
-        status, message = await asyncio.to_thread(_bulk_add_one, row)
-        if status == "ok":
-            created += 1
-        results.append({"row": i, "username": row.get("username", ""), "status": status, "message": message})
-
-    logger.info(
-        "ADMIN BULK ADD USERS | admin=%s | created=%d | failed=%d",
-        user["username"], created, len(rows) - created,
-    )
-    return {"created": created, "failed": len(rows) - created, "results": results}
 
 
 @router.post("/api/admin/users/{user_id}/toggle-active")

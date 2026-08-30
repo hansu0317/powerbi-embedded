@@ -20,11 +20,6 @@ export interface ReportItem {
   visibility?: "personal" | "shared";
 }
 
-export interface PopularItem {
-  report_id: number;
-  views: number;
-}
-
 export interface LoginData {
   error: string | null;
   csrf_token: string;
@@ -37,7 +32,6 @@ export interface ReportData {
   reports: ReportItem[];
   favorites: number[];
   recents: number[];
-  popular: PopularItem[];
   csrf_token: string;
   /** 설정 시에만 상단바에 "마케팅 포털" 링크 노출 (MARKETING_PORTAL_URL, 선택) */
   marketing_portal_url: string | null;

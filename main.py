@@ -1,17 +1,17 @@
 """Power BI 게이트웨이 — 앱 초기화 진입점.
 
-모듈 구조 (자세한 파일 지도는 docs/00_학습_로드맵.md 참고):
+모듈 구조:
   config.py           환경변수 + app_config DB 로더 + 런타임 상수
   errors.py           AppError enum (중앙 에러 레지스트리)
-  database/           커넥션 풀(pool.py) + 도메인별 DB 쿼리 함수(auth/reports/uploads/folders/groups/activity/admin)
+  database/           커넥션 풀(pool.py) + 도메인별 DB 쿼리 함수(auth/reports/uploads/folders/admin/department_access)
   deps.py             세션 사용자 조회, CSRF 헬퍼, require_admin
   services/azure.py   Azure AD 토큰 발급
   services/fabric.py  PBI 동기화, 시작 복구
   services/powerbi.py Power BI Embed Token 발급, 보고서·데이터셋 이름 변경
   routes/auth.py      /login, /logout
-  routes/report.py    /, /api/embed, /api/upload, /health, /docs
-  routes/folders.py   /api/report-folders, 보고서 폴더 이동
-  routes/admin.py     /admin, /api/admin/*
+  routes/report.py    /, /api/embed, /health, /docs (+ report_upload.py: /api/upload)
+  routes/folders.py   /api/report-folders
+  routes/admin*.py    /admin, /api/admin/* (도메인별로 분리)
 """
 import asyncio
 import logging
@@ -79,40 +79,34 @@ try:
 
     import config
     from config import SECRET_KEY, COOKIE_SECURE
-    from database import db_cleanup_login_attempts, db_cleanup_activity_log
+    from database import db_cleanup_login_attempts
     from errors import AppError, extract_code_message
     from services.fabric import pbi_sync_loop, recover_db_jobs, recover_pending_imports
     from services.backup import backup_loop
     from routes import (
-        auth, report, report_upload, report_update, report_export,
-        admin, admin_users, admin_reports, admin_config, admin_logs, folders,
+        auth, report, report_upload,
+        admin, admin_users, admin_reports, admin_config, folders,
     )
 except Exception:
     logger.exception("STARTUP IMPORT FAILURE")
     raise
 
 
-def _daily_cleanup():
-    """일 1회 정리 묶음: 로그인 기록 30일 초과 + 활동 로그 보존기간 초과."""
-    db_cleanup_login_attempts()
-    return db_cleanup_activity_log()
-
-
 async def _login_cleanup_loop():
-    """오래된 기록(로그인 시도·활동 로그)을 하루 1회 정리한다.
+    """오래된 로그인 시도 기록(30일 초과)을 하루 1회 정리한다.
 
     기존에는 db_record_login() 안에서 매 로그인마다 실행했다.
     로그인 응답 경로에서 분리해 서버 시작 시 1회 + 이후 24시간마다 실행한다.
     """
     try:
-        deleted = await asyncio.to_thread(_daily_cleanup)
-        logger.info("DAILY CLEANUP: 로그인 기록 + 활동 로그 %d건 정리 완료", deleted)
+        deleted = await asyncio.to_thread(db_cleanup_login_attempts)
+        logger.info("DAILY CLEANUP: 로그인 기록 %d건 정리 완료", deleted)
     except Exception:
         logger.exception("DAILY CLEANUP FAIL (startup)")
     while True:
         await asyncio.sleep(86400)  # 24시간
         try:
-            await asyncio.to_thread(_daily_cleanup)
+            await asyncio.to_thread(db_cleanup_login_attempts)
         except Exception:
             logger.exception("DAILY CLEANUP FAIL")
 
@@ -164,14 +158,11 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(report.router)
 app.include_router(report_upload.router)
-app.include_router(report_update.router)
-app.include_router(report_export.router)
 app.include_router(folders.router)
 app.include_router(admin.router)
 app.include_router(admin_users.router)
 app.include_router(admin_reports.router)
 app.include_router(admin_config.router)
-app.include_router(admin_logs.router)
 
 
 @app.exception_handler(HTTPException)

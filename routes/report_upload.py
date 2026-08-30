@@ -1,8 +1,6 @@
 """신규 보고서 업로드 파이프라인: POST /api/upload, GET /api/upload/status/{job_id}.
 
-routes/report.py에서 2026-08-27에 분리했다(분리 배경은 그 파일 상단 주석 참고).
-`_validate_pbix_file`/`_pbi_import_pbix`는 routes/report_update.py(v7 콘텐츠 교체)도
-그대로 가져다 쓴다 — PBI Import API 게시·폴링 로직이 완전히 같기 때문."""
+routes/report.py에서 2026-08-27에 분리했다(분리 배경은 그 파일 상단 주석 참고)."""
 import asyncio
 import io
 import logging
@@ -17,7 +15,6 @@ from config import WORKSPACE_ID
 from database import (
     db_find_report, db_reserve_upload, db_update_upload_job, db_get_upload_job,
     db_register_report, db_fail_stuck_upload_job, db_get_folder, db_can_write_folder,
-    db_log_activity,
 )
 from deps import get_client_ip, require_user, require_user_csrf
 from errors import AppError, extract_code_message
@@ -197,24 +194,14 @@ async def _run_upload(user: dict, name: str, pbix_bytes: bytes, file_size: int, 
     # 5) 게이트웨이 DB 등록 + 완료 처리
     await _register_uploaded_report(user, name, pbi_report_id, dataset_ids, pbi_display_name, job_id,
                                     description, category, portal_folder_id, visibility)
-    # 활동 기록은 실패한 업로드가 "업로드"로 남지 않도록 완료 시점에만 남긴다
-    await asyncio.to_thread(db_log_activity, user["id"], user["username"], "report_upload", None, name, ip)
     logger.info("UPLOAD OK  | user=%-12s | ip=%s | report=%s", user["username"], ip, name)
     return {"report_name": name, "pbi_display_name": pbi_display_name, "new": True}
 
 
-async def _pbi_import_pbix(
-    user: dict, name: str, pbix_bytes: bytes, job_id: int, ip: str,
-    workspace_id: str = WORKSPACE_ID, import_name: str | None = None, name_conflict: str = "CreateOrOverwrite",
-) -> dict:
-    """.pbix를 PBI에 게시하고 변환 완료까지 폴링한다. 성공 시 import 결과(JSON)를 반환.
-
-    workspace_id/import_name/name_conflict는 v7 콘텐츠 업데이트(routes/report_update.py)의
-    스테이징 임포트가 같은 폴링 로직을 재사용하기 위한 파라미터 — 기본값은 기존 신규
-    업로드 동작과 동일하다."""
-    if import_name is None:
-        import_name = f"{user['username']}__{name}"
-    report_api = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
+async def _pbi_import_pbix(user: dict, name: str, pbix_bytes: bytes, job_id: int, ip: str) -> dict:
+    """.pbix를 PBI에 게시하고 변환 완료까지 폴링한다. 성공 시 import 결과(JSON)를 반환."""
+    import_name = f"{user['username']}__{name}"
+    report_api = f"https://api.powerbi.com/v1.0/myorg/groups/{WORKSPACE_ID}"
     try:
         access_token = await asyncio.to_thread(get_access_token)
     except Exception as exc:
@@ -222,7 +209,7 @@ async def _pbi_import_pbix(
         raise
     headers = {"Authorization": f"Bearer {access_token}"}
 
-    import_params = {"datasetDisplayName": f"{import_name}.pbix", "nameConflict": name_conflict}
+    import_params = {"datasetDisplayName": f"{import_name}.pbix", "nameConflict": "CreateOrOverwrite"}
 
     async with httpx.AsyncClient(timeout=300) as client:
         try:
@@ -243,7 +230,7 @@ async def _pbi_import_pbix(
             raise AppError.IMPORT_REQUEST_FAILED.http(detail=resp.text)
 
         import_id = resp.json()["id"]
-        await asyncio.to_thread(db_update_upload_job, job_id, "accepted", import_id=import_id, pbi_workspace_id=workspace_id)
+        await asyncio.to_thread(db_update_upload_job, job_id, "accepted", import_id=import_id, pbi_workspace_id=WORKSPACE_ID)
         logger.info("UPLOAD ACCEPT | user=%-12s | report=%s | import_id=%s", user["username"], name, import_id)
 
         # 변환 완료 대기

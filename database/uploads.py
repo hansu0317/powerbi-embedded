@@ -8,33 +8,6 @@ from errors import AppError
 
 # ── 업로드 잡 ─────────────────────────────────────────────────────────────────
 
-def db_reserve_update(actor_id: int, target_report_id: int, report_name: str) -> int:
-    """보고서 콘텐츠 업데이트 예약 (v7). 새 보고서를 만들지 않으므로 개인 보고서
-    개수 한도는 검사하지 않는다 — 일일 업로드 한도와 동시 실행 잠금만 재사용한다.
-    권한(소유자·admin) 검증은 호출자(routes/report.py)에서 이미 끝난 상태로 들어온다."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT pg_advisory_xact_lock(%s)", (actor_id,))
-            cur.execute(
-                "SELECT COUNT(*) AS count FROM upload_jobs WHERE user_id = %s AND created_at >= CURRENT_DATE",
-                (actor_id,),
-            )
-            if cur.fetchone()["count"] >= config.MAX_UPLOADS_PER_DAY:
-                raise AppError.RATE_UPLOAD_DAILY.http(max=config.MAX_UPLOADS_PER_DAY)
-            try:
-                cur.execute(
-                    "INSERT INTO upload_jobs (user_id, report_name, status, job_type, target_report_id) "
-                    "VALUES (%s, %s, 'publishing', 'update', %s) RETURNING id",
-                    (actor_id, report_name, target_report_id),
-                )
-                row = cur.fetchone()
-            except psycopg2.errors.UniqueViolation as exc:
-                conn.rollback()
-                raise AppError.UPLOAD_IN_PROGRESS.http(name=report_name) from exc
-        conn.commit()
-    return row["id"]
-
-
 def db_reserve_upload(user_id: int, report_name: str) -> int:
     """업로드 예약. DB 제약으로 다중 프로세스 경합을 막는다.
 
@@ -212,12 +185,6 @@ def db_register_report(
                    ON CONFLICT (user_id, report_id) DO UPDATE SET can_view=TRUE""",
                 (owner_id, report_id, owner_id),
             )
-            cur.execute(
-                """INSERT INTO event_log (log_type, report_id, user_id, event, details)
-                   VALUES ('audit', %s, %s, 'personal_report_registered',
-                           jsonb_build_object('pbi_report_id', %s, 'name', %s))""",
-                (report_id, owner_id, pbi_report_id, name),
-            )
         conn.commit()
     return report_id
 
@@ -245,12 +212,6 @@ def db_mark_report_deleted(report_id: int, pbi_report_id: str, reason: str) -> b
                 "UPDATE reports SET status='deleted', deleted_at=NOW(), updated_at=NOW() WHERE id=%s AND status<>'deleted'",
                 (report_id,),
             )
-            if cur.rowcount:
-                cur.execute(
-                    """INSERT INTO event_log (log_type, report_id, event, details)
-                       VALUES ('audit', %s, 'pbi_deleted', jsonb_build_object('pbi_report_id', %s, 'reason', %s))""",
-                    (report_id, pbi_report_id, reason),
-                )
         conn.commit()
         return bool(cur.rowcount)
 
@@ -263,11 +224,6 @@ def db_restore_report(report_id: int, pbi_report_id: str) -> bool:
                 "UPDATE reports SET status='active', deleted_at=NULL, updated_at=NOW() WHERE id=%s AND status='deleted'",
                 (report_id,),
             )
-            if cur.rowcount:
-                cur.execute(
-                    "INSERT INTO event_log (log_type, report_id, event, details) VALUES ('audit', %s, 'pbi_restored', jsonb_build_object('pbi_report_id', %s))",
-                    (report_id, pbi_report_id),
-                )
         conn.commit()
         return bool(cur.rowcount)
 

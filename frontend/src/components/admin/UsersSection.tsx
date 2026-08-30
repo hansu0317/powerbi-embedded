@@ -1,15 +1,14 @@
-// 관리자 포털 "사용자" 탭 — 목록·추가·수정·CSV 일괄등록·사용자별 열람 보고서 조회.
+// 관리자 포털 "사용자" 탭 — 목록·추가·수정·사용자별 열람 보고서 조회.
 // pages/AdminPage.tsx에서 2026-08-27에 분리했다(분리 배경은 components/admin/shared.tsx
-// 상단 주석 참고).
+// 상단 주석 참고). CSV 일괄등록은 학습용 코드 축소 과정에서 제거했다(2026-08-27,
+// git 이력의 v2 태그에 남아있음).
 import { useEffect, useState } from "react";
-import { Download, Plus, Upload } from "lucide-react";
+import { Plus } from "lucide-react";
 
 import type { AdminUser } from "../../lib/bootstrap";
 import {
-  BulkAddResult,
   UserReportRow,
   adminAddUser,
-  adminBulkAddUsers,
   adminEditUser,
   adminGetUserReports,
 } from "../../lib/api";
@@ -37,30 +36,16 @@ export function UsersSection({
   const { pageItems, page, totalPages, total, setPage } = usePaged(users, pageSize);
   const [reportsUser, setReportsUser] = useState<AdminUser | null>(null);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
-  const [showBulk, setShowBulk] = useState(false);
   return (
     <section>
       <div className="ad-section-head">
         <h2 style={{ marginBottom: 0 }}>사용자 관리</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn" onClick={() => setShowBulk(true)}>
-            <Upload size={15} className="icn" /> CSV로 일괄 등록
-          </button>
           <button className="btn btn-primary" onClick={onAdd}>
             <Plus size={15} className="icn" /> 새 사용자 추가
           </button>
         </div>
       </div>
-      {showBulk && (
-        <BulkAddUsersModal
-          csrf={csrf}
-          onClose={() => setShowBulk(false)}
-          onDone={() => {
-            showToast("일괄 등록이 완료됐습니다. 목록을 새로고침합니다...", "ok");
-            setTimeout(() => location.reload(), 1200);
-          }}
-        />
-      )}
       <div className="card-table" ref={tableRef}>
         <table>
           <colgroup>
@@ -341,166 +326,6 @@ function EditUserModal({
           </button>
         </div>
       </form>
-    </Modal>
-  );
-}
-
-function BulkAddUsersModal({
-  csrf,
-  onClose,
-  onDone,
-}: {
-  csrf: string;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<BulkAddResult | null>(null);
-  const [error, setError] = useState("");
-
-  const submit = async () => {
-    if (!file) return;
-    setBusy(true);
-    setError("");
-    try {
-      const r = await adminBulkAddUsers(file, csrf);
-      setResult(r);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title="CSV로 사용자 일괄 등록" wide onClose={onClose}>
-      <div className="ad-modal-body">
-        {!result && (
-          <>
-            <p className="ad-bulk-lead">
-              CSV 한 장으로 여러 계정을 한 번에 만듭니다. 행마다 독립 처리되므로
-              일부가 실패해도 나머지는 그대로 등록됩니다.
-            </p>
-
-            <div className="ad-bulk-step">
-              <span className="ad-bulk-num">1</span>
-              <div className="ad-bulk-body">
-                <div className="ad-bulk-title">템플릿을 받아 작성합니다</div>
-                <div className="ad-bulk-code">
-                  username,password,display_name,pbi_username,is_admin,can_upload,department
-                </div>
-                <table className="ad-bulk-cols">
-                  <tbody>
-                    <tr><th>username</th><td className="req">필수</td><td>로그인 아이디</td></tr>
-                    <tr><th>password</th><td className="req">필수</td><td>초기 비밀번호 (8자 이상)</td></tr>
-                    <tr><th>display_name</th><td className="req">필수</td><td>화면에 표시할 이름</td></tr>
-                    <tr><th>pbi_username</th><td>선택</td><td>RLS Effective Identity에 쓰이는 내부 키 — 비우면 username을 그대로 씀(대부분 이대로 두면 됨)</td></tr>
-                    <tr><th>is_admin</th><td>선택</td><td>관리자 여부 — 비우면 <code>false</code></td></tr>
-                    <tr><th>can_upload</th><td>선택</td><td>업로드 허용 — 비우면 <code>true</code></td></tr>
-                    <tr><th>department</th><td>선택</td><td>GET 필터 값이자 보고서 열람권한 축 — 그 부서에 이미 부여된 보고서 열람권한을 그대로 받음(예: <code>AMT</code>)</td></tr>
-                  </tbody>
-                </table>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => {
-                    const csv =
-                      "username,password,display_name,pbi_username,is_admin,can_upload,department\n" +
-                      "user01,TempPass123!,홍길동,user01@customer.com,false,true,AMT\n";
-                    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = "사용자_일괄등록_템플릿.csv";
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    URL.revokeObjectURL(url);
-                  }}
-                >
-                  <Download size={14} className="icn" /> 템플릿 다운로드
-                </button>
-              </div>
-            </div>
-
-            <div className="ad-bulk-step">
-              <span className="ad-bulk-num">2</span>
-              <div className="ad-bulk-body">
-                <div className="ad-bulk-title">작성한 파일을 선택합니다</div>
-                <label className="ad-bulk-drop">
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  />
-                  <Upload size={18} className="icn" />
-                  <span className="ad-bulk-dropname">
-                    {file ? file.name : "클릭해서 .csv 파일 선택"}
-                  </span>
-                  {file && (
-                    <span className="ad-bulk-size">{Math.max(1, Math.round(file.size / 1024))} KB</span>
-                  )}
-                </label>
-              </div>
-            </div>
-
-            {error && <p className="ad-bulk-error">오류: {error}</p>}
-          </>
-        )}
-        {result && (
-          <>
-            <div className="ad-bulk-summary">
-              <span className="ok">성공 {result.created}건</span>
-              <span className={result.failed ? "fail" : "none"}>실패 {result.failed}건</span>
-            </div>
-            <div className="card-table" style={{ maxHeight: 320, overflow: "auto" }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>행</th>
-                    <th>아이디</th>
-                    <th>결과</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.results.map((r) => (
-                    <tr key={r.row}>
-                      <td>{r.row}</td>
-                      <td>{r.username}</td>
-                      <td style={{ color: r.status === "ok" ? "inherit" : "var(--danger, #c0392b)" }}>
-                        {r.status === "ok" ? "성공" : `실패 — ${r.message}`}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </div>
-      <div className="ad-modal-footer">
-        {!result && (
-          <>
-            <button type="button" className="btn btn-ghost" onClick={onClose}>
-              취소
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={!file || busy}
-              onClick={submit}
-            >
-              {busy ? "등록 중..." : "업로드"}
-            </button>
-          </>
-        )}
-        {result && (
-          <button type="button" className="btn btn-primary" onClick={onDone}>
-            확인
-          </button>
-        )}
-      </div>
     </Modal>
   );
 }

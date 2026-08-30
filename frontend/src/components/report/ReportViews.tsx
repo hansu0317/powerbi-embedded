@@ -6,12 +6,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as pbi from "powerbi-client";
 import { BarChart3, LayoutDashboard, Maximize, Search, Star, Upload, X } from "lucide-react";
 
-import type { ReportItem, SessionUser } from "../../lib/bootstrap";
+import type { ReportItem } from "../../lib/bootstrap";
 import { fetchEmbed } from "../../lib/api";
 import { Pager, useFitRows } from "../Pager";
 import type { BrowserMode } from "../ReportSidebar";
 import type { OpenTab } from "./tabState";
-import { ReportInfoModal, UpdateReportModal } from "./modals";
+import { ReportInfoModal } from "./modals";
 
 const powerbi = new pbi.service.Service(
   pbi.factories.hpmFactory,
@@ -62,8 +62,6 @@ export function MyReportsView({
   onClose,
   onCloseAll,
   onGoUpload,
-  csrf,
-  user,
   browserMode,
   onBrowserMode,
 }: {
@@ -78,8 +76,6 @@ export function MyReportsView({
   onClose: (id: number) => void;
   onCloseAll: () => void;
   onGoUpload: () => void;
-  csrf: string;
-  user: SessionUser;
   browserMode: BrowserMode;
   onBrowserMode: (mode: BrowserMode) => void;
 }) {
@@ -96,7 +92,6 @@ export function MyReportsView({
   // 첫 보고서를 열면(tabs.length 0→1) 이 컴포넌트가 이전 렌더보다 훅을 하나 더 호출하게 돼
   // "Rendered more hooks than during the previous render"로 화면 전체가 하얗게 죽는다.
   // 조기 return보다 반드시 앞에 선언해야 한다.
-  const [showUpdate, setShowUpdate] = useState(false);
   const [displayModes, setDisplayModes] = useState<Record<number, DisplayMode>>(() => loadDisplayModes());
   useEffect(() => {
     sessionStorage.setItem(DISPLAY_MODES_KEY, JSON.stringify(displayModes));
@@ -104,12 +99,6 @@ export function MyReportsView({
 
   const activeTab = tabs.find((t) => t.id === active);
   const activeEntry = activeTab ? reportRefs.current[activeTab.id] : undefined;
-  const activeReportItem = activeTab ? reports.find((r) => r.id === activeTab.id) : undefined;
-  // 업데이트(콘텐츠 교체) 권한: 열람 권한(can_view)과는 완전히 별개 — 소유자 또는 admin만.
-  const canEditActive =
-    !!activeReportItem &&
-    (user.is_admin || activeReportItem.owner_username === user.username) &&
-    activeReportItem.report_type !== "dashboard";
 
   const activeDisplay: DisplayMode = activeTab ? (displayModes[activeTab.id] ?? "FitToPage") : "FitToPage";
   const setDisplay = async (opt: DisplayMode) => {
@@ -241,24 +230,7 @@ export function MyReportsView({
             <Maximize size={16} className="icn" />
             <span className="rp-toolbar-label">전체화면</span>
           </button>
-          {!activeEntry?.isDashboard && canEditActive && (
-            <button
-              className="btn btn-ghost btn-sm rp-toolbar-update-btn"
-              title="새 pbix로 콘텐츠만 교체 (데이터셋은 유지)"
-              onClick={() => setShowUpdate(true)}
-            >
-              업데이트
-            </button>
-          )}
         </div>
-      )}
-      {showUpdate && activeTab && (
-        <UpdateReportModal
-          reportId={activeTab.id}
-          reportName={activeTab.name}
-          csrf={csrf}
-          onClose={() => setShowUpdate(false)}
-        />
       )}
       <div className="rp-panels">
         {tabs.map((t) => (

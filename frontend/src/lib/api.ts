@@ -211,29 +211,6 @@ export async function adminAddUser(form: FormData) {
   return res.json();
 }
 
-export interface BulkAddRowResult {
-  row: number;
-  username: string;
-  status: "ok" | "error";
-  message: string | null;
-}
-
-export interface BulkAddResult {
-  created: number;
-  failed: number;
-  results: BulkAddRowResult[];
-}
-
-export async function adminBulkAddUsers(file: File, csrf: string): Promise<BulkAddResult> {
-  const form = new FormData();
-  form.set("file", file);
-  form.set("csrf", csrf);
-  const res = await authFetch("/api/admin/users/bulk-import", { method: "POST", body: form });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, res.statusText));
-  return j as BulkAddResult;
-}
-
 export interface EditUserPayload {
   display_name: string;
   pbi_username: string;
@@ -377,42 +354,6 @@ export async function adminToggleUpload(userId: number, csrf: string) {
   return j as { can_upload: boolean };
 }
 
-export interface LogRow {
-  id: number;
-  username?: string;
-  event?: string;
-  actor?: string | null;
-  action?: string;
-  details?: unknown;
-  report_name: string | null;
-  ip?: string | null;
-  created_at: string;
-}
-
-export function logQueryString(
-  type: "activity" | "audit",
-  filters: { username?: string; event?: string; date_from?: string; date_to?: string },
-): string {
-  const params = new URLSearchParams({ type });
-  if (filters.username) params.set("username", filters.username);
-  if (filters.event) params.set("event", filters.event);
-  if (filters.date_from) params.set("date_from", filters.date_from);
-  if (filters.date_to) params.set("date_to", filters.date_to);
-  return params.toString();
-}
-
-export async function adminGetLogs(
-  type: "activity" | "audit",
-  filters: { username?: string; event?: string; date_from?: string; date_to?: string },
-): Promise<{ rows: LogRow[]; limit: number }> {
-  const res = await authFetch(`/api/admin/logs?${logQueryString(type, filters)}`);
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "로그 조회 실패"));
-  // limit은 서버 app_config(activity_log_max_rows)에서 온 실제 조회 상한 — 화면의
-  // "최근 N건까지만 표시" 안내가 관리자가 바꾼 값과 항상 맞도록 같이 받는다.
-  return { rows: j.rows as LogRow[], limit: typeof j.limit === "number" ? j.limit : 1000 };
-}
-
 /* ── v4: 자가진단 ─────────────────────────────────────── */
 
 export interface SystemStatus {
@@ -431,35 +372,3 @@ export async function adminGetSystemStatus(): Promise<SystemStatus> {
   return j;
 }
 
-/* ── v5: 서버 오류 추적 ───────────────────────────────── */
-
-export interface MyActivityRow {
-  id: number;
-  event: string;
-  report_name: string | null;
-  created_at: string;
-}
-
-export async function fetchMyActivity(): Promise<MyActivityRow[]> {
-  const res = await authFetch("/api/user/activity");
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "활동 로그 조회 실패"));
-  return j.activity as MyActivityRow[];
-}
-
-/* ── v7: 보고서 콘텐츠 업데이트 (데이터셋 유지) ───────── */
-
-export async function startReportUpdate(
-  reportId: number, file: File, csrf: string,
-): Promise<UploadAccepted> {
-  const fd = new FormData();
-  fd.append("file", file);
-  const res = await authFetch(`/api/reports/${reportId}/update-content`, {
-    method: "POST",
-    body: fd,
-    headers: { "X-CSRF-Token": csrf },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(data, res.statusText));
-  return data;
-}

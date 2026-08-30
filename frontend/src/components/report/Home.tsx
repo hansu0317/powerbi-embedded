@@ -10,14 +10,13 @@ import type { ReportItem } from "../../lib/bootstrap";
 import { Pager, useFitRows } from "../Pager";
 import { categoryColor, withAlpha } from "../../utils/categoryColor";
 
-type HomeFilter = "all" | "fav" | "recent" | "popular" | "managed" | "personal";
+type HomeFilter = "all" | "fav" | "recent" | "managed" | "personal";
 
 export function Home({
   reports,
   isAdmin,
   viewerName,
   recentIds,
-  popular,
   isFav,
   onOpen,
   onSearch,
@@ -28,7 +27,6 @@ export function Home({
   isAdmin: boolean;
   viewerName: string;
   recentIds: number[];
-  popular: { report_id: number; views: number }[];
   isFav: (id: number) => boolean;
   onOpen: (r: ReportItem) => void;
   onSearch: (q: string) => void;
@@ -52,11 +50,6 @@ export function Home({
         .filter((r): r is ReportItem => Boolean(r)),
     [recentIds, byId],
   );
-  const popularReports = useMemo(
-    () => popular.map((p) => byId.get(p.report_id)).filter((r): r is ReportItem => Boolean(r)),
-    [popular, byId],
-  );
-
   const suggestions = useMemo(() => {
     const k = q.trim().toLowerCase();
     if (!k) return [];
@@ -76,8 +69,6 @@ export function Home({
         return favReports;
       case "recent":
         return recentReports;
-      case "popular":
-        return popularReports;
       case "managed":
         return reports.filter((r) => r.report_type !== "personal");
       case "personal":
@@ -85,7 +76,7 @@ export function Home({
       default:
         return reports;
     }
-  }, [filter, reports, favReports, recentReports, popularReports]);
+  }, [filter, reports, favReports, recentReports]);
 
   const detail = (selectedId && byId.get(selectedId)) || filtered[0] || null;
 
@@ -183,7 +174,6 @@ export function Home({
         <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>전체</FilterChip>
         <FilterChip active={filter === "fav"} onClick={() => setFilter("fav")}>★ 즐겨찾기</FilterChip>
         <FilterChip active={filter === "recent"} onClick={() => setFilter("recent")}>최근 열람</FilterChip>
-        <FilterChip active={filter === "popular"} onClick={() => setFilter("popular")}>이번 주 인기</FilterChip>
         <FilterChip active={filter === "managed"} onClick={() => setFilter("managed")}>공용</FilterChip>
         <FilterChip active={filter === "personal"} onClick={() => setFilter("personal")}>개인</FilterChip>
       </div>

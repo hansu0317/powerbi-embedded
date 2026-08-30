@@ -1,9 +1,10 @@
 """보고서 열람 라우트: /, /api/bootstrap, /api/embed, 즐겨찾기/최근본, /health, /docs.
 
-업로드·콘텐츠교체·다운로드/내보내기는 각각 routes/report_upload.py,
-report_update.py, report_export.py로 분리돼 있다(2026-08-27, routes/admin.py를
+업로드는 routes/report_upload.py로 분리돼 있다(2026-08-27, routes/admin.py를
 나눌 때와 같은 이유 — 이 파일도 한때 업로드 파이프라인까지 전부 담아 684줄까지
-커졌었다)."""
+커졌었다). 콘텐츠교체(v7)·다운로드/내보내기(v6)·인기보고서·내 활동·관리자 로그
+탭은 학습용 코드 축소 과정에서 전부 제거했다(2026-08-27, git 태그 v2 이전 커밋에
+남아있음)."""
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -19,11 +20,11 @@ import config
 from database import (
     db_get_reports, db_get_all_active_reports, db_can_view_report, db_get_report,
     db_get_user_favorites, db_set_favorite, db_get_user_recents, db_add_recent,
-    db_health_check, db_log_activity, db_get_popular_report_ids, db_get_user_activity_log,
+    db_health_check,
 )
 from deps import (
     current_user, csrf_token, get_client_ip, json_body,
-    require_user, require_user_csrf,
+    require_user_csrf,
 )
 from errors import AppError
 from services.powerbi import get_embed_token
@@ -51,21 +52,11 @@ async def _build_report_context(user: dict) -> dict:
     favorites = await asyncio.to_thread(db_get_user_favorites, user["id"])
     recents   = await asyncio.to_thread(db_get_user_recents, user["id"])
 
-    # 인기 보고서: 전체 순위를 뽑은 뒤 이 사용자가 볼 수 있는 것과 교집합 → 상위 5개.
-    # 권한 없는 보고서가 인기 목록으로 존재를 노출하지 않도록 필터링이 필수다.
-    visible_ids = {r["id"] for r in report_list}
-    ranking = await asyncio.to_thread(db_get_popular_report_ids, 7, 20)
-    popular = [
-        {"report_id": row["report_id"], "views": row["views"]}
-        for row in ranking if row["report_id"] in visible_ids
-    ][:5]
-
     return {
         "user":      user,
         "reports":   report_list,
         "favorites": favorites,
         "recents":   recents,
-        "popular":   popular,
         "marketing_portal_url": config.MARKETING_PORTAL_URL,
         # 프론트(useRecents의 MAX)가 db_get_user_recents와 같은 상한을 쓰도록 값 자체를
         # 내려준다 — 프론트에 따로 하드코딩하면 관리자가 설정을 바꿔도 화면은 예전
@@ -179,11 +170,6 @@ async def api_embed(request: Request, report_id: int):
             "GET_FILTER APPLY | user=%-12s | report_id=%s | %s/%s eq %s",
             user["username"], report_id, get_filter["table"], get_filter["column"], get_filter["value"],
         )
-    # 30분 dedupe: 토큰 자동 재발급·새로고침 탭 복원이 조회수를 부풀리지 않게 한다
-    await asyncio.to_thread(
-        db_log_activity, user["id"], user["username"], "report_view",
-        report_id, result.get("report_name"), ip, 30,
-    )
     return result
 
 
@@ -229,13 +215,3 @@ async def _build_get_filter(user: dict, report_id: int) -> dict | None:
         "column": report_row["filter_column"],
         "value":  user["department"],
     }
-
-
-@router.get("/api/user/activity")
-async def api_user_activity(request: Request):
-    """내 활동 로그 (v6) — 일반 사용자가 본인이 열람·업로드한 이력을 직접 확인.
-
-    관리자 전용이던 활동 로그(v3)와 달리 인증만 요구하고 항상 본인 것만 반환한다."""
-    user = await require_user(request)
-    rows = await asyncio.to_thread(db_get_user_activity_log, user["id"], 200)
-    return {"activity": rows}

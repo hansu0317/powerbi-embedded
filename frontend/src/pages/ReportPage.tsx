@@ -4,7 +4,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   BarChart3,
-  History,
   Home as HomeIcon,
   LayoutDashboard,
   LogOut,
@@ -21,7 +20,6 @@ import { ConfigSection, AdminSyncBell } from "./AdminPage";
 import { Home } from "../components/report/Home";
 import { AllReportsView, MyReportsView } from "../components/report/ReportViews";
 import { UploadView } from "../components/report/UploadView";
-import { MyActivityModal } from "../components/report/modals";
 import { ACTIVE_KEY, OpenTab, TABS_KEY, loadTabs } from "../components/report/tabState";
 
 type View = ReportView;
@@ -55,7 +53,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
   const [browserMode, setBrowserMode] = useState<BrowserMode>(
     () => (sessionStorage.getItem("report-browser-mode") as BrowserMode) || "tree",
   );
-  const [showActivity, setShowActivity] = useState(false);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   // 관리자에게만 필요한 데이터라 is_admin일 때만 부른다 — 일반 사용자는 /api/admin/sync-status가
   // 403이라 어차피 못 쓰는 값을 매번 조회할 이유가 없다(2026-08-12, 알림 벨을 홈/보고서
@@ -219,14 +216,10 @@ export default function ReportPage({ data }: { data: ReportData }) {
                   ↗ 마케팅 포털
                 </a>
               )}
-              <button className="as-ctxbar-pill" onClick={() => setShowActivity(true)}>
-                내 활동
-              </button>
               <span className="as-ctxbar-user">{user.display_name}</span>
             </>
           }
         />
-        {showActivity && <MyActivityModal onClose={() => setShowActivity(false)} />}
         {adminMenuOpen && <div className="ad-settings-overlay" onClick={() => setAdminMenuOpen(false)}>
           <aside className="ad-settings-panel ad-admin-menu-panel" onClick={(event) => event.stopPropagation()}>
             <div className="ad-settings-head"><div><h2>관리자 포털</h2><p>확인할 관리 화면을 선택하세요.</p></div><button onClick={() => setAdminMenuOpen(false)}><X size={18}/></button></div>
@@ -234,7 +227,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
               <AdminMenuLink section="overview" label="현황" icon={<LayoutDashboard size={17}/>}/>
               <AdminMenuLink section="users" label="사용자" icon={<Users size={17}/>}/>
               <AdminMenuLink section="reports" label="보고서" icon={<BarChart3 size={17}/>}/>
-              <AdminMenuLink section="logs" label="로그" icon={<History size={17}/>}/>
             </nav>
           </aside>
         </div>}
@@ -262,7 +254,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
             isAdmin={Boolean(user.is_admin)}
             viewerName={user.display_name}
             recentIds={recents}
-            popular={data.popular || []}
             isFav={isFav}
             onOpen={openReport}
             onSearch={runSearch}
@@ -305,8 +296,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
                   onClose={closeTab}
                   onCloseAll={closeAllTabs}
                   onGoUpload={() => setView("upload")}
-                  csrf={csrf_token}
-                  user={user}
                   browserMode={browserMode}
                   onBrowserMode={changeBrowserMode}
                 />

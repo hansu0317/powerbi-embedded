@@ -10,8 +10,11 @@
     uploads.py   업로드 잡 상태 머신 + Fabric 동기화 보조
     admin.py     관리자 포털 전용 (사용자·보고서 관리, PBI 가져오기, 런타임 설정)
     department_access.py  부서 단위 보고서 접근(1층 열람권한)
-    activity.py  활동 로그 · 감사 로그 · 인기 보고서 집계
-"""
+    folders.py   포털 보고서 폴더 (Fabric 폴더 구조 미러링)
+
+2026-08-27: 활동 로그·감사 로그·인기 보고서 집계(구 activity.py), 보고서 콘텐츠
+업데이트(v7, db_reserve_update)를 학습용 코드 축소 과정에서 제거했다 — 필요해지면
+git 이력(v2 태그 이전)에서 되살릴 것."""
 from database.pool import db_conn, db_health_check
 from database.auth import (
     db_check_and_get_user, db_verify_password, db_record_login,
@@ -24,7 +27,7 @@ from database.reports import (
     db_can_view_report, db_get_report, db_find_report,
 )
 from database.uploads import (
-    db_reserve_update, db_reserve_upload, db_count_other_reports_using_dataset,
+    db_reserve_upload, db_count_other_reports_using_dataset,
     db_fail_stuck_upload_job, db_fail_stale_publishing_jobs, db_get_upload_job,
     db_update_upload_job, db_register_report, db_get_synced_reports,
     db_mark_report_deleted, db_restore_report, db_get_pending_imports,
@@ -41,10 +44,6 @@ from database.admin import (
 from database.department_access import (
     db_get_report_department_access, db_set_report_department_access,
 )
-from database.activity import (
-    db_log_activity, db_get_activity_log, db_get_user_activity_log, db_get_audit_log,
-    db_cleanup_activity_log, db_get_popular_report_ids,
-)
 from database.folders import (
     db_get_report_folders, db_get_writable_folders, db_get_folder,
     db_can_write_folder, db_ensure_folder_path,
@@ -58,7 +57,7 @@ __all__ = [
     "db_get_reports", "db_get_all_active_reports", "db_get_user_favorites", "db_set_favorite",
     "db_get_user_recents", "db_add_recent", "db_get_pbi_report_map", "db_hard_delete_report",
     "db_can_view_report", "db_get_report", "db_find_report",
-    "db_reserve_update", "db_reserve_upload", "db_count_other_reports_using_dataset",
+    "db_reserve_upload", "db_count_other_reports_using_dataset",
     "db_fail_stuck_upload_job", "db_fail_stale_publishing_jobs", "db_get_upload_job",
     "db_update_upload_job", "db_register_report", "db_get_synced_reports",
     "db_mark_report_deleted", "db_restore_report", "db_get_pending_imports",
@@ -70,8 +69,6 @@ __all__ = [
     "db_admin_get_upload_jobs", "db_get_report_access", "db_set_report_access",
     "db_get_app_config", "db_update_app_config",
     "db_get_report_department_access", "db_set_report_department_access",
-    "db_log_activity", "db_get_activity_log", "db_get_user_activity_log", "db_get_audit_log",
-    "db_cleanup_activity_log", "db_get_popular_report_ids",
     "db_get_report_folders", "db_get_writable_folders", "db_get_folder",
     "db_can_write_folder", "db_ensure_folder_path",
 ]

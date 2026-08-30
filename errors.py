@@ -18,11 +18,6 @@ class AppError(Enum):
     FORBIDDEN_ADMIN      = (403, "ADMIN_REQUIRED",        "관리자만 접근할 수 있습니다.")
     FORBIDDEN_REPORT     = (403, "REPORT_FORBIDDEN",      "해당 보고서에 접근 권한이 없습니다.")
     FORBIDDEN_UPLOAD     = (403, "UPLOAD_FORBIDDEN",      "보고서 업로드 권한이 없습니다. 관리자에게 문의하세요.")
-    FORBIDDEN_REPORT_EDIT = (403, "REPORT_EDIT_FORBIDDEN", "이 보고서를 업데이트할 권한이 없습니다 (소유자 또는 관리자만 가능).")
-    UPDATE_NOT_SUPPORTED = (400, "UPDATE_NOT_SUPPORTED",  "대시보드는 콘텐츠 업데이트를 지원하지 않습니다.")
-    UPDATE_FILENAME_MISMATCH = (400, "UPDATE_FILENAME_MISMATCH",
-                                "업데이트는 같은 보고서의 수정본만 받습니다. 파일명이 '{expected}.pbix'와 "
-                                "일치해야 하는데 '{got}'을(를) 올리셨습니다 — 다른 보고서라면 '보고서 등록'을 이용하세요.")
     CSRF_INVALID         = (403, "CSRF_INVALID",          "잘못된 요청입니다. 페이지를 새로고침해 주세요.")
     BODY_INVALID         = (400, "BODY_INVALID",          "요청 본문이 올바른 JSON이 아닙니다.")
 
@@ -33,7 +28,6 @@ class AppError(Enum):
 
     # ── 충돌 ──────────────────────────────────────────────────────────────────
     UPLOAD_IN_PROGRESS   = (409, "UPLOAD_IN_PROGRESS",    "'{name}' 보고서를 이미 처리 중이거나 등록했습니다.")
-    UPLOAD_NAME_CONFLICT = (409, "UPLOAD_NAME_CONFLICT",  "'{name}' 보고서 등록 중 이름 충돌이 발생했습니다. 다른 이름으로 다시 올려주세요.")
     IMPORT_NAME_CONFLICT = (409, "IMPORT_NAME_CONFLICT",  "워크스페이스에 같은 이름의 항목이 있습니다. 기존 항목은 변경하지 않았습니다.")
     USER_ALREADY_EXISTS  = (409, "USER_EXISTS",           "'{username}' 아이디가 이미 존재합니다.")
     EMAIL_ALREADY_EXISTS = (409, "EMAIL_EXISTS",          "'{email}' 이메일이 이미 다른 계정에 등록돼 있습니다.")
@@ -60,11 +54,6 @@ class AppError(Enum):
 
     # ── 사용자 입력 ───────────────────────────────────────────────────────────
     PASSWORD_TOO_SHORT   = (400, "PASSWORD_TOO_SHORT",    "비밀번호는 {min}자 이상이어야 합니다.")
-    CSV_EMPTY            = (400, "CSV_EMPTY",             "CSV 파일이 비어 있습니다.")
-    CSV_HEADER_INVALID   = (400, "CSV_HEADER_INVALID",
-                             "CSV 헤더에 최소 'username,password,display_name' 컬럼이 있어야 합니다.")
-    CSV_TOO_MANY_ROWS    = (400, "CSV_TOO_MANY_ROWS",     "한 번에 최대 {max}행까지 등록할 수 있습니다.")
-    CSV_TOO_LARGE        = (400, "CSV_TOO_LARGE",         "CSV 파일은 {max_mb}MB 이하여야 합니다.")
     CONFIG_VALUE_INVALID = (400, "CONFIG_VALUE_INVALID",  "설정 값은 정수여야 합니다: '{value}'")
     CONFIG_KEY_UNKNOWN   = (400, "CONFIG_KEY_UNKNOWN",    "알 수 없는 설정 키입니다: '{key}'")
     CONFIG_VALUE_OUT_OF_RANGE = (400, "CONFIG_VALUE_OUT_OF_RANGE", "'{key}' 값은 {min}~{max} 범위여야 합니다.")
@@ -73,23 +62,15 @@ class AppError(Enum):
     TOKEN_FAILED         = (500, "TOKEN_FAILED",          "Azure AD 토큰 발급 실패: {detail}")
     EMBED_TOKEN_FAILED   = (502, "EMBED_TOKEN_FAILED",    "임베드 토큰 발급 실패: {detail}")
     REPORT_FETCH_FAILED  = (502, "REPORT_FETCH_FAILED",   "보고서 조회 실패: {detail}")
-    FOLDER_FAILED        = (502, "FOLDER_FAILED",         "사용자 폴더 준비 실패: {detail}")
     IMPORT_UNCONFIRMED   = (502, "IMPORT_UNCONFIRMED",    "Power BI 응답을 확인할 수 없어 재업로드를 차단했습니다. 관리자가 작업 상태를 확인해야 합니다.")
     IMPORT_REQUEST_FAILED= (502, "IMPORT_REQUEST_FAILED", "게시 요청 실패: {detail}")
     IMPORT_POLL_FAILED   = (502, "IMPORT_POLL_FAILED",    "게시 상태 조회 실패: {detail}")
     IMPORT_FAILED        = (502, "IMPORT_FAILED",         "게시 실패: {detail}")
     IMPORT_NO_REPORT     = (502, "IMPORT_NO_REPORT",      "게시는 됐지만 보고서 정보를 받지 못했습니다.")
     IMPORT_TIMEOUT       = (504, "IMPORT_TIMEOUT",        "게시 처리 시간 초과. 잠시 후 워크스페이스를 확인하세요.")
-    PBIX_DOWNLOAD_FAILED = (502, "PBIX_DOWNLOAD_FAILED",  "PBIX 다운로드 실패: {detail}")
-    PPTX_CAPACITY_REQUIRED = (503, "PPTX_CAPACITY_REQUIRED",
-                              "PPTX 내보내기는 전용 용량(Premium/Embedded/Fabric)에서만 지원됩니다. "
-                              "현재 Pro 공유 용량에서는 사용할 수 없습니다.")
-    PPTX_EXPORT_FAILED   = (502, "PPTX_EXPORT_FAILED",    "PPTX 내보내기 실패: {detail}")
-    EXPORT_NOT_FOUND     = (404, "EXPORT_NOT_FOUND",      "내보내기 작업을 찾을 수 없습니다.")
 
     # ── 서버/DB ───────────────────────────────────────────────────────────────
     DB_UNAVAILABLE       = (503, "DB_UNAVAILABLE",        "데이터베이스를 사용할 수 없습니다.")
-    UPLOAD_INTERNAL      = (500, "UPLOAD_INTERNAL",       "업로드 처리 중 오류가 발생했습니다. 서버 로그를 확인하세요.")
     UPLOAD_DB_FAILED     = (500, "UPLOAD_DB_FAILED",
                             "Fabric 게시에는 성공했지만 게이트웨이 DB 등록에 실패했습니다. "
                             "같은 파일을 다시 올리지 말고 관리자에게 로그의 Report ID를 전달해 주세요.")

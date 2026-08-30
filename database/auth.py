@@ -99,8 +99,8 @@ def db_record_login(username: str, ip: str, succeeded: bool):
         conn.commit()
 
 
-def db_cleanup_login_attempts():
-    """30일 초과 로그인 시도 기록을 삭제한다.
+def db_cleanup_login_attempts() -> int:
+    """30일 초과 로그인 시도 기록을 삭제한다. 삭제된 행 수를 반환.
 
     기존에는 db_record_login() 안에서 매 로그인마다 DELETE를 실행했다.
     로그인 응답 경로에서 제거하고 서버 시작 시 + 일 1회 백그라운드에서 실행한다.
@@ -110,7 +110,9 @@ def db_cleanup_login_attempts():
             cur.execute(
                 "DELETE FROM event_log WHERE log_type = 'login' AND created_at < NOW() - INTERVAL '30 days'"
             )
+            deleted = cur.rowcount
         conn.commit()
+    return deleted
 
 
 # ── 사용자 ────────────────────────────────────────────────────────────────────

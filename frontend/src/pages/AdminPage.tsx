@@ -1,11 +1,11 @@
 // 관리자 포털 셸(레일+컨텍스트바+탭 전환) — 각 탭의 실제 내용은
 // components/admin/*.tsx로 분리돼 있다(2026-08-27, 이 파일이 1682줄까지 커져서
-// 나눴다 — 사용자/보고서/설정/로그 탭 + 공용 조각(Field/Modal/AdminSyncBell)).
+// 나눴다 — 사용자/보고서/설정 탭 + 공용 조각(Field/Modal/AdminSyncBell)).
+// 로그 탭은 학습용 코드 축소 과정에서 제거했다(git 이력의 v2 태그에 남아있음).
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
-  History,
   Home as HomeIcon,
   LayoutDashboard,
   Layers,
@@ -35,7 +35,6 @@ import { ReportFoldersSection } from "../components/admin/StructureSections";
 import { AddUserModal, UsersSection } from "../components/admin/UsersSection";
 import { AccessModal, ReportsSection } from "../components/admin/ReportsSection";
 import { ConfigSection } from "../components/admin/ConfigSection";
-import { LogsSection } from "../components/admin/LogsSection";
 import { AdminSyncBell, departmentOptions } from "../components/admin/shared";
 
 // ReportPage.tsx가 관리자 로그인일 때 이 두 조각을 그대로 가져다 쓴다(같은 앱 안에서
@@ -43,7 +42,7 @@ import { AdminSyncBell, departmentOptions } from "../components/admin/shared";
 export { ConfigSection, AdminSyncBell };
 
 type SectionKey =
-  | "overview" | "users" | "folders" | "reports" | "logs";
+  | "overview" | "users" | "folders" | "reports";
 type Toast = { msg: string; tone: "ok" | "err" | "" } | null;
 
 const SECTIONS: {
@@ -55,7 +54,6 @@ const SECTIONS: {
   { key: "users", Icon: UsersIcon, label: "사용자" },
   { key: "folders", Icon: Layers, label: "보고서 폴더" },
   { key: "reports", Icon: BarChart3, label: "보고서" },
-  { key: "logs", Icon: History, label: "로그" },
 ];
 
 export default function AdminPage({ data }: { data: AdminData }) {
@@ -256,7 +254,6 @@ export default function AdminPage({ data }: { data: AdminData }) {
                 onManageAccess={setAccessReport}
               />
             )}
-            {section === "logs" && <LogsSection />}
             {section === "folders" && <ReportFoldersSection csrf={csrf_token} showToast={showToast} />}
           </div>
         </main>
