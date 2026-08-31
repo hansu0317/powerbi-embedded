@@ -6,6 +6,7 @@ import {
   BarChart3,
   Home as HomeIcon,
   LayoutDashboard,
+  Layers,
   LogOut,
   Users,
   X,
@@ -226,6 +227,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
             <nav className="ad-admin-menu-list">
               <AdminMenuLink section="overview" label="현황" icon={<LayoutDashboard size={17}/>}/>
               <AdminMenuLink section="users" label="사용자" icon={<Users size={17}/>}/>
+              <AdminMenuLink section="folders" label="보고서 폴더" icon={<Layers size={17}/>}/>
               <AdminMenuLink section="reports" label="보고서" icon={<BarChart3 size={17}/>}/>
             </nav>
           </aside>
