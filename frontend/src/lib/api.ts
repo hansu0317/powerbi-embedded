@@ -170,31 +170,6 @@ export async function adminImportPbi(csrf: string) {
   return j as { registered: number; skipped: number; deleted: number; total: number };
 }
 
-export interface AppConfigRow {
-  key: string;
-  value: string;
-  description: string | null;
-  updated_at: string | null;
-}
-
-export async function adminGetConfig(): Promise<AppConfigRow[]> {
-  const res = await authFetch("/api/admin/config");
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "설정 조회 실패"));
-  return j.config as AppConfigRow[];
-}
-
-export async function adminSetConfig(key: string, value: string, csrf: string) {
-  const res = await authFetch("/api/admin/config", {
-    method: "POST",
-    headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-    body: JSON.stringify({ key, value }),
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(extractDetail(j, "설정 저장 실패"));
-  return j as { key: string; value: string };
-}
-
 export async function adminFetchReports(): Promise<AdminReport[]> {
   const res = await authFetch("/api/admin/reports");
   const j = await res.json().catch(() => ({}));

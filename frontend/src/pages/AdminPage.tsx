@@ -1,7 +1,8 @@
 // 관리자 포털 셸(레일+컨텍스트바+탭 전환) — 각 탭의 실제 내용은
 // components/admin/*.tsx로 분리돼 있다(2026-08-27, 이 파일이 1682줄까지 커져서
-// 나눴다 — 사용자/보고서/설정 탭 + 공용 조각(Field/Modal/AdminSyncBell)).
-// 로그 탭은 학습용 코드 축소 과정에서 제거했다(git 이력의 v2 태그에 남아있음).
+// 나눴다 — 사용자/보고서 탭 + 공용 조각(Field/Modal/AdminSyncBell)).
+// 로그 탭·설정(런타임 제한값 변경 UI)은 학습용 코드 축소 과정에서 제거했다
+// (git 이력의 v2 태그에 남아있음 — config.py가 지금은 고정값을 씀).
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
@@ -11,7 +12,6 @@ import {
   Layers,
   LogOut,
   RefreshCw,
-  Settings as SettingsIcon,
   Users as UsersIcon,
   X,
 } from "lucide-react";
@@ -34,12 +34,11 @@ import { AdminOverview } from "../components/admin/AdminOverview";
 import { ReportFoldersSection } from "../components/admin/StructureSections";
 import { AddUserModal, UsersSection } from "../components/admin/UsersSection";
 import { AccessModal, ReportsSection } from "../components/admin/ReportsSection";
-import { ConfigSection } from "../components/admin/ConfigSection";
 import { AdminSyncBell, departmentOptions } from "../components/admin/shared";
 
-// ReportPage.tsx가 관리자 로그인일 때 이 두 조각을 그대로 가져다 쓴다(같은 앱 안에서
-// "관리자 포털로 가지 않고도" 동기화 알림/설정을 보여주기 위함) — export 유지.
-export { ConfigSection, AdminSyncBell };
+// ReportPage.tsx가 관리자 로그인일 때 이 조각을 그대로 가져다 쓴다(같은 앱 안에서
+// "관리자 포털로 가지 않고도" 동기화 알림을 보여주기 위함) — export 유지.
+export { AdminSyncBell };
 
 type SectionKey =
   | "overview" | "users" | "folders" | "reports";
@@ -71,9 +70,6 @@ export default function AdminPage({ data }: { data: AdminData }) {
   const [syncDismissed, setSyncDismissed] = useState(false);
   const [importing, setImporting] = useState(false);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(
-    () => new URLSearchParams(window.location.search).get("settings") === "1",
-  );
 
   const showToast = useCallback((msg: string, tone: "ok" | "err" | "" = "") => {
     setToast({ msg, tone });
@@ -153,9 +149,6 @@ export default function AdminPage({ data }: { data: AdminData }) {
             <AdminSyncBell sync={sync} onGoReports={() => setSection("reports")} />
             <button type="button" className="ad-admin-trigger" onClick={() => setAdminMenuOpen(true)}>
               <Layers size={16} /> 관리
-            </button>
-            <button type="button" className="ad-admin-trigger" onClick={() => setSettingsOpen(true)}>
-              <SettingsIcon size={16} /> 설정
             </button>
             <span className="as-ctxbar-user">{user.display_name}</span>
           </>}
@@ -267,13 +260,6 @@ export default function AdminPage({ data }: { data: AdminData }) {
               <span><s.Icon size={17}/><b>{s.label}</b></span><span aria-hidden="true">›</span>
             </button>)}
           </nav>
-        </aside>
-      </div>}
-
-      {settingsOpen && <div className="ad-settings-overlay" onClick={() => setSettingsOpen(false)}>
-        <aside className="ad-settings-panel ad-config-panel" onClick={e => e.stopPropagation()}>
-          <div className="ad-settings-head"><div><h2>설정</h2><p>포털 운영에 필요한 제한값을 변경합니다.</p></div><button onClick={() => setSettingsOpen(false)}><X size={18}/></button></div>
-          <ConfigSection csrf={csrf_token} showToast={showToast}/>
         </aside>
       </div>}
 

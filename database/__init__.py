@@ -8,13 +8,14 @@
     auth.py      로그인 인증 + 세션 사용자 조회
     reports.py   보고서 열람 목록·즐겨찾기·최근본 (+ _CAN_VIEW_REPORT_SQL 단일 소스)
     uploads.py   업로드 잡 상태 머신 + Fabric 동기화 보조
-    admin.py     관리자 포털 전용 (사용자·보고서 관리, PBI 가져오기, 런타임 설정)
+    admin.py     관리자 포털 전용 (사용자·보고서 관리, PBI 가져오기)
     department_access.py  부서 단위 보고서 접근(1층 열람권한)
     folders.py   포털 보고서 폴더 (Fabric 폴더 구조 미러링)
 
 2026-08-27: 활동 로그·감사 로그·인기 보고서 집계(구 activity.py), 보고서 콘텐츠
-업데이트(v7, db_reserve_update)를 학습용 코드 축소 과정에서 제거했다 — 필요해지면
-git 이력(v2 태그 이전)에서 되살릴 것."""
+업데이트(v7, db_reserve_update), 런타임 설정 DB 저장/조회(db_get_app_config/
+db_update_app_config — config.py가 고정값으로 대체)를 학습용 코드 축소 과정에서
+제거했다 — 필요해지면 git 이력(v2 태그 이전)에서 되살릴 것."""
 from database.pool import db_conn, db_health_check
 from database.auth import (
     db_check_and_get_user, db_verify_password, db_record_login,
@@ -39,7 +40,6 @@ from database.admin import (
     db_admin_get_reports, db_import_pbi_item, db_admin_soft_delete_report,
     db_admin_set_report_visibility,
     db_admin_get_upload_jobs, db_get_report_access, db_set_report_access,
-    db_get_app_config, db_update_app_config,
 )
 from database.department_access import (
     db_get_report_department_access, db_set_report_department_access,
@@ -67,7 +67,6 @@ __all__ = [
     "db_admin_get_reports", "db_import_pbi_item", "db_admin_soft_delete_report",
     "db_admin_set_report_visibility",
     "db_admin_get_upload_jobs", "db_get_report_access", "db_set_report_access",
-    "db_get_app_config", "db_update_app_config",
     "db_get_report_department_access", "db_set_report_department_access",
     "db_get_report_folders", "db_get_writable_folders", "db_get_folder",
     "db_can_write_folder", "db_ensure_folder_path",

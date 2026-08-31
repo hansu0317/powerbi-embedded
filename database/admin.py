@@ -375,26 +375,3 @@ def db_set_report_access(report_id: int, user_id: int, can_view: bool, granted_b
             conn.rollback()
             raise AppError.REPORT_NOT_FOUND.http() from exc
         conn.commit()
-
-
-def db_get_app_config() -> list:
-    """app_config 전체 행 (관리자 포털 설정 화면용)."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT key, value, description, updated_at FROM app_config ORDER BY key")
-            return cur.fetchall()
-
-
-def db_update_app_config(key: str, value: str) -> bool:
-    """존재하는 app_config 키의 값을 갱신한다. 없는 키는 거부(False).
-
-    키 생성은 init_schema.py의 APP_CONFIG_DEFAULTS에서만 한다 — 오타 키가 조용히 쌓이는 것을 방지."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE app_config SET value = %s, updated_at = NOW() WHERE key = %s",
-                (value, key),
-            )
-            updated = cur.rowcount > 0
-        conn.commit()
-    return updated

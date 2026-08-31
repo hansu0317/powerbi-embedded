@@ -1,14 +1,9 @@
-"""환경변수 로드 + app_config DB 테이블에서 런타임 설정 읽기."""
-import logging
+"""환경변수 로드 + 런타임 제한값 상수."""
 import os
 
-import psycopg2
-import psycopg2.extras
 from dotenv import load_dotenv
 
 load_dotenv()
-
-logger = logging.getLogger("powerbi-gateway")
 
 # ── Azure AD / Power BI ───────────────────────────────────────────────────────
 TENANT_ID     = os.getenv("TENANT_ID")
@@ -58,52 +53,23 @@ def resolve_workspace_id(workspace_id: str | None) -> str:
     return workspace_id or WORKSPACE_ID
 
 
-# ── app_config 로더 ───────────────────────────────────────────────────────────
-def _load_app_config() -> dict:
-    """DB app_config 테이블에서 런타임 설정을 읽는다."""
-    try:
-        with psycopg2.connect(cursor_factory=psycopg2.extras.RealDictCursor, **DB_CONFIG) as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT key, value FROM app_config")
-                return {row["key"]: row["value"] for row in cur.fetchall()}
-    except Exception as exc:
-        logger.warning("app_config 로드 실패, 기본값 사용: %s", exc)
-        return {}
-
-
-def _int(cfg: dict, key: str, default: int) -> int:
-    try:
-        return int(cfg.get(key, default))
-    except (ValueError, TypeError):
-        return default
-
-
-def reload_app_config():
-    """app_config를 다시 읽어 아래 런타임 상수를 갱신한다.
-
-    서버 기동 시 1회 + 관리자 포털에서 설정을 저장할 때마다 호출된다.
-    소비 측은 반드시 `config.MAX_PBIX_SIZE`처럼 속성으로 읽어야 갱신이 반영된다
-    (`from config import MAX_PBIX_SIZE`는 import 시점 값으로 고정되므로 금지)."""
-    cfg = _load_app_config()
-    g = globals()
-    g["MAX_PBIX_SIZE"]        = _int(cfg, "max_pbix_size_mb",          1024) * 1024 * 1024
-    g["MAX_UPLOADS_PER_DAY"]  = _int(cfg, "max_uploads_per_day",         int(os.getenv("MAX_UPLOADS_PER_DAY",  "10")))
-    g["MAX_PERSONAL_REPORTS"] = _int(cfg, "max_personal_reports",        int(os.getenv("MAX_PERSONAL_REPORTS", "20")))
-    g["REPORT_NAME_MAX_LEN"]  = _int(cfg, "report_name_max_len",         50)
-    g["PASSWORD_MIN_LEN"]     = _int(cfg, "password_min_len",             8)
-    g["PBI_SYNC_INTERVAL"]    = _int(cfg, "pbi_sync_interval",           int(os.getenv("PBI_SYNC_INTERVAL", "600")))
-    g["LOGIN_BLOCK_MAX_FAIL"] = _int(cfg, "login_block_max_fail",         5)
-    g["LOGIN_BLOCK_MINUTES"]  = _int(cfg, "login_block_minutes",         15)
-    g["IMPORT_POLL_MAX"]      = _int(cfg, "import_poll_max",            100)
-    g["IMPORT_POLL_INTERVAL"] = _int(cfg, "import_poll_interval_sec",     3)
-    g["EMBED_TOKEN_LIFETIME"] = _int(cfg, "embed_token_lifetime_min",    60)
-    g["PBI_TOKEN_CACHE_MARGIN_SEC"] = _int(cfg, "pbi_token_cache_margin_sec", 300)
-    g["ACTIVITY_LOG_RETENTION_DAYS"] = _int(cfg, "activity_log_retention_days", 90)
-    g["REFRESH_AUTO_RETRY_MAX"] = _int(cfg, "refresh_auto_retry_max", 2)
-    g["ERROR_LOG_RETENTION_DAYS"] = _int(cfg, "error_log_retention_days", 90)
-    g["RECENTS_LIMIT"]        = _int(cfg, "recents_limit",              10)
-    g["ACTIVITY_LOG_MAX_ROWS"] = _int(cfg, "activity_log_max_rows",   1000)
-    g["ADMIN_UPLOAD_JOBS_LIMIT"] = _int(cfg, "admin_upload_jobs_limit", 30)
-
-
-reload_app_config()
+# ── 런타임 제한값 ─────────────────────────────────────────────────────────────
+# 예전엔 app_config DB 테이블에서 읽어와 관리자 포털 "설정" 화면에서 재시작 없이
+# 바꿀 수 있었다(2026-08-27, 학습용 코드 축소 과정에서 그 UI·API를 제거하며 여기
+# 고정값으로 되돌렸다 — git 이력의 v2 태그에 DB 기반 버전이 남아있어 필요하면
+# 되살릴 수 있다). 값을 바꾸려면 이 파일을 고치고 재배포해야 한다. 일부(*_PER_DAY,
+# *_REPORTS, SYNC_INTERVAL)는 기존처럼 .env로도 덮어쓸 수 있게 남겨뒀다.
+MAX_PBIX_SIZE        = 1024 * 1024 * 1024  # PBI Import API 자체 한도 1GB
+MAX_UPLOADS_PER_DAY  = int(os.getenv("MAX_UPLOADS_PER_DAY", "10"))
+MAX_PERSONAL_REPORTS = int(os.getenv("MAX_PERSONAL_REPORTS", "20"))
+REPORT_NAME_MAX_LEN  = 50
+PASSWORD_MIN_LEN     = 8
+PBI_SYNC_INTERVAL    = int(os.getenv("PBI_SYNC_INTERVAL", "600"))
+LOGIN_BLOCK_MAX_FAIL = 5
+LOGIN_BLOCK_MINUTES  = 15
+IMPORT_POLL_MAX      = 100
+IMPORT_POLL_INTERVAL = 3
+EMBED_TOKEN_LIFETIME = 60   # 분
+PBI_TOKEN_CACHE_MARGIN_SEC = 300
+RECENTS_LIMIT        = 10
+ADMIN_UPLOAD_JOBS_LIMIT = 30

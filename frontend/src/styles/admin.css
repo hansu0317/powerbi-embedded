@@ -50,10 +50,6 @@
 .ad-settings-panel > section { display:block; }
 .ad-settings-panel .ad-section-head { margin-bottom:20px; }
 .ad-settings-panel .ad-section-head h2 { display:none; }
-.ad-settings-panel .cfg-group { margin-bottom:24px; }
-.ad-settings-panel .cfg-grid { display:block; }
-.ad-settings-panel .cfg-card { border:0; border-bottom:1px solid var(--line); border-radius:0; box-shadow:none; padding:14px 0; }
-.ad-settings-panel .cfg-desc { margin:4px 0 10px; }
 .ad-notification-item { display:flex; gap:12px; padding:14px 0 18px; border-bottom:1px solid var(--line); color:var(--ink); }
 .ad-notification-item strong { font-size:.9rem; }
 .ad-notification-item p { margin:6px 0 12px; color:var(--ink-soft); font-size:.8rem; line-height:1.5; }
@@ -61,9 +57,6 @@
 .ad-notifications-empty { min-height:180px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--muted); gap:10px; }
 .ad-notifications-empty p { margin:0; font-size:.85rem; }
 .ad-admin-menu-panel { width:min(380px, 92vw); }
-.ad-config-panel { width:min(520px, 94vw); padding-bottom:0; }
-.ad-config-panel .cfg-page { min-height:calc(100vh - 84px); display:flex; flex-direction:column; }
-.ad-config-panel .cfg-savebar { bottom:0; margin-top:auto; margin-bottom:0; }
 .ad-admin-menu-list { display:flex; flex-direction:column; }
 .ad-admin-menu-list button { display:flex; align-items:center; justify-content:space-between; width:100%; padding:15px 4px; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--ink); font:inherit; cursor:pointer; }
 .ad-admin-menu-list a { display:flex; align-items:center; justify-content:space-between; width:100%; box-sizing:border-box; padding:15px 4px; border-bottom:1px solid var(--line); background:transparent; color:var(--ink); font:inherit; text-decoration:none; }
@@ -145,10 +138,6 @@
    자체의 overflow-x: auto(theme.css)가 실제로 동작하도록 따로 풀어준다. */
 .ad-content > section > .card-table { flex: 1; min-height: 0; overflow: hidden; }
 .ad-content > section > .rp-pager { flex-shrink: 0; margin-top: 12px; }
-.ad-content > .cfg-page { overflow-y:auto; overflow-x:hidden; padding-right:6px; scrollbar-width:thin; scrollbar-color:#c9ced8 transparent; }
-.ad-content > .cfg-page::-webkit-scrollbar { width:7px; }
-.ad-content > .cfg-page::-webkit-scrollbar-thumb { background:#c9ced8; border-radius:8px; }
-.ad-content > .cfg-page .cfg-savebar { bottom:0; margin-bottom:0; }
 .ad-content h2 { font-size: 1.1rem; font-weight: 800; color: var(--ink); margin-bottom: 14px; }
 
 .ad-section-head {
@@ -425,96 +414,6 @@
   gap: 0;
   flex-shrink: 0;
 }
-
-/* ── 런타임 설정 (카드 그리드) ── */
-.cfg-live-badge {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--sage-deep);
-  background: var(--sage-soft);
-  border: 1px solid var(--sage-light);
-  border-radius: 999px;
-  padding: 4px 12px;
-  white-space: nowrap;
-}
-.cfg-group { margin-bottom: 12px; }
-.cfg-group-title {
-  font-size: 0.86rem;
-  font-weight: 700;
-  color: var(--ink);
-  margin: 0 0 6px 2px;
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-.cfg-group-hint { font-size: 0.72rem; font-weight: 400; color: var(--muted); }
-.cfg-advanced-toggle {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--muted);
-  padding: 4px 2px;
-  margin-bottom: 8px;
-}
-.cfg-advanced-toggle:hover { color: var(--sage-deep); }
-.cfg-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 10px;
-}
-.cfg-card {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 9px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.cfg-card:hover { box-shadow: 0 2px 8px rgba(60, 80, 50, 0.06); }
-.cfg-card.dirty { border-color: var(--sage-deep); box-shadow: 0 0 0 2px var(--sage-light); }
-.cfg-key {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  font-size: 0.76rem;
-  font-weight: 600;
-  color: var(--sage-deep);
-}
-.cfg-desc {
-  font-size: 0.76rem;
-  color: var(--muted);
-  line-height: 1.4;
-  min-height: 1.4em;
-}
-.cfg-row { display: flex; gap: 8px; align-items: center; }
-.cfg-row input {
-  flex: 1;
-  min-width: 0;
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 0.86rem;
-  text-align: right;
-}
-.cfg-row input:focus { outline: none; border-color: var(--sage-deep); }
-.cfg-savebar {
-  position: sticky;
-  bottom: -18px;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 18px -20px -18px;
-  padding: 12px 20px;
-  background: rgba(255, 255, 255, 0.97);
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -6px 18px rgba(20, 22, 30, 0.06);
-}
-.cfg-savebar span { color: var(--muted); font-size: .78rem; }
-.cfg-savebar .btn { min-width: 130px; justify-content: center; }
 
 /* ── 권한 매트릭스 ─────────────────────────────────────── */
 .mx-wrap {

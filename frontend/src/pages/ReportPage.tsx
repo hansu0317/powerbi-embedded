@@ -17,7 +17,7 @@ import { useFavorites } from "../hooks/useFavorites";
 import { useRecents } from "../hooks/useRecents";
 import { Rail, ContextBar } from "../components/AppShell";
 import { ReportSidebar, type BrowserMode, type ReportView } from "../components/ReportSidebar";
-import { ConfigSection, AdminSyncBell } from "./AdminPage";
+import { AdminSyncBell } from "./AdminPage";
 import { Home } from "../components/report/Home";
 import { AllReportsView, MyReportsView } from "../components/report/ReportViews";
 import { UploadView } from "../components/report/UploadView";
@@ -62,8 +62,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
   useEffect(() => {
     if (user.is_admin) adminSyncStatus().then(setSync).catch(() => {});
   }, [user.is_admin]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsToast, setSettingsToast] = useState<{ msg: string; tone: "ok" | "err" | "" } | null>(null);
   const [allQuery, setAllQuery] = useState("");
   const [tabs, setTabs] = useState<OpenTab[]>(() => loadTabs());
   const [active, setActive] = useState<number | null>(
@@ -205,7 +203,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
               {user.is_admin && <>
                 <AdminSyncBell sync={sync} onGoReports={() => { window.location.href = "/admin?section=reports"; }} />
                 <button className="as-ctxbar-pill" onClick={() => setAdminMenuOpen(true)}>관리</button>
-                <button className="as-ctxbar-pill" onClick={() => setSettingsOpen(true)}>설정</button>
               </>}
               {data.marketing_portal_url && (
                 <a
@@ -232,16 +229,6 @@ export default function ReportPage({ data }: { data: ReportData }) {
             </nav>
           </aside>
         </div>}
-        {settingsOpen && <div className="ad-settings-overlay" onClick={() => setSettingsOpen(false)}>
-          <aside className="ad-settings-panel ad-config-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="ad-settings-head"><div><h2>설정</h2><p>포털 운영에 필요한 제한값을 변경합니다.</p></div><button onClick={() => setSettingsOpen(false)}><X size={18}/></button></div>
-            <ConfigSection csrf={csrf_token} showToast={(msg, tone = "") => {
-              setSettingsToast({ msg, tone });
-              window.setTimeout(() => setSettingsToast(null), 3000);
-            }}/>
-          </aside>
-        </div>}
-        {settingsToast && <div className={`ad-toast show ${settingsToast.tone}`}>{settingsToast.msg}</div>}
 
         {/* mode/view는 그냥 화면을 숨기고 보여주는 용도일 뿐 — 예전엔 {cond ? A : B}로 안 쓰는
             쪽을 언마운트했는데, 그러면 MyReportsView 안의 ReportPanel(Power BI iframe)도 같이

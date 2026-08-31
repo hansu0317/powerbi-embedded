@@ -1,7 +1,7 @@
 """Power BI 게이트웨이 — 앱 초기화 진입점.
 
 모듈 구조:
-  config.py           환경변수 + app_config DB 로더 + 런타임 상수
+  config.py           환경변수 + 런타임 제한값 상수
   errors.py           AppError enum (중앙 에러 레지스트리)
   database/           커넥션 풀(pool.py) + 도메인별 DB 쿼리 함수(auth/reports/uploads/folders/admin/department_access)
   deps.py             세션 사용자 조회, CSRF 헬퍼, require_admin
@@ -85,7 +85,7 @@ try:
     from services.backup import backup_loop
     from routes import (
         auth, report, report_upload,
-        admin, admin_users, admin_reports, admin_config, folders,
+        admin, admin_users, admin_reports, folders,
     )
 except Exception:
     logger.exception("STARTUP IMPORT FAILURE")
@@ -162,7 +162,6 @@ app.include_router(folders.router)
 app.include_router(admin.router)
 app.include_router(admin_users.router)
 app.include_router(admin_reports.router)
-app.include_router(admin_config.router)
 
 
 @app.exception_handler(HTTPException)

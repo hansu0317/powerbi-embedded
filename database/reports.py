@@ -106,10 +106,7 @@ def db_set_favorite(user_id: int, report_id: int, on: bool) -> None:
 def db_get_user_recents(user_id: int, limit: int | None = None) -> list:
     """사용자의 최근 본 보고서 ID 목록 (active 보고서만, 최신순).
 
-    limit 기본값은 config.RECENTS_LIMIT(app_config 'recents_limit', 관리자 설정에서
-    재시작 없이 변경 가능) — 함수 기본 인자로 `limit: int = config.RECENTS_LIMIT`처럼
-    쓰면 import 시점 값에 고정돼 설정 변경이 반영 안 되므로(config.py의
-    reload_app_config 주석 참고) 반드시 호출 시점에 읽는다."""
+    limit 기본값은 config.RECENTS_LIMIT."""
     if limit is None:
         limit = config.RECENTS_LIMIT
     with db_conn() as conn:
