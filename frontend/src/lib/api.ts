@@ -231,6 +231,8 @@ export interface AccessUser {
   is_admin: boolean;
   direct: boolean | null;    // true=직접 허용, false=명시적 차단, null=개별 설정 없음
   via_department: boolean;   // 소속 부서로 부여된 권한이 있는지
+  via_owner: boolean;
+  via_shared: boolean;
   can_view: boolean;         // 최종 열람 가능 여부 (차단이 부서 권한보다 우선)
 }
 
@@ -240,6 +242,9 @@ export interface UserReportRow {
   category: string | null;
   direct: boolean;          // 직접 부여 여부
   via_department: boolean;  // 소속 부서 경유 부여 여부
+  via_owner: boolean;
+  via_shared: boolean;
+  via_admin: boolean;
 }
 
 export async function adminGetUserReports(userId: number): Promise<UserReportRow[]> {
@@ -346,4 +351,3 @@ export async function adminGetSystemStatus(): Promise<SystemStatus> {
   if (!res.ok) throw new Error(extractDetail(j, "시스템 상태 조회 실패"));
   return j;
 }
-

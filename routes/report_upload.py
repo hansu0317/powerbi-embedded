@@ -34,14 +34,9 @@ async def api_upload(
     folder_id: int | None = Form(None),
     visibility: str = Form("personal"),
 ):
-    """파일 수신 후 즉시 job_id 반환. 실제 PBI 게시는 백그라운드에서 진행.
+    """신규 PBIX 업로드. 검증·예약 후 작업 ID를 반환하고 비공개 보고서로 게시한다.
 
-    보고서 명은 파일명에서 확장자를 뗀 값으로 정하고, 포털 폴더와 공개 범위를
-    별도로 받는다. 소유자는 항상 업로더로 유지되어 폴더 이동과 수정 권한이 분리된다.
-
-    항상 새 보고서만 만든다 — 같은 이름이 이미 있으면 _read_and_validate_pbix가
-    거부한다(REPORT_NAME_TAKEN). 기존 보고서 내용을 바꾸려면 그 보고서의
-    '업데이트' 기능(/api/reports/{id}/update-content)을 써야 한다."""
+    같은 이름은 거부하며 현재 콘텐츠 업데이트 API는 제공하지 않는다."""
     user = await require_user_csrf(request)
     if not user.get("is_admin") and not user.get("can_upload"):
         logger.warning("UPLOAD DENY | user=%-12s | 업로드 권한 없음", user["username"])
@@ -83,11 +78,7 @@ async def api_upload_status(request: Request, job_id: int):
 
 
 async def _validate_pbix_file(file: UploadFile) -> tuple[bytes, int]:
-    """확장자·크기·매직바이트만 검증(이름 중복 체크는 호출자 책임). (pbix_bytes, file_size) 반환.
-
-    신규 업로드(_read_and_validate_pbix)와 v7 콘텐츠 업데이트(routes/report_update.py)가
-    공유하는 순수 파일 검증 — 업데이트는 '이미 존재하는 그 이름'을 업데이트하는 것이라
-    이름 중복 체크를 하면 안 된다."""
+    """확장자·크기·매직바이트 검사 후 파일 내용과 크기를 반환한다."""
     if not file.filename or not file.filename.lower().endswith(".pbix"):
         raise AppError.FILE_WRONG_TYPE.http()
     file.file.seek(0, 2)
@@ -106,21 +97,9 @@ async def _validate_pbix_file(file: UploadFile) -> tuple[bytes, int]:
 async def _read_and_validate_pbix(
     file: UploadFile, user_id: int
 ) -> tuple[str, bytes, int]:
-    """업로드 파일 검증 후 (report_name, pbix_bytes, file_size) 반환.
+    """파일명으로 보고서 이름을 정하고 중복·파일 형식을 검사한다.
 
-    보고서 명은 사용자가 따로 입력하지 않는다 — 파일명에서 확장자만 뗀 값을
-    그대로 쓴다("test0101.pbix" 업로드 → 보고서 명 "test0101"). 폴더 입력도 없다
-    (등록 폼을 최대한 단순하게 유지하려는 결정) — 카테고리는 항상 업로더 username.
-    Fabric/PBI 쪽 실제 게시 이름은 이 값 그대로 f"{username}__{name}"로 나간다
-    (기존과 동일, _run_upload 참고) — 여기서 바뀌는 건 "이 이름을 어디서 받아오냐"뿐이다.
-
-    일반 업로드는 새 보고서만 만든다 — 같은 이름의 내 보고서가 이미 있으면 그걸
-    덮어쓰지 않고 거부한다(REPORT_NAME_TAKEN). 예전엔 '갱신'으로 처리해 Power BI
-    쪽 데이터셋을 통째로 새로 만들었는데(CreateOrOverwrite), 이러면 PBIX에
-    DimPartner/CompanyCode 같은 필터 대상이나 RLS role 요구사항이 새 파일에
-    없어져도 우리 DB는 모른 채로 남아 조용히 깨질 수 있었다. 내용을 바꾸고
-    싶으면 데이터셋을 그대로 유지하는 /api/reports/{id}/update-content(보고서를
-    열어서 '업데이트' 버튼)를 쓰도록 유도한다 — 그 경로는 이런 위험이 없다."""
+    기존 보고서와 같은 이름이면 덮어쓰지 않고 거부한다."""
     if not file.filename or not file.filename.lower().endswith(".pbix"):
         raise AppError.FILE_WRONG_TYPE.http()
     name = file.filename[:-len(".pbix")].strip()

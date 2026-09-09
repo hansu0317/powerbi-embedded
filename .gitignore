@@ -7,13 +7,26 @@
 CLAUDE.md
 .claude/
 
-# 문서 (docs/ 는 내부 참고용, git 제외)
-docs/
+# 검토하여 정리한 공통 문서만 공유. 미검토 내부 자료는 계속 제외.
+docs/*
+!docs/00_학습_로드맵.md
+!docs/01_RLS_적용가이드.md
+!docs/02_백엔드_DB_API_흐름.md
+!docs/04_서버_운영_가이드.md
+!docs/05_라이선스_용량_비용가이드.md
+!docs/06_인프라_현황.md
+!docs/07_일반사용자_보고서열람가이드.md
+!docs/08_프로젝트_점검결과.md
+.audit/
 
 # 발표 자료 / 바이너리
 *.pptx
 *.ppt
 *.pdf
+
+# Codex 발표자료 생성·렌더링 임시 산출물
+.codex-ppt*/
+.codex-finalizer/
 
 # 외부 문서 (경쟁사 매뉴얼 등 — 절대 커밋 금지)
 pdfpptx/

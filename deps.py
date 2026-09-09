@@ -27,7 +27,9 @@ def _verify_tab_token(token: str) -> str | None:
         data = _TAB_TOKEN_SERIALIZER.loads(token, max_age=TAB_TOKEN_MAX_AGE)
     except (BadSignature, SignatureExpired):
         return None
-    return data.get("username")
+    if not isinstance(data, dict) or not isinstance(data.get("username"), str):
+        return None
+    return data["username"]
 
 
 async def current_user(request: Request):
@@ -39,11 +41,15 @@ async def current_user(request: Request):
     request.state.auth_via_token = False
     auth_header = request.headers.get("Authorization", "")
     username = None
-    if auth_header.startswith("Bearer "):
-        username = _verify_tab_token(auth_header[7:])
-        if username:
-            request.state.auth_via_token = True
-    if not username:
+    if auth_header:
+        scheme, _, token = auth_header.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            return None
+        username = _verify_tab_token(token)
+        if not username:
+            return None
+        request.state.auth_via_token = True
+    else:
         username = request.session.get("username")
     if not username:
         return None
@@ -123,8 +129,9 @@ async def json_body(request: Request) -> dict:
 
 
 def get_client_ip(request: Request) -> str:
-    """실제 클라이언트 IP 반환. 리버스 프록시 뒤에서는 X-Forwarded-For 첫 번째 값 사용."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host
+    """Uvicorn이 신뢰하는 프록시에서만 보정한 접속 주소를 사용한다.
+
+    프록시 배포 시 --forwarded-allow-ips에 실제 프록시 IP만 지정한다.
+    요청의 X-Forwarded-For를 직접 신뢰하면 로그인 차단을 우회할 수 있다.
+    """
+    return request.client.host if request.client else "unknown"

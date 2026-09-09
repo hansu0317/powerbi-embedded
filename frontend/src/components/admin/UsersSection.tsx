@@ -370,6 +370,9 @@ function UserReportsModal({
               </div>
               <div>
                 {r.direct && <span className="pill active">직접</span>}
+                {r.via_owner && <span className="pill active">소유자</span>}
+                {r.via_shared && <span className="pill active">포털 공용</span>}
+                {r.via_admin && <span className="pill admin">관리자</span>}
                 {r.via_department && (
                   <span className="pill admin" style={{ marginLeft: 4 }}>
                     부서

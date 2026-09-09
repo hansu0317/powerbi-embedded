@@ -101,7 +101,7 @@ def _parse_token_expiry(expiration_str: str) -> float:
 async def get_embed_token(report_id: int, pbi_username: str) -> dict:
     """Power BI Embed Token 발급. RLS 역할은 config.PBI_RLS_ROLE_NAME 하나를 전 사용자 공용으로 쓴다."""
     report_row = await asyncio.to_thread(db_get_report, report_id)
-    if not report_row or not report_row["pbi_report_id"]:
+    if not report_row or report_row["status"] != "active" or not report_row["pbi_report_id"]:
         raise AppError.REPORT_NOT_FOUND.http()
 
     # 1차 캐시 체크 (락 없이) — 대부분의 요청은 여기서 즉시 반환
@@ -269,14 +269,6 @@ async def pbi_delete_report(workspace_id: str, report_id: str) -> None:
     resp.raise_for_status()
 
 
-async def pbi_delete_dataset(workspace_id: str, dataset_id: str) -> None:
-    """Power BI 워크스페이스에서 데이터셋을 삭제한다(용량 누수 방지). 404는 무시."""
-    resp = await _pbi_request(
-        "DELETE", f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}",
-    )
-    if resp.status_code == 404:
-        return
-    resp.raise_for_status()
 
 
 async def rename_with_retry(

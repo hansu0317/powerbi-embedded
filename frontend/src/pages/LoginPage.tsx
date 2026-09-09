@@ -122,6 +122,7 @@ export default function LoginPage({ data }: { data: LoginData }) {
             </button>
           </form>
         )}
+        <p className="login-sso-desc"><a href="/help">처음 사용하시나요? 보고서 열람 안내</a></p>
       </div>
     </div>
   );

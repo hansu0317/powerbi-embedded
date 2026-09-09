@@ -33,9 +33,8 @@ class AppError(Enum):
     EMAIL_ALREADY_EXISTS = (409, "EMAIL_EXISTS",          "'{email}' 이메일이 이미 다른 계정에 등록돼 있습니다.")
     REPORT_ALREADY_DELETED = (404, "REPORT_ALREADY_DELETED", "보고서가 없거나 이미 삭제됐습니다.")
     REPORT_NAME_TAKEN = (409, "REPORT_NAME_TAKEN",
-                        "이미 '{name}' 이름의 보고서가 있습니다. 새 파일을 반영하려면 "
-                        "그 보고서를 열어서 '업데이트' 기능을 사용하세요 — 일반 업로드는 "
-                        "새 보고서를 만들 때만 씁니다.")
+                        "이미 '{name}' 이름의 보고서가 있습니다. 현재 포털은 신규 업로드만 지원합니다. "
+                        "다른 파일명을 사용하거나 기존 보고서 변경을 관리자에게 요청하세요.")
     OWNER_ACCESS_PROTECTED = (400, "OWNER_ACCESS_PROTECTED",
                               "본인이 업로드한 개인 보고서는 관리자도 소유자 본인의 열람 권한을 "
                               "차단할 수 없습니다. 접근을 막고 싶으면 보고서 자체를 삭제하세요.")
@@ -54,6 +53,7 @@ class AppError(Enum):
 
     # ── 사용자 입력 ───────────────────────────────────────────────────────────
     PASSWORD_TOO_SHORT   = (400, "PASSWORD_TOO_SHORT",    "비밀번호는 {min}자 이상이어야 합니다.")
+    PASSWORD_TOO_LONG    = (400, "PASSWORD_TOO_LONG",     "비밀번호는 UTF-8 기준 72바이트 이하여야 합니다.")
 
     # ── 외부 서비스 오류 ──────────────────────────────────────────────────────
     TOKEN_FAILED         = (500, "TOKEN_FAILED",          "Azure AD 토큰 발급 실패: {detail}")

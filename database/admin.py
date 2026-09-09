@@ -48,7 +48,8 @@ def db_admin_get_users() -> list:
                           u.is_admin, u.is_active, u.can_upload, u.last_login_at, u.created_at,
                           u.department,
                           (SELECT COUNT(*) FROM reports r
-                           WHERE r.status = 'active' AND {_CAN_VIEW_REPORT_SQL}
+                           WHERE r.status = 'active' AND u.is_active
+                             AND (u.is_admin OR {_CAN_VIEW_REPORT_SQL})
                           ) AS report_count
                    FROM users u ORDER BY u.id"""
             )
@@ -62,9 +63,12 @@ def db_get_user_report_list(user_id: int) -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT r.id, r.name, r.category,
+                f"""SELECT r.id, r.name, r.category,
                           (ur.user_id IS NOT NULL) AS direct,
-                          (dra.report_id IS NOT NULL) AS via_department
+                          (dra.report_id IS NOT NULL) AS via_department,
+                          (r.owner_id = u.id) AS via_owner,
+                          (r.visibility = 'shared') AS via_shared,
+                          u.is_admin AS via_admin
                    FROM reports r
                    LEFT JOIN user_reports ur
                           ON ur.report_id = r.id AND ur.user_id = %s AND ur.can_view
@@ -72,8 +76,8 @@ def db_get_user_report_list(user_id: int) -> list:
                    LEFT JOIN department_report_access dra
                           ON dra.report_id = r.id AND dra.can_view
                          AND dra.department = u.department AND u.department IS NOT NULL
-                   WHERE r.status = 'active'
-                     AND (ur.user_id IS NOT NULL OR dra.report_id IS NOT NULL)
+                   WHERE r.status = 'active' AND u.is_active
+                     AND (u.is_admin OR {_CAN_VIEW_REPORT_SQL})
                    ORDER BY r.category NULLS LAST, r.name""",
                 (user_id, user_id),
             )
@@ -321,21 +325,21 @@ def db_get_report_access(report_id: int) -> list:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT u.id, u.username, u.display_name, u.is_admin,
+                f"""SELECT u.id, u.username, u.display_name, u.is_admin,
                           ur.can_view AS direct,
                           COALESCE(dra.report_id IS NOT NULL, FALSE) AS via_department,
-                          CASE
-                              WHEN ur.can_view = FALSE THEN FALSE
-                              ELSE COALESCE(ur.can_view, FALSE) OR COALESCE(dra.report_id IS NOT NULL, FALSE)
-                          END AS can_view
+                          (r.owner_id = u.id) IS TRUE AS via_owner,
+                          (r.visibility = 'shared') AS via_shared,
+                          (r.status = 'active' AND (u.is_admin OR {_CAN_VIEW_REPORT_SQL})) AS can_view
                    FROM users u
+                   JOIN reports r ON r.id = %s
                    LEFT JOIN user_reports ur ON ur.user_id = u.id AND ur.report_id = %s
                    LEFT JOIN department_report_access dra
                           ON dra.report_id = %s AND dra.can_view
                          AND dra.department = u.department AND u.department IS NOT NULL
                    WHERE u.is_active = TRUE
                    ORDER BY u.is_admin DESC, u.username""",
-                (report_id, report_id),
+                (report_id, report_id, report_id),
             )
             return cur.fetchall()
 

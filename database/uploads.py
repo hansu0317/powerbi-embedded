@@ -43,19 +43,6 @@ def db_reserve_upload(user_id: int, report_name: str) -> int:
     return row["id"]
 
 
-def db_count_other_reports_using_dataset(pbi_dataset_id: str, exclude_report_id: int) -> int:
-    """같은 PBI 데이터셋을 쓰는 다른 활성 보고서 수.
-
-    관리자 삭제 시 데이터셋까지 지워도 되는지 판단용 — 0이면 안전하게 삭제 가능."""
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT COUNT(*) AS count
-                   FROM reports
-                   WHERE pbi_dataset_id = %s AND id <> %s AND status <> 'deleted'""",
-                (pbi_dataset_id, exclude_report_id),
-            )
-            return cur.fetchone()["count"]
 
 
 def db_fail_stuck_upload_job(job_id: int) -> bool:

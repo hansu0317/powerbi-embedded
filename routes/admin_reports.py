@@ -11,13 +11,12 @@ from fastapi.requests import Request
 import config
 from database import (
     db_get_report, db_get_report_access, db_set_report_access,
-    db_count_other_reports_using_dataset,
     db_get_report_department_access, db_set_report_department_access,
     db_admin_set_report_visibility, db_admin_get_reports, db_admin_soft_delete_report,
 )
 from deps import require_admin_user, require_admin_csrf, json_body
 from errors import AppError
-from services.powerbi import pbi_delete_report, pbi_delete_dataset, invalidate_embed_cache
+from services.powerbi import pbi_delete_report, invalidate_embed_cache
 
 router = APIRouter()
 logger = logging.getLogger("powerbi-gateway")
@@ -48,20 +47,8 @@ async def api_admin_delete_report(report_id: int, user: dict = Depends(require_a
             pbi_warning = str(exc)
             logger.warning("PBI DELETE WARN | report_id=%s | error=%s", report_id, exc)
 
-        # 보고서만 지우면 데이터셋이 남아 용량이 누수된다.
-        # 단, 같은 데이터셋을 쓰는 다른 활성 보고서가 있으면 절대 지우지 않는다.
-        if pbi_warning is None and report.get("pbi_dataset_id"):
-            shared = await asyncio.to_thread(
-                db_count_other_reports_using_dataset, report["pbi_dataset_id"], report_id,
-            )
-            if shared == 0:
-                try:
-                    await pbi_delete_dataset(ws_id, report["pbi_dataset_id"])
-                except Exception as exc:
-                    pbi_warning = f"보고서는 삭제됐지만 데이터셋 삭제에 실패했습니다: {exc}"
-                    logger.warning("PBI DATASET DELETE WARN | report_id=%s | error=%s", report_id, exc)
-            else:
-                logger.info("PBI DATASET KEEP | report_id=%s | 공유 보고서 %d건", report_id, shared)
+        # 포털에 등록되지 않은 보고서·타일도 이 모델을 참조할 수 있다.
+        # 로컬 DB 참조 수만으로 데이터셋을 자동 삭제하지 않는다.
 
     deleted = await asyncio.to_thread(db_admin_soft_delete_report, report_id, user["id"])
     if not deleted:
@@ -105,7 +92,9 @@ async def api_admin_set_access(
 ):
     """보고서에 대한 특정 사용자의 열람 권한을 설정한다."""
     body = await json_body(request)
-    can_view = bool(body.get("can_view", False))
+    can_view = body.get("can_view")
+    if not isinstance(can_view, bool):
+        raise AppError.BODY_INVALID.http()
     await asyncio.to_thread(db_set_report_access, report_id, user_id, can_view, user["id"])
     if not can_view:
         invalidate_embed_cache(report_id)
@@ -132,7 +121,9 @@ async def api_admin_set_department_access(
     """보고서×부서 열람 권한 부여/해제. body: {department: str, can_view: bool}"""
     body = await json_body(request)
     department = str(body.get("department", "")).strip()
-    can_view = bool(body.get("can_view", False))
+    can_view = body.get("can_view")
+    if not isinstance(can_view, bool):
+        raise AppError.BODY_INVALID.http()
     if not department:
         raise AppError.BODY_INVALID.http()
     try:

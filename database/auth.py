@@ -38,7 +38,7 @@ def db_verify_password(row, password: str):
 
     반환: user dict(성공) / "inactive"(비활성 계정) / None(아이디·비밀번호 불일치)
     """
-    if not row:
+    if not row or len(password.encode("utf-8")) > 72:
         return None
     if not bcrypt.checkpw(password.encode(), row["password"].encode()):
         return None

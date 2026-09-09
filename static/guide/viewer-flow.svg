@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 740" role="img" aria-labelledby="title desc">
+<title id="title">일반 사용자의 Power BI 보고서 열람 흐름</title>
+<desc id="desc">회사 준비, 포털 계정과 권한, 사용자 로그인, 서버의 권한 확인, 보기 전용 임베드 토큰 발급, 브라우저 렌더링 순서. 권한 거부 시 관리자에게 요청. PPU 단독은 운영 요건 미충족이며 화면 필터는 RLS가 아님.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="none" stroke="#547182" stroke-width="1.5"/></marker><style>text{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;fill:#182b3e}.title{font-size:28px;font-weight:700}.head{font-size:20px;font-weight:700}.body{font-size:16px;fill:#526576}.label{font-size:15px;font-weight:700;fill:#176957}.line{fill:none;stroke:#547182;stroke-width:2;marker-end:url(#arrow)}</style></defs>
+<rect width="1080" height="740" fill="#fff"/>
+<text x="40" y="52" class="title">보고서 열람: 회사의 준비부터 내 화면까지</text>
+<text x="40" y="86" class="body">관리자 권한 없이, 허용된 보고서를 본인 포털 계정으로 열람합니다.</text>
+<text x="40" y="132" class="label">관리자가 먼저 준비</text>
+<rect x="40" y="150" width="460" height="118" rx="12" fill="#eaf4f0"/>
+<text x="62" y="185" class="head">1. 운영 기반 + 보고서</text>
+<text x="62" y="215" class="body">지원 유료 용량 · 워크스페이스 · 서비스 주체</text>
+<text x="62" y="244" class="body">게시된 보고서 · 데이터 원본 · 필요한 모델 RLS</text>
+<path d="M502 210H563" class="line"/>
+<rect x="580" y="150" width="460" height="118" rx="12" fill="#eaf4f0"/>
+<text x="602" y="185" class="head">2. 포털 계정 + 열람 권한</text>
+<text x="602" y="215" class="body">활성 일반 계정 · 개인 또는 부서 권한 부여</text>
+<text x="602" y="244" class="body">공용은 활성 직원에게 허용 · 개인 차단 우선</text>
+<path d="M810 270V300H270V326" class="line"/>
+<text x="40" y="320" class="label">사용자와 서버</text>
+<rect x="40" y="342" width="280" height="112" rx="12" fill="#edf2fa"/>
+<text x="60" y="378" class="head">3. 포털 로그인</text>
+<text x="60" y="409" class="body">아이디 / 비밀번호 또는 SSO</text>
+<text x="60" y="438" class="body">보고서 목록에서 선택</text>
+<path d="M322 398H382" class="line"/>
+<rect x="400" y="342" width="280" height="112" rx="12" fill="#edf2fa"/>
+<text x="420" y="378" class="head">4. 서버 권한 확인</text>
+<text x="420" y="409" class="body">활성 계정 · 활성 보고서</text>
+<text x="420" y="438" class="body">이 사용자의 열람 권한</text>
+<path d="M682 398H742" class="line"/>
+<text x="699" y="383" class="label">허용</text>
+<rect x="760" y="342" width="280" height="112" rx="12" fill="#edf2fa"/>
+<text x="780" y="378" class="head">5. 보기 토큰 발급</text>
+<text x="780" y="409" class="body">서버의 서비스 주체가 요청</text>
+<text x="780" y="438" class="body">모델 RLS가 있으면 신원 포함</text>
+<path d="M540 456V521" class="line"/>
+<text x="554" y="493" class="body">거부</text>
+<rect x="400" y="538" width="280" height="82" rx="12" fill="#fff3db"/>
+<text x="420" y="571" class="head">관리자에게 권한 요청</text>
+<text x="420" y="601" class="body">아이디 · 보고서 이름 전달</text>
+<path d="M900 456V521" class="line"/>
+<rect x="760" y="538" width="280" height="82" rx="12" fill="#eaf4f0"/>
+<text x="780" y="571" class="head">6. 내 브라우저에서 열람</text>
+<text x="780" y="601" class="body">Microsoft 서버가 보고서 표시</text>
+<text x="40" y="677" class="body">운영 조건: PPU 계정 하나만으로 충족되지 않습니다. 회사가 지원 유료 용량을 준비해야 합니다.</text>
+<text x="40" y="708" class="body">데이터 보안: 부서 화면 필터는 보안 경계가 아닙니다. 민감 데이터의 행 격리는 Power BI RLS로 검증합니다.</text>
+</svg>

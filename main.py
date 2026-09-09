@@ -210,4 +210,9 @@ async def static_no_cache(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/static/dist/"):
         response.headers["Cache-Control"] = "no-cache"
+    elif not request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
     return response

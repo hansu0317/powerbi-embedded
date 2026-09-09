@@ -335,6 +335,8 @@ export function AccessModal({
                   <span className="ad-access-name">{u.display_name}</span>
                   <span className="ad-access-id">{u.username}</span>
                   {u.is_admin && <span className="pill admin">관리자</span>}
+                  {!u.is_admin && u.via_owner && <span className="pill active">소유자</span>}
+                  {!u.is_admin && u.via_shared && <span className="pill active">포털 공용</span>}
                   {!u.is_admin && u.via_department && (
                     <span
                       className={`pill ${u.direct === false ? "inactive" : "active"}`}
@@ -348,6 +350,8 @@ export function AccessModal({
                   <span className="ad-access-always" title="관리자는 권한과 무관하게 모든 보고서를 봅니다">
                     전체 열람 (권한 불필요)
                   </span>
+                ) : u.via_owner ? (
+                  <span className="ad-access-always">소유자 열람</span>
                 ) : (
                   <button
                     className={`btn btn-sm ${u.can_view ? "btn-danger" : "btn-primary"}`}

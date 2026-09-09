@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>보고서 열람 안내 · BI 포털</title>
+  <link rel="stylesheet" href="/static/help.css">
+</head>
+<body>
+  <header><a href="/login">BI 포털</a><nav><a href="/">보고서로 이동</a><a href="#trouble">문제 해결</a></nav></header>
+  <main>
+    <p class="eyebrow">사용자 가이드</p>
+    <h1>내 계정으로<br>보고서 보기</h1>
+    <p class="lead">관리자 권한은 필요하지 않습니다. 회사가 준비한 포털 계정과 보고서 열람 권한이 있으면 시작할 수 있습니다.</p>
+    <section aria-labelledby="ready">
+      <h2 id="ready">처음 사용하기 전에</h2>
+      <ol class="steps">
+        <li><h3>접속 주소와 계정 받기</h3><p>관리자에게 포털 주소와 로그인 방법을 받으세요. 사내망 전용이면 회사 네트워크나 VPN에 먼저 연결합니다.</p></li>
+        <li><h3>보고서 권한 확인하기</h3><p>관리자가 계정을 활성화하고 필요한 보고서를 개인 또는 부서에 허용해야 합니다. 공용 보고서는 활성 사용자에게 공개됩니다. 개인 차단이 있으면 공용·부서 권한보다 우선합니다.</p></li>
+        <li><h3>로그인하고 보고서 선택하기</h3><p>포털에서 로그인한 뒤 왼쪽 <strong>보고서</strong> 메뉴에서 폴더를 펼치거나 제목으로 검색하세요. 내가 볼 수 있는 보고서만 목록에 나타납니다.</p></li>
+      </ol>
+    </section>
+    <section aria-labelledby="flow"><h2 id="flow">보고서가 열리기까지</h2>
+      <div class="diagram"><img src="/static/guide/viewer-flow.svg" alt="관리자가 운영 용량과 보고서를 준비하고 포털 계정·권한을 설정합니다. 사용자가 로그인하면 서버가 계정 활성 여부와 보고서 권한을 확인합니다. 허용하면 서비스 주체가 보기 전용 임베드 토큰을 발급하고 브라우저에서 보고서가 표시됩니다. 거부하면 관리자에게 권한을 요청합니다."></div>
+    </section>
+    <section><h2>로그인 방법 선택</h2>
+      <div class="columns">
+        <div><h3>아이디 / 비밀번호</h3><p>관리자가 만든 <strong>포털 계정</strong>을 사용합니다. Microsoft 계정이 없어도 이 방식으로 로그인할 수 있습니다.</p></div>
+        <div><h3>Microsoft 계정</h3><p>회사가 SSO를 활성화한 경우에만 표시됩니다. 로그인할 Microsoft 계정이 기존 포털 계정에 연결되어 있어야 합니다. Microsoft 로그인만으로 자동 가입되거나 보고서 권한이 생기지는 않습니다.</p></div>
+      </div>
+    </section>
+    <section><h2>열람과 업로드는 별도 권한입니다</h2>
+      <p>보고서를 보기 위해 업로드 권한이나 Power BI 워크스페이스 멤버 권한을 받을 필요는 없습니다. 새 보고서를 올릴 직원에게만 관리자가 업로드 권한을 부여합니다.</p>
+      <p>App-Owns-Data 운영 용량을 회사가 준비한 경우, 포털에서만 열람하는 직원에게는 개인 Power BI 라이선스가 필요하지 않습니다. 회사의 PPU 계정 하나만으로 이 운영 조건이 충족되는 것은 아닙니다. <a href="https://learn.microsoft.com/en-us/power-bi/guidance/powerbi-implementation-planning-usage-scenario-embed-for-your-customers#licensing" target="_blank" rel="noreferrer">Microsoft 라이선스 조건</a></p>
+    </section>
+    <section id="trouble"><h2>열리지 않을 때 확인할 것</h2>
+      <dl>
+        <dt>로그인할 수 없어요</dt><dd>회사에서 안내한 로그인 방법인지 확인하세요. Microsoft 계정이 연결되지 않았거나 계정이 비활성화됐다면 관리자에게 요청하세요. 비밀번호 오류로 차단되면 15분 뒤 재시도합니다.</dd>
+        <dt>로그인했는데 보고서가 없어요</dt><dd>관리자에게 보고서 이름과 본인 포털 아이디를 전달하세요. 계정 생성과 보고서 권한 부여는 별도 절차입니다. 폴더 이름만으로 열람 권한이 생기지는 않습니다.</dd>
+        <dt>목록에는 있는데 화면이 안 떠요</dt><dd>발생 시각과 보고서 이름, 오류 문구를 전달하세요. 관리자가 Power BI 연결·용량·모델·데이터 원본 상태를 확인해야 합니다. 브라우저에서 Microsoft 보고서 서버 접속이 허용되어야 합니다.</dd>
+        <dt>다른 부서 자료가 보여요</dt><dd>공유하거나 내려받지 말고 관리자에게 보고하세요. 화면의 부서 필터는 데이터 보안 기능이 아닙니다. 데이터 격리가 필요한 보고서는 제작자가 Power BI RLS를 설정하고 확인해야 합니다.</dd>
+        <dt>오래 열어둔 뒤 오류가 났어요</dt><dd>포털에서 보고서를 다시 열어보세요. 로그인 세션이 만료됐으면 다시 로그인하세요.</dd>
+      </dl>
+    </section>
+    <footer>관리자에게 전달할 정보: 포털 아이디 · 보고서 이름 · 발생 시각 · 오류 문구<br>비밀번호나 토큰이 포함된 주소는 전달하지 마세요.</footer>
+  </main>
+</body>
+</html>

@@ -51,9 +51,9 @@ async def auth_callback(request: Request):
     """Microsoft 로그인 완료 후 돌아오는 지점. 이메일로 기존 계정을 찾아 로그인 처리한다
     (관리자가 미리 계정에 이메일을 등록해둔 경우만 — 자동 가입은 하지 않는다).
 
-    성공하면 프론트가 sessionStorage에 저장할 탭 토큰을 쿼리 파라미터로 실어 "/"로
+    성공하면 프론트가 sessionStorage에 저장할 탭 토큰을 URL fragment로 실어 "/"로
     보낸다 — 이건 fetch가 아니라 브라우저 전체 리디렉션이라 응답 바디를 JS가 가로챌
-    수 없다(/login의 fetch 로그인과 다른 점). main.tsx가 이 쿼리 파라미터를 읽어
+    수 없다(/login의 fetch 로그인과 다른 점). main.tsx가 이 fragment를 읽어
     sessionStorage에 옮기고 즉시 주소에서 지운다."""
     ip = get_client_ip(request)
     flow = request.session.pop("sso_flow", None)
@@ -89,7 +89,8 @@ async def auth_callback(request: Request):
     request.session["username"] = row["username"]
     token = issue_tab_token(row["username"])
     logger.info("SSO LOGIN OK | user=%-12s | ip=%s | name=%s", row["username"], ip, display_name)
-    return RedirectResponse("/?" + urlencode({"sso_token": token, "sso_user": row["username"]}))
+    # fragment는 다음 HTTP 요청·접근 로그·Referer에 전송되지 않는다.
+    return RedirectResponse("/#" + urlencode({"sso_token": token, "sso_user": row["username"]}))
 
 
 @router.post("/login")

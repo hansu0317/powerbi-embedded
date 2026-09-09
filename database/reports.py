@@ -19,7 +19,7 @@ _CAN_VIEW_REPORT_SQL = """(
                     NOT EXISTS (SELECT 1 FROM user_reports udeny
                                 WHERE udeny.user_id = u.id AND udeny.report_id = r.id AND NOT udeny.can_view)
                 AND (
-                       r.owner_id = u.id
+                       (r.owner_id = u.id) IS TRUE
                     OR r.visibility = 'shared'
                     OR
                        EXISTS (SELECT 1 FROM user_reports ur
@@ -40,7 +40,7 @@ def db_get_reports(username: str) -> list:
                    FROM reports r
                    LEFT JOIN users owner ON owner.id = r.owner_id
                    JOIN users u ON u.username = %s
-                   WHERE r.status = 'active' AND {_CAN_VIEW_REPORT_SQL}
+                   WHERE r.status = 'active' AND u.is_active AND {_CAN_VIEW_REPORT_SQL}
                    ORDER BY r.category NULLS LAST, r.name""",
                 (username,),
             )
@@ -183,7 +183,7 @@ def db_can_view_report(username: str, report_id: int) -> bool:
             cur.execute(
                 f"""SELECT 1 FROM users u
                    JOIN reports r ON r.id = %s AND r.status = 'active'
-                   WHERE u.username = %s AND {_CAN_VIEW_REPORT_SQL}""",
+                   WHERE u.username = %s AND u.is_active AND {_CAN_VIEW_REPORT_SQL}""",
                 (report_id, username),
             )
             return cur.fetchone() is not None
@@ -195,7 +195,7 @@ def db_get_report(report_id: int):
             cur.execute(
                 """SELECT r.id, r.name, r.report_type, r.owner_id,
                           r.pbi_report_id, r.pbi_dataset_id, r.pbi_workspace_id,
-                          r.tab_type, r.filter_table, r.filter_column
+                          r.tab_type, r.filter_table, r.filter_column, r.status
                    FROM reports r
                    WHERE r.id = %s""",
                 (report_id,),

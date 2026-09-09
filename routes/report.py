@@ -96,8 +96,7 @@ async def _require_viewable_report(user: dict, report_id: int, error: AppError =
     기본(error=REPORT_NOT_FOUND)은 권한 없음과 존재하지 않음을 같은 404로 응답해
     보고서 존재 여부를 노출하지 않는다. api_embed는 403(FORBIDDEN_REPORT)을 넘겨 쓴다.
     관리자는 권한 확인을 건너뛰지만 없는 ID는 FK 위반을 404로 변환해 걸러진다.
-
-    routes/report_export.py의 다운로드/내보내기도 이 함수를 그대로 가져다 쓴다."""
+"""
     if not user.get("is_admin") and not await asyncio.to_thread(
         db_can_view_report, user["username"], report_id
     ):
@@ -147,6 +146,12 @@ async def docs(request: Request):
     if not user["is_admin"]:
         raise AppError.FORBIDDEN_ADMIN.http()
     return templates.TemplateResponse(request, "docs.html", {})
+
+
+@router.get("/help", response_class=HTMLResponse)
+async def viewer_help(request: Request):
+    """계정 준비부터 안내하는 공개 도움말. 사용자·인프라 실데이터는 포함하지 않는다."""
+    return templates.TemplateResponse(request, "help.html", {})
 
 
 @router.get("/api/embed/{report_id}")

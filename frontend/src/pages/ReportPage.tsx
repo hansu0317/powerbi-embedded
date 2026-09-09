@@ -200,6 +200,7 @@ export default function ReportPage({ data }: { data: ReportData }) {
           crumb={crumb}
           right={
             <>
+              <a href="/help" target="_blank" rel="noreferrer" className="as-ctxbar-pill">열람 안내</a>
               {user.is_admin && <>
                 <AdminSyncBell sync={sync} onGoReports={() => { window.location.href = "/admin?section=reports"; }} />
                 <button className="as-ctxbar-pill" onClick={() => setAdminMenuOpen(true)}>관리</button>

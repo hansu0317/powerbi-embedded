@@ -48,7 +48,9 @@ async def api_admin_add_user(
     verify_csrf(request, csrf)
     if len(password) < config.PASSWORD_MIN_LEN:
         raise AppError.PASSWORD_TOO_SHORT.http(min=config.PASSWORD_MIN_LEN)
-    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    if len(password.encode("utf-8")) > 72:
+        raise AppError.PASSWORD_TOO_LONG.http()
+    pw_hash = (await asyncio.to_thread(bcrypt.hashpw, password.encode(), bcrypt.gensalt())).decode()
     email_clean = email.strip() or None
     try:
         new_id = await asyncio.to_thread(
